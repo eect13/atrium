@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Toaster } from "sonner";
 import { SwRegister } from "@/components/sw-register";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 
 function ThemedToaster() {
@@ -20,9 +21,11 @@ export function Providers({ children }: { children: ReactNode }) {
   );
   return (
     <QueryClientProvider client={client}>
-      <SwRegister />
-      {children}
-      <ThemedToaster />
+      <TooltipProvider delayDuration={350}>
+        <SwRegister />
+        {children}
+        <ThemedToaster />
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

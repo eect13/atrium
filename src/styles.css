@@ -14,6 +14,7 @@
   --color-accent-foreground: #f2f2f0;
   --color-ring: #c8ccd4;
   --color-destructive: #c45c4a;
+  --color-destructive-foreground: #f2f2f0;
   --color-ok: #6a9a78;
   --color-paper: #e8e4d4;
   --color-ink: #161513;
@@ -33,6 +34,8 @@
   --shadow-border: 0 0 0 1px rgb(242 242 240 / 0.08);
   --shadow-float: 0 0 0 1px rgb(242 242 240 / 0.1), 0 16px 40px rgb(0 0 0 / 0.45);
   --spacing-dock: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  --aspect-plastic: 1.586;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html {
@@ -53,6 +56,7 @@ html.light {
   --color-accent: #e0dbd0;
   --color-accent-foreground: #161513;
   --color-ring: #3a3a38;
+  --color-destructive-foreground: #faf8f3;
   --color-sidebar: #ece6d8;
   --color-ink: #161513;
   --shadow-border: 0 0 0 1px rgb(22 21 19 / 0.08), 0 1px 2px rgb(22 21 19 / 0.04);
@@ -91,6 +95,50 @@ html.light {
   }
 }
 
+@layer components {
+  .scroll-auto {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .scroll-auto:hover,
+  .scroll-auto:focus-within {
+    scrollbar-color: color-mix(in oklab, var(--color-foreground) 28%, transparent) transparent;
+  }
+  .scroll-auto::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-auto::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-auto::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 99px;
+  }
+  .scroll-auto:hover::-webkit-scrollbar-thumb,
+  .scroll-auto:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--color-foreground) 22%, transparent);
+  }
+  .wallet-face {
+    background: var(--color-card);
+    color: var(--color-card-foreground);
+    box-shadow:
+      var(--shadow-float),
+      inset 0 0 0 1px color-mix(in oklab, var(--color-card-foreground) 12%, transparent);
+  }
+  .wallet-face-mark {
+    pointer-events: none;
+    position: absolute;
+    right: -0.15rem;
+    bottom: -1.5rem;
+    font-family: var(--font-display);
+    font-size: 7.5rem;
+    line-height: 1;
+    opacity: 0.1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -109,4 +157,3 @@ html.light {
   animation-duration: 220ms;
   animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
-

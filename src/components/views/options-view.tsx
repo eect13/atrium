@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
 import { lookupPlace, mapsPin } from "@/lib/weather";
@@ -17,7 +18,7 @@ import { locateMe } from "@/lib/locate";
 
 const OPTIONAL = [
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows." },
-  { id: "finance" as const, label: "Finance watcher", blurb: "Cash, budgets, ledger, market watch." },
+  { id: "finance" as const, label: "Finance watcher", blurb: "Cash books, Quotes board, backup, market watch." },
   { id: "news" as const, label: "News briefing", blurb: "RSS mosaic in the MSN style." },
 ];
 
@@ -93,7 +94,10 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
     }
   }
 
-  const map = mapsPin(profile.lat, profile.lon);
+  const pin = mapsPin(profile.lat, profile.lon);
+  const ns = profile.lat >= 0 ? "N" : "S";
+  const ew = profile.lon >= 0 ? "E" : "W";
+  const coord = `${Math.abs(profile.lat).toFixed(4)}° ${ns}  ${Math.abs(profile.lon).toFixed(4)}° ${ew}`;
 
   return (
     <CardContent className="grid gap-3 sm:grid-cols-2">
@@ -121,56 +125,64 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
           }}
         />
       </div>
-      <div className="space-y-1">
-        <Label htmlFor="opt-lat">Latitude</Label>
-        <Input
-          id="opt-lat"
-          value={lat}
-          onChange={(e) => setLat(e.target.value)}
-          onBlur={(e) => {
-            const n = Number(e.target.value);
-            setProfile({ lat: Number.isFinite(n) ? n : 14.4508 });
-            if (!Number.isFinite(n)) setLat("14.4508");
-          }}
-        />
-      </div>
-      <div className="space-y-1">
-        <Label htmlFor="opt-lon">Longitude</Label>
-        <Input
-          id="opt-lon"
-          value={lon}
-          onChange={(e) => setLon(e.target.value)}
-          onBlur={(e) => {
-            const n = Number(e.target.value);
-            setProfile({ lon: Number.isFinite(n) ? n : 120.9828 });
-            if (!Number.isFinite(n)) setLon("120.9828");
-          }}
-        />
-      </div>
-      <div className="sm:col-span-2">
-        <Button type="button" variant="outline" onClick={() => void useMyLocation()} disabled={locating}>
-          <LocateFixed className="size-4" />
-          {locating ? "Locating…" : "Use my location"}
-        </Button>
-        <p className="mt-2 text-xs text-muted-foreground">
-          City names geocode to a pin. Use my location tries GPS, then the network if the browser blocks it.
-        </p>
-        <div className="relative mt-3 overflow-hidden rounded-md bg-muted">
-          <iframe
-            title={`Map of ${profile.city}`}
-            src={map.src}
-            className="h-44 w-full border-0"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
+      <div className="sm:col-span-2 rounded-xl bg-muted p-5">
+        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Weather pin</p>
+        <p className="mt-1 font-display text-2xl tracking-tight">{profile.city}</p>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{coord}</p>
+          </TooltipTrigger>
+          <TooltipContent>Used for local weather — not shared</TooltipContent>
+        </Tooltip>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="outline" onClick={() => void useMyLocation()} disabled={locating}>
+                <LocateFixed className="size-4" />
+                {locating ? "Locating…" : "Use my location"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>GPS first, then network if the browser blocks it</TooltipContent>
+          </Tooltip>
           <a
-            href={map.href}
+            href={pin.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="absolute bottom-2 left-2 rounded-sm bg-card px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground"
           >
-            Open in Google Maps
+            Open pin in Maps
           </a>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Type a city and press Enter to recast the pin. Lat / lon stay on this device.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label htmlFor="opt-lat">Latitude</Label>
+            <Input
+              id="opt-lat"
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                setProfile({ lat: Number.isFinite(n) ? n : 14.4508 });
+                if (!Number.isFinite(n)) setLat("14.4508");
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="opt-lon">Longitude</Label>
+            <Input
+              id="opt-lon"
+              value={lon}
+              onChange={(e) => setLon(e.target.value)}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                setProfile({ lon: Number.isFinite(n) ? n : 120.9828 });
+                if (!Number.isFinite(n)) setLon("120.9828");
+              }}
+            />
+          </div>
         </div>
       </div>
     </CardContent>
@@ -184,6 +196,7 @@ export function OptionsView() {
     profile,
     setProfile,
     reset,
+    setView,
     windows,
     openWindow,
     closeWindow,
@@ -196,6 +209,7 @@ export function OptionsView() {
       profile: s.profile,
       setProfile: s.setProfile,
       reset: s.reset,
+      setView: s.setView,
       windows: s.windows,
       openWindow: s.openWindow,
       closeWindow: s.closeWindow,
@@ -340,15 +354,24 @@ export function OptionsView() {
             pasting a public iCal URL on the Calendar screen. Google Calendar can also be pulled when this
             app is opened through a connected Grok session.
           </p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              reset();
-              toast("Demo data restored");
-            }}
-          >
-            Reset demo data
-          </Button>
+          <p>
+            Cash books have their own backup: save a JSON file, open it on another device, or restore the
+            last local copy. That lives on the Cash tab under Options — same idea as Finance Manager.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setView("finance")}>
+              Cash books backup
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                reset();
+                toast("Demo data restored");
+              }}
+            >
+              Reset demo data
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

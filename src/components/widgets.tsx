@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AppWindow,
   Cloud,
@@ -11,8 +11,9 @@ import {
   CloudRain,
   CloudSnow,
   CloudSun,
+  Eye,
+  EyeOff,
   LocateFixed,
-  RefreshCw,
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,20 +29,24 @@ import {
   isAllDayEvent,
   manilaAt,
   manilaParts,
-  peso,
+  maskedMoney,
   moneyQuote,
   pct,
   sameDay,
 } from "@/lib/format";
 import { useAfterPaint } from "@/lib/boot";
 import { fetchMarkets, VS_PARAM, type MarketSnapshot } from "@/lib/prices";
+import { rememberTape, sessionSpark, tapeSpark } from "@/lib/sparks";
 import { useAtrium } from "@/lib/store";
 import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fetchWeather, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
+import { fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
+import { tagStory } from "@/lib/headline";
 import { locateMe } from "@/lib/locate";
-import { bustPseCache } from "@/lib/sw-client";
+import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const QUOTES: [string, string][] = [
   ["Attention is the rarest and purest form of generosity.", "Simone Weil"],
@@ -106,10 +111,8 @@ function writeSnap(key: string, value: unknown) {
 
 export function useWeather() {
   const profile = useAtrium((s) => s.profile);
-  const view = useAtrium((s) => s.view);
   const lat = Number(profile.lat);
   const lon = Number(profile.lon);
-  const ready = useAfterPaint(view === "dashboard" ? 40 : 500, view === "dashboard");
   return useQuery({
     queryKey: ["weather", lat, lon],
     queryFn: async () => {
@@ -127,7 +130,7 @@ export function useWeather() {
       if (Math.abs(snap.lat - lat) > 0.05 || Math.abs(snap.lon - lon) > 0.05) return undefined;
       return snap.data;
     },
-    enabled: Number.isFinite(lat) && Number.isFinite(lon) && ready,
+    enabled: Number.isFinite(lat) && Number.isFinite(lon),
   });
 }
 
@@ -135,7 +138,10 @@ export function WeatherBody() {
   const profile = useAtrium((s) => s.profile);
   const setProfile = useAtrium((s) => s.setProfile);
   const [locating, setLocating] = useState(false);
+  const lat = Number(profile.lat);
+  const lon = Number(profile.lon);
   const weather = useWeather();
+  const hasPin = Number.isFinite(lat) && Number.isFinite(lon);
 
   async function useMyLocation() {
     setLocating(true);
@@ -171,11 +177,34 @@ export function WeatherBody() {
     </button>
   );
 
-  if (weather.isPending && !weather.data) {
+  if (!hasPin) {
     return (
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Weather loading…</p>
+        <p className="text-sm text-muted-foreground">Set a city in Options, or pin it here.</p>
         {locateBtn}
+      </div>
+    );
+  }
+
+  if (weather.isPending && !weather.data) {
+    return (
+      <div aria-busy aria-live="polite">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm text-muted-foreground">{profile.city}</p>
+          {locateBtn}
+        </div>
+        <div className="mt-2 flex items-center gap-3">
+          <Skeleton className="size-10 rounded-md" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-9 w-16" />
+            <Skeleton className="mt-2 h-3 w-40" />
+          </div>
+        </div>
+        <div className="mt-4 flex gap-1">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Skeleton key={i} className="h-16 flex-1 rounded-md" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -301,8 +330,8 @@ export function AgendaBody() {
         >
           <span className="mt-1 size-2 shrink-0 rounded-full bg-ring" />
           <span>
-            <span className="block text-sm">{e.title}</span>
-            <span className="text-xs text-muted-foreground tabular-nums">
+            <span className="block text-sm font-medium">{e.title}</span>
+            <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
               {fmtWhen(e)}
               {e.loc ? ` · ${e.loc}` : ""}
             </span>
@@ -530,14 +559,66 @@ export function CalendarPeek({
 }
 
 export function QuoteBody() {
-  const q = todayQuote();
-  if (!q?.[0]) {
-    return <p className="text-sm text-muted-foreground">No quote today.</p>;
+  const queryClient = useQueryClient();
+  const q = useQuery({
+    queryKey: ["quotes", "session"],
+    queryFn: async () => {
+      const hit = readQuoteSession();
+      if (hit) return hit;
+      const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: readQuoteSeed() } });
+      const first = data.quotes[0];
+      if (first) writeQuoteSession(first);
+      return first ?? null;
+    },
+    staleTime: Infinity,
+    gcTime: 6 * 60 * 60_000,
+  });
+  const text = q.data?.text;
+  const author = q.data?.author;
+
+  async function shuffle() {
+    const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: `${Date.now()}` } });
+    const next = data.quotes[0];
+    if (!next) return;
+    writeQuoteSession(next);
+    queryClient.setQueryData(["quotes", "session"], next);
+  }
+
+  if (q.isPending && !text) {
+    return (
+      <div aria-busy>
+        <Skeleton className="h-5 w-full" />
+        <Skeleton className="mt-2 h-5 w-4/5" />
+        <Skeleton className="mt-3 h-3 w-24" />
+      </div>
+    );
+  }
+  if (!text) {
+    return <p className="text-sm text-muted-foreground">No quote this session.</p>;
   }
   return (
     <div>
-      <p className="font-display text-lg leading-snug">{q[0]}</p>
-      <p className="mt-3 text-xs text-muted-foreground">— {q[1]}</p>
+      <p className="font-display text-lg leading-snug">{text}</p>
+      <p className="mt-3 text-xs text-muted-foreground">— {author}</p>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          onClick={() => void shuffle()}
+        >
+          Another
+        </button>
+        {q.data?.href ? (
+          <a
+            href={q.data.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            BrainyQuote
+          </a>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -546,22 +627,21 @@ export function useMarkets() {
   const watch = useAtrium((s) => s.watch);
   const quoteCcy = useAtrium((s) => s.quoteCcy);
   const financeOn = useAtrium((s) => s.modules.finance);
-  const view = useAtrium((s) => s.view);
-  const ready = useAfterPaint(800, view === "finance");
   const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
   return useQuery({
     queryKey: ["markets", ids, quoteCcy],
     queryFn: async () => {
       const data = await fetchMarkets({ data: { ids, vs: VS_PARAM[quoteCcy] } });
       writeSnap(MARKET_SNAP, { ids, quoteCcy, data });
+      if (data.quotes) rememberTape(data.quotes);
       return data;
     },
     staleTime: 30_000,
     gcTime: 10 * 60_000,
-    refetchInterval: ready ? 60_000 : false,
+    refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     retry: 1,
-    enabled: financeOn && ready,
+    enabled: financeOn,
     placeholderData: (prev) => {
       if (prev) return prev;
       const snap = readSnap<{ ids: string[]; quoteCcy: QuoteCcy; data: MarketSnapshot }>(MARKET_SNAP);
@@ -573,10 +653,10 @@ export function useMarkets() {
 }
 
 export function WarmQueries() {
-  const view = useAtrium((s) => s.view);
+  const financeOn = useAtrium((s) => s.modules.finance);
   useWeather();
   useMarkets();
-  const pseReady = useAfterPaint(1400, view === "finance");
+  const pseReady = useAfterPaint(1400, financeOn);
   useEffect(() => {
     if (!pseReady) return;
     void fetch("/api/pse").catch(() => undefined);
@@ -585,12 +665,20 @@ export function WarmQueries() {
 }
 
 export function FinancePeek() {
-  const { txs, accounts, watch } = useAtrium(
-    useShallow((s) => ({ txs: s.txs, accounts: s.accounts, watch: s.watch })),
+  const { txs, accounts, watch, books, setBooks } = useAtrium(
+    useShallow((s) => ({
+      txs: s.txs,
+      accounts: s.accounts,
+      watch: s.watch,
+      books: s.books,
+      setBooks: s.setBooks,
+    })),
   );
   const prefix = isoMonth();
   const spent = txs.filter((t) => t.date.startsWith(prefix) && t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
   const liquid = accounts.reduce((s, a) => s + a.balance, 0);
+  const mask = Boolean(books.mask);
+  const home = books.currency ?? "PHP";
   const markets = useMarkets();
   const quotes = markets.data?.quotes ?? {};
   const quotesPending = markets.isPending && !markets.data;
@@ -600,32 +688,40 @@ export function FinancePeek() {
         <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">On hand</p>
         <button
           type="button"
-          className="inline-flex min-h-8 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => {
-            bustPseCache();
-            void markets.refetch();
-          }}
-          disabled={markets.isFetching && !markets.data}
+          className="inline-flex size-11 items-center justify-center text-muted-foreground hover:text-foreground"
+          aria-label={mask ? "Show balances" : "Hide balances"}
+          aria-pressed={mask}
+          onClick={() => setBooks({ mask: !mask })}
         >
-          <RefreshCw className={cn("size-3", markets.isFetching && "animate-spin")} />
-          {markets.isFetching && !markets.data ? "Updating" : "Live"}
+          {mask ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
       </div>
-      <p className="font-display text-3xl tabular-nums">{peso(liquid)}</p>
-      <p className="mt-1 text-sm text-destructive">Spent this month {peso(spent)}</p>
+      <p className="font-display text-3xl tabular-nums">{maskedMoney(liquid, mask, home)}</p>
+      <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
       <div className="mt-4 space-y-2" aria-busy={quotesPending || undefined}>
         {watch.slice(0, 4).map((w) => {
-          const q = quotes[w.symbol];
+          const q = quotes[w.symbol] ?? quotes[w.id] ?? quotes[w.label];
+          const spark =
+            q?.spark && q.spark.length >= 2
+              ? q.spark
+              : tapeSpark(w.symbol, 90) ??
+                (q && Number.isFinite(q.price) ? sessionSpark(q.price, q.change, w.symbol) : undefined);
           const ch = q?.change;
+          const up = (ch ?? 0) >= 0;
           return (
-            <div key={w.id} className="flex justify-between text-sm">
-              <span className="font-mono text-muted-foreground">{w.label}</span>
+            <div key={w.id} className="flex min-h-11 items-center justify-between gap-2">
+              <span className="font-mono text-sm text-muted-foreground">{w.label}</span>
               {quotesPending && !q ? (
                 <Skeleton className="h-4 w-24" />
               ) : (
-                <span className={`tabular-nums ${ch == null ? "" : ch >= 0 ? "text-ok" : "text-destructive"}`}>
-                  {q ? moneyQuote(q.price, q.ccy) : "—"}
-                  {q && ch != null ? ` ${pct(ch)}` : ""}
+                <span className="flex min-w-0 items-center gap-2">
+                  {spark && spark.length >= 2 ? (
+                    <Spark values={spark} up={up} className="h-6 w-12 sm:h-6 sm:w-12" />
+                  ) : null}
+                  <span className={`tabular-nums text-sm ${ch == null ? "" : up ? "text-ok" : "text-destructive"}`}>
+                    {q ? moneyQuote(q.price, q.ccy) : "—"}
+                    {q && ch != null ? ` ${pct(ch)}` : ""}
+                  </span>
                 </span>
               )}
             </div>
@@ -695,9 +791,22 @@ export function NewsPeek({
   error?: boolean;
 }) {
   if (!headlines.length) {
+    if (loading) {
+      return (
+        <div className="space-y-3" aria-busy>
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i}>
+              <Skeleton className="h-3 w-14" />
+              <Skeleton className="mt-1.5 h-4 w-full" />
+              <Skeleton className="mt-1 h-3 w-20" />
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <p className="text-sm text-muted-foreground">
-        {error ? "Headlines unavailable." : loading ? "Fetching briefing…" : "No headlines yet."}
+        {error ? "Headlines unavailable." : "No headlines yet."}
       </p>
     );
   }
@@ -705,7 +814,8 @@ export function NewsPeek({
     <div className="space-y-3">
       {headlines.slice(0, 5).map((n) => (
         <a key={`${n.src}-${n.link}-${n.title}`} href={n.link} target="_blank" rel="noopener noreferrer" className="block">
-          <span className="block text-sm leading-snug">{n.title}</span>
+          <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tagStory(n)}</span>
+          <span className="mt-0.5 block text-sm leading-snug">{n.title}</span>
           <span className="text-xs text-muted-foreground">{n.src}</span>
         </a>
       ))}
@@ -735,19 +845,24 @@ export function WidgetBody({
 export function FloatBtn({ kind }: { kind: WidgetKind }) {
   const openWindow = useAtrium((s) => s.openWindow);
   const on = useAtrium((s) => s.windows.some((w) => w.kind === kind));
+  const label = on ? "Show floating window" : "Float on desk";
   return (
-    <button
-      type="button"
-      className={cn(
-        "flex size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-        on && "text-foreground",
-      )}
-      aria-label={on ? "Show floating window" : "Float on desk"}
-      title={on ? "Show floating window" : "Float on desk"}
-      onClick={() => openWindow(kind)}
-    >
-      <AppWindow className="size-4" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+            on && "text-foreground",
+          )}
+          aria-label={label}
+          onClick={() => openWindow(kind)}
+        >
+          <AppWindow className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

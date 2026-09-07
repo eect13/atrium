@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { QuoteCcy } from "./types";
+import { BINANCE_PAIRS, DEFAULT_GECKO_IDS } from "./market-board";
+import { sessionSpark } from "./sparks";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
 export type PriceResult = { failed?: boolean; quotes: PriceMap };
@@ -35,6 +37,12 @@ export type MarketQuote = {
   name?: string;
   volume?: number;
   ccy: QuoteCcy;
+  php?: number;
+  usd?: number;
+  spark?: number[];
+  pair?: string;
+  high?: number;
+  low?: number;
 };
 
 export type MarketSnapshot = {
@@ -52,6 +60,8 @@ type GeckoRow = {
   name: string;
   current_price: number;
   price_change_percentage_24h: number | null;
+  total_volume?: number;
+  spark?: number[];
 };
 
 const VS = z.enum(["php", "usd", "eur", "gbp", "jpy"]);
@@ -70,7 +80,7 @@ function asCcy(vs: Vs): QuoteCcy {
 }
 
 function fxQuote(id: string, label: string, price: number): MarketQuote {
-  return { id, label, price, kind: "fx", ccy: "PHP" };
+  return { id, label, price, kind: "fx", ccy: "PHP", php: price, pair: label };
 }
 
 function phpPer(vs: Vs, fx: MarketSnapshot["fx"]) {
@@ -111,12 +121,15 @@ async function loadFx(): Promise<MarketSnapshot["fx"] | null> {
   }
 }
 
-const GECKO_TICKER: Record<string, string> = {
-  bitcoin: "BTC",
-  ethereum: "ETH",
-  solana: "SOL",
-  ripple: "XRP",
-};
+const GECKO_TICKER: Record<string, string> = Object.fromEntries(
+  Object.values(BINANCE_PAIRS).map((p) => [p.gecko, p.ticker]),
+);
+
+function downsampleSpark(values: number[], n = 24) {
+  if (values.length <= n) return values;
+  const step = (values.length - 1) / (n - 1);
+  return Array.from({ length: n }, (_, i) => values[Math.round(i * step)] ?? 0);
+}
 
 async function geckoSimple(ids: string[], vs: Vs): Promise<GeckoRow[]> {
   if (!ids.length) return [];
@@ -146,14 +159,110 @@ async function geckoSimple(ids: string[], vs: Vs): Promise<GeckoRow[]> {
   }
 }
 
+async function geckoMarkets(ids: string[], vs: Vs): Promise<GeckoRow[]> {
+  if (!ids.length) return [];
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=${vs}&ids=${[...new Set(ids)].join(",")}&sparkline=true&price_change_percentage=24h`,
+      { headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_MS) },
+    );
+    if (!res.ok) return [];
+    const rows = (await res.json()) as Array<{
+      id: string;
+      symbol: string;
+      name: string;
+      current_price: number;
+      price_change_percentage_24h: number | null;
+      total_volume?: number;
+      sparkline_in_7d?: { price?: number[] };
+    }>;
+    if (!Array.isArray(rows) || !rows.length) return [];
+    return rows.map((row) => ({
+      id: row.id,
+      symbol: GECKO_TICKER[row.id] ?? row.symbol,
+      name: row.name,
+      current_price: row.current_price,
+      price_change_percentage_24h: row.price_change_percentage_24h,
+      total_volume: row.total_volume,
+      spark: row.sparkline_in_7d?.price?.length ? downsampleSpark(row.sparkline_in_7d.price) : undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 let geckoCache: { key: string; exp: number; rows: GeckoRow[] } | null = null;
+let binanceCache: { exp: number; rows: MarketQuote[] } | null = null;
 
 async function loadGecko(ids: string[], vs: Vs): Promise<GeckoRow[]> {
   const key = `${vs}|${ids.toSorted().join(",")}`;
   if (geckoCache && geckoCache.key === key && geckoCache.exp > Date.now()) return geckoCache.rows;
-  const rows = await geckoSimple(ids, vs);
+  const market = await geckoMarkets(ids, vs);
+  const rows = market.length ? market : await geckoSimple(ids, vs);
   geckoCache = { key, rows, exp: Date.now() + 45_000 };
   return rows;
+}
+
+type BinanceTicker = {
+  symbol: string;
+  lastPrice: string;
+  priceChangePercent: string;
+  quoteVolume: string;
+  highPrice: string;
+  lowPrice: string;
+};
+
+async function loadBinance(): Promise<MarketQuote[]> {
+  if (binanceCache && binanceCache.exp > Date.now()) return binanceCache.rows;
+  const symbols = Object.keys(BINANCE_PAIRS);
+  const qs = `symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
+  const urls = [
+    `https://api.binance.com/api/v3/ticker/24hr?${qs}`,
+    `https://data-api.binance.vision/api/v3/ticker/24hr?${qs}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(FETCH_MS),
+      });
+      if (!res.ok) continue;
+      const rows = (await res.json()) as BinanceTicker[];
+      if (!Array.isArray(rows) || !rows.length) continue;
+      const quotes = rows.flatMap((row) => {
+        const meta = BINANCE_PAIRS[row.symbol];
+        if (!meta) return [];
+        const usd = Number(row.lastPrice);
+        if (!Number.isFinite(usd) || usd <= 0) return [];
+        const change = Number(row.priceChangePercent);
+        const high = Number(row.highPrice);
+        const low = Number(row.lowPrice);
+        const q: MarketQuote = {
+          id: meta.gecko,
+          label: meta.ticker,
+          name: meta.name,
+          price: usd,
+          change: Number.isFinite(change) ? change : undefined,
+          kind: "crypto",
+          ccy: "USD",
+          usd,
+          volume: Number(row.quoteVolume) || 0,
+          high: Number.isFinite(high) ? high : undefined,
+          low: Number.isFinite(low) ? low : undefined,
+          pair: `${meta.ticker}/USDT`,
+          spark: sparkFromChange(usd, Number.isFinite(change) ? change : undefined, meta.gecko),
+        };
+        return [q];
+      });
+      if (quotes.length) {
+        binanceCache = { rows: quotes, exp: Date.now() + 20_000 };
+        return quotes;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return binanceCache?.rows ?? [];
 }
 
 type PseRow = {
@@ -180,6 +289,11 @@ const g = globalThis as typeof globalThis & {
   __atriumMarkets?: { key: string; exp: number; staleExp: number; data: MarketSnapshot };
 };
 
+function sparkFromChange(price: number, change?: number, seed = "tape"): number[] | undefined {
+  const pts = sessionSpark(price, change, seed, 36);
+  return pts.length >= 2 ? pts : undefined;
+}
+
 function parsePse(json: { stocks?: PseRow[]; stock?: PseRow[]; as_of?: string }): {
   rows: MarketQuote[];
   asOf?: string;
@@ -199,6 +313,8 @@ function parsePse(json: { stocks?: PseRow[]; stock?: PseRow[]; as_of?: string })
       volume: Number(row.volume) || 0,
       kind: "stock",
       ccy: "PHP",
+      php: Number(amount),
+      spark: sparkFromChange(Number(amount), change == null ? undefined : Number(change), symbol),
     };
     return [q];
   });
@@ -259,6 +375,7 @@ function assemble(
   fx: MarketSnapshot["fx"] | null,
   gecko: GeckoRow[],
   pse: { rows: MarketQuote[]; asOf?: string },
+  binance: MarketQuote[],
 ): MarketSnapshot {
   const quotes: Record<string, MarketQuote> = {};
   if (fx) {
@@ -268,21 +385,49 @@ function assemble(
     quotes.GBPPHP = fxQuote("GBPPHP", "GBP/PHP", fx.gbpphp);
   }
   const ccy = asCcy(vs);
-  const coins: MarketQuote[] = gecko.map((row) => {
-    const q: MarketQuote = {
+  for (const row of gecko) {
+    const php = vs === "php" || !fx ? row.current_price : row.current_price * phpPer(vs, fx);
+    const usd = fx?.usdphp ? php / fx.usdphp : vs === "usd" ? row.current_price : undefined;
+    quotes[row.id] = {
       id: row.id,
       label: row.symbol.toUpperCase(),
+      name: row.name,
       price: row.current_price,
       change: row.price_change_percentage_24h ?? 0,
       kind: "crypto",
       ccy,
+      php,
+      usd,
+      volume: row.total_volume,
+      spark: row.spark?.length ? row.spark : sparkFromChange(row.current_price, row.price_change_percentage_24h ?? undefined, row.id),
+      pair: `${row.symbol.toUpperCase()}/USDT`,
     };
-    quotes[row.id] = q;
-    return q;
-  });
+  }
+  for (const b of binance) {
+    const prev = quotes[b.id];
+    const usd = b.usd ?? b.price;
+    const php = fx?.usdphp ? usd * fx.usdphp : prev?.php;
+    const converted = php != null ? fromPhp(php, vs, fx) : { price: usd, ccy: "USD" as QuoteCcy };
+    quotes[b.id] = {
+      ...prev,
+      ...b,
+      name: prev?.name ?? b.name,
+      php,
+      usd,
+      price: converted.price,
+      ccy: converted.ccy,
+      spark: prev?.spark && prev.spark.length > 2 ? prev.spark : b.spark,
+    };
+  }
+  const coins = Object.values(quotes).filter((q) => q.kind === "crypto");
   const stocks = pse.rows.map((row) => {
     const converted = fromPhp(row.price, vs, fx);
-    const q: MarketQuote = { ...row, price: converted.price, ccy: converted.ccy };
+    const q: MarketQuote = {
+      ...row,
+      price: converted.price,
+      ccy: converted.ccy,
+      php: row.php ?? row.price,
+    };
     quotes[row.id] = q;
     return q;
   });
@@ -310,18 +455,27 @@ export const fetchMarkets = createServerFn({ method: "POST" })
   .validator(z.object({ ids: z.array(z.string()).optional(), vs: VS.optional() }))
   .handler(async ({ data }): Promise<MarketSnapshot> => {
     const vs = data.vs ?? "php";
-    const geckoIds = (data.ids ?? []).filter((id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z]{1,6}$/.test(id));
+    const geckoIds = [
+      ...new Set([
+        ...DEFAULT_GECKO_IDS,
+        ...(data.ids ?? []).filter((id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z]{1,6}$/.test(id)),
+      ]),
+    ];
     const key = `${vs}|${geckoIds.toSorted().join(",")}`;
     const snap = g.__atriumMarkets;
     if (snap && snap.key === key && snap.exp > Date.now()) return snap.data;
-    const [fx, gecko, pse] = await Promise.all([loadFx(), loadGecko(geckoIds, vs), getPseTape()]);
-    const snapshot = assemble(vs, fx, gecko, pse);
+    const [fx, gecko, pse, binance] = await Promise.all([
+      loadFx(),
+      loadGecko(geckoIds, vs),
+      getPseTape(),
+      loadBinance(),
+    ]);
+    const snapshot = assemble(vs, fx, gecko, pse, binance);
     if (!snapshot.failed) {
-      const hasStocks = Object.values(snapshot.quotes).some((q) => q.kind === "stock");
       g.__atriumMarkets = {
         key,
         data: snapshot,
-        exp: Date.now() + (hasStocks ? 20_000 : 4_000),
+        exp: Date.now() + 20_000,
         staleExp: Date.now() + 10 * 60_000,
       };
       return snapshot;

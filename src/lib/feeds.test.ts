@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanHeadline, keepStory, mixStories } from "./headline.ts";
+import { cleanHeadline, keepStory, mixStories, tagStory } from "./headline.ts";
+import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss } from "./feeds.ts";
 
 test("drops emoji-only X titles", () => {
   assert.equal(keepStory({ title: "🤍🔥 - x.com", src: "X", category: "X" }), false);
@@ -80,5 +81,41 @@ test("mixStories round-robins sources", () => {
     mixed.map((s) => s.title),
     ["x1", "b1", "r1", "x2"],
   );
+});
+
+test("tagStory labels sports business entertainment and PH", () => {
+  assert.equal(tagStory({ title: "Gilas beats Japan in FIBA window", category: "Top" }), "Sports");
+  assert.equal(tagStory({ title: "Netflix film opens to record box office", category: "Top" }), "Entertainment");
+  assert.equal(tagStory({ title: "PSE index climbs as banks post earnings", category: "Top" }), "Markets");
+  assert.equal(tagStory({ title: "Senate hears Malacañang budget", category: "World" }), "Philippines");
+  assert.equal(tagStory({ title: "A quiet diplomatic note", category: "World" }), "World");
+  assert.equal(tagStory({ title: "Chip foundry expands in Taiwan", category: "Tech" }), "Tech");
+  assert.equal(tagStory({ title: "A quiet diplomatic note", category: "Philippines" }), "Philippines");
+});
+
+test("normalizeFeedUrl adds https and rejects junk", () => {
+  assert.equal(normalizeFeedUrl("inquirer.net/feed/"), "https://inquirer.net/feed/");
+  assert.equal(normalizeFeedUrl("https://techcrunch.com/feed/"), "https://techcrunch.com/feed/");
+  assert.equal(normalizeFeedUrl("not a url"), undefined);
+});
+
+test("discoverFeedHref finds alternate RSS", () => {
+  const html = `<html><head><link rel="alternate" type="application/rss+xml" title="News" href="/rss.xml"></head></html>`;
+  assert.equal(discoverFeedHref(html, "https://example.com/"), "https://example.com/rss.xml");
+});
+
+test("candidateFeedUrls expands a bare site name", () => {
+  const urls = candidateFeedUrls("inquirer");
+  assert.ok(urls.some((u) => u.includes("inquirer.com")));
+  assert.ok(urls.some((u) => u.includes("inquirer.net")));
+});
+
+test("parseRss reads channel items", () => {
+  const xml = `<?xml version="1.0"?><rss><channel><title>Desk</title>
+    <item><title>Hello</title><link>https://ex.com/1</link><description>Body</description></item>
+  </channel></rss>`;
+  const items = parseRss(xml);
+  assert.equal(items[0]?.title, "Hello");
+  assert.equal(items[0]?.link, "https://ex.com/1");
 });
 

@@ -1,11 +1,28 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  applyTx,
+  demoBooks,
+  emptyBooks,
+  inferAccountKind,
+  normalizeAccount,
+  normalizeBooks,
+  normalizeBudget,
+  normalizeTx,
+  toBooksFile,
+  writeBooksSnap,
+} from "./books";
+import { fitBox, placeWindow } from "./desk";
+import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, uid } from "./format";
+import { normalizeSort, normalizeTab } from "./market-board";
 import type {
   Account,
+  Books,
   Budget,
   CalendarEvent,
   Feed,
   FloatWin,
+  MarketPrefs,
   ModuleId,
   Profile,
   QuoteCcy,
@@ -15,9 +32,7 @@ import type {
   WatchItem,
   WidgetKind,
 } from "./types";
-import { QUOTE_CCY, WATCH_CATALOG } from "./types";
-import { fitBox, placeWindow } from "./desk";
-import { addDays, fromManila, isoDate, isAllDayEvent, manilaParts, NOTE_COLORS, uid } from "./format";
+import { DEFAULT_MARKET_PREFS, QUOTE_CCY, WATCH_CATALOG } from "./types";
 
 export const DEFAULT_FEEDS: Feed[] = [
   {
@@ -72,8 +87,7 @@ function withDefaultFeeds(feeds: Feed[]) {
 
 function seedEvents(): CalendarEvent[] {
   const { year, month, day } = manilaParts();
-  const at = (d: number, h: number, min = 0) =>
-    fromManila(year, month, d, h, min).toISOString();
+  const at = (d: number, h: number, min = 0) => fromManila(year, month, d, h, min).toISOString();
   return [
     {
       id: uid(),
@@ -134,12 +148,15 @@ type Data = {
   events: CalendarEvent[];
   notes: StickyNote[];
   windows: FloatWin[];
+  books: Books;
   accounts: Account[];
   budgets: Budget[];
   txs: Tx[];
   watch: WatchItem[];
   feeds: Feed[];
   quoteCcy: QuoteCcy;
+  marketPrefs: MarketPrefs;
+  railCollapsed: boolean;
 };
 
 type State = Data & {
@@ -162,15 +179,30 @@ type State = Data & {
   closeAllWindows: () => void;
   raise: (kind: "note" | "win", id: string) => void;
   addTx: (t: Tx) => void;
+  updateTx: (id: string, patch: Partial<Tx>) => void;
   removeTx: (id: string) => void;
   setAccounts: (a: Account[]) => void;
+  addAccount: (a: Account) => void;
+  updateAccount: (id: string, patch: Partial<Account>) => void;
+  removeAccount: (id: string, opts?: { unhook?: boolean }) => void;
+  setBooks: (p: Partial<Books>) => void;
+  replaceBooks: (file: { books: Books; accounts: Account[]; budgets: Budget[]; txs: Tx[] }, opts?: { snapshot?: boolean }) => void;
+  clearBooks: () => void;
+  reloadSampleBooks: () => void;
   addWatch: (item: WatchItem) => void;
   removeWatch: (id: string) => void;
+  toggleWatchStar: (id: string) => void;
+  updateWatch: (id: string, patch: Partial<WatchItem>) => void;
   setQuoteCcy: (ccy: QuoteCcy) => void;
+  setMarketPrefs: (p: Partial<MarketPrefs>) => void;
   toggleFeed: (id: string) => void;
   addFeed: (f: Feed) => void;
+  removeFeed: (id: string) => void;
+  setRailCollapsed: (v: boolean) => void;
   reset: () => void;
 };
+
+const SPARK_RANGE_IDS = ["1d", "1w", "1m", "3m", "6m", "1y"] as const;
 
 function windowSize(kind: WidgetKind) {
   if (kind === "calendar") return { w: 440, h: 540 };
@@ -180,9 +212,12 @@ function windowSize(kind: WidgetKind) {
   return { w: 300, h: 240 };
 }
 
+function snapBooks(slice: Pick<Data, "books" | "accounts" | "budgets" | "txs">) {
+  writeBooksSnap(toBooksFile(slice));
+}
+
 function initial(): Data {
-  const now = new Date();
-  const today = isoDate(now);
+  const demo = demoBooks("Eric");
   return {
     profile: { name: "Eric", city: "Las Piñas", lat: 14.4508, lon: 120.9828 },
     theme: "dark",
@@ -214,42 +249,15 @@ function initial(): Data {
       },
     ],
     windows: [],
-    accounts: [
-      { id: "cash", name: "Cash", balance: 8500 },
-      { id: "bank", name: "BDO checking", balance: 126400 },
-      { id: "gcash", name: "GCash", balance: 4320 },
-    ],
-    budgets: [
-      { id: "food", name: "Food", limit: 15000 },
-      { id: "trans", name: "Transport", limit: 4000 },
-      { id: "bills", name: "Bills", limit: 18000 },
-      { id: "fun", name: "Discretionary", limit: 6000 },
-    ],
-    txs: [
-      { id: uid(), date: today, payee: "Grocery — S&R", amount: -2850, cat: "food", accountId: "cash" },
-      { id: uid(), date: today, payee: "Salary", amount: 72000, cat: "income", accountId: "bank" },
-      {
-        id: uid(),
-        date: isoDate(addDays(now, -1)),
-        payee: "Grab",
-        amount: -248,
-        cat: "trans",
-        accountId: "gcash",
-      },
-      {
-        id: uid(),
-        date: isoDate(addDays(now, -2)),
-        payee: "Meralco",
-        amount: -4200,
-        cat: "bills",
-        accountId: "bank",
-      },
-    ],
-    watch: WATCH_CATALOG.filter((w) =>
-      ["bdo", "sm", "jfc", "btc", "eth", "usdphp"].includes(w.id),
-    ),
+    books: demo.books,
+    accounts: demo.accounts,
+    budgets: demo.budgets,
+    txs: demo.txs,
+    watch: WATCH_CATALOG.filter((w) => ["bdo", "sm", "jfc", "btc", "eth", "usdphp"].includes(w.id)),
     feeds: DEFAULT_FEEDS,
     quoteCcy: "PHP",
+    marketPrefs: { ...DEFAULT_MARKET_PREFS },
+    railCollapsed: false,
   };
 }
 
@@ -257,8 +265,7 @@ function applyTheme(theme: "dark" | "light") {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   const already =
-    root.classList.contains("light") === (theme === "light") &&
-    root.style.colorScheme === theme;
+    root.classList.contains("light") === (theme === "light") && root.style.colorScheme === theme;
   const paint = () => {
     const meta = document.querySelector('meta[name="theme-color"]');
     meta?.setAttribute("content", theme === "light" ? "#f3efe6" : "#0c0c0d");
@@ -273,13 +280,25 @@ function applyTheme(theme: "dark" | "light") {
     paint();
   };
   const reduce =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!reduce && typeof document.startViewTransition === "function") {
     document.startViewTransition(go);
   } else {
     go();
   }
+}
+
+function unhookTx(t: Tx, accountId: string): Tx {
+  const hit = t.accountId === accountId || t.transferToId === accountId;
+  if (!hit) return t;
+  const next: Tx = { ...t };
+  if (t.kind === "transfer" || t.transferToId) {
+    next.kind = "expense";
+    delete next.transferToId;
+    if (next.amount > 0) next.amount = -Math.abs(next.amount);
+  }
+  if (t.accountId === accountId) delete next.accountId;
+  return next;
 }
 
 export const useAtrium = create<State>()(
@@ -319,8 +338,7 @@ export const useAtrium = create<State>()(
         set((s) => ({
           events: s.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
         })),
-      removeEvent: (id) =>
-        set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
+      removeEvent: (id) => set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
       importEvents: (incoming) => {
         let added = 0;
         set((s) => {
@@ -337,16 +355,12 @@ export const useAtrium = create<State>()(
         });
         return added;
       },
-      addNote: (n) =>
-        set((s) => ({
-          notes: [...s.notes, n],
-        })),
+      addNote: (n) => set((s) => ({ notes: [...s.notes, n] })),
       updateNote: (id, patch) =>
         set((s) => ({
           notes: s.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
         })),
-      removeNote: (id) =>
-        set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+      removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
       pinNote: (id) =>
         set((s) => {
           const z = nextZ(s);
@@ -393,8 +407,7 @@ export const useAtrium = create<State>()(
         set((s) => ({
           windows: s.windows.map((w) => (w.id === id ? { ...w, ...patch } : w)),
         })),
-      closeWindow: (id) =>
-        set((s) => ({ windows: s.windows.filter((w) => w.id !== id) })),
+      closeWindow: (id) => set((s) => ({ windows: s.windows.filter((w) => w.id !== id) })),
       closeAllWindows: () => set({ windows: [] }),
       raise: (kind, id) =>
         set((s) => {
@@ -414,43 +427,120 @@ export const useAtrium = create<State>()(
         set((s) => {
           const accountId = t.accountId ?? s.accounts[0]?.id;
           const tx = { ...t, accountId };
-          return {
-            txs: [tx, ...s.txs],
-            accounts: accountId
-              ? s.accounts.map((a) =>
-                  a.id === accountId ? { ...a, balance: a.balance + tx.amount } : a,
-                )
-              : s.accounts,
-          };
+          const accounts = applyTx(s.accounts, tx, 1);
+          const next = { txs: [tx, ...s.txs], accounts };
+          snapBooks({ books: s.books, budgets: s.budgets, ...next });
+          return next;
+        }),
+      updateTx: (id, patch) =>
+        set((s) => {
+          const prev = s.txs.find((x) => x.id === id);
+          if (!prev) return s;
+          const nextTx = { ...prev, ...patch };
+          const accounts = applyTx(applyTx(s.accounts, prev, -1), nextTx, 1);
+          const txs = s.txs.map((x) => (x.id === id ? nextTx : x));
+          snapBooks({ books: s.books, budgets: s.budgets, accounts, txs });
+          return { txs, accounts };
         }),
       removeTx: (id) =>
         set((s) => {
           const t = s.txs.find((x) => x.id === id);
-          return {
-            txs: s.txs.filter((x) => x.id !== id),
-            accounts: t?.accountId
-              ? s.accounts.map((a) =>
-                  a.id === t.accountId ? { ...a, balance: a.balance - t.amount } : a,
-                )
-              : s.accounts,
-          };
+          const txs = s.txs.filter((x) => x.id !== id);
+          const accounts = t ? applyTx(s.accounts, t, -1) : s.accounts;
+          snapBooks({ books: s.books, budgets: s.budgets, accounts, txs });
+          return { txs, accounts };
         }),
-      setAccounts: (accounts) => set({ accounts }),
+      setAccounts: (accounts) =>
+        set((s) => {
+          snapBooks({ books: s.books, accounts, budgets: s.budgets, txs: s.txs });
+          return { accounts };
+        }),
+      addAccount: (a) =>
+        set((s) => {
+          const accounts = [...s.accounts, a];
+          snapBooks({ books: s.books, accounts, budgets: s.budgets, txs: s.txs });
+          return { accounts };
+        }),
+      updateAccount: (id, patch) =>
+        set((s) => {
+          const accounts = s.accounts.map((a) => {
+            if (a.id !== id) return a;
+            return (
+              normalizeAccount({ ...a, ...patch, id }, 0) ?? {
+                ...a,
+                ...patch,
+                id,
+                kind: inferAccountKind({ ...a, ...patch, id }),
+              }
+            );
+          });
+          snapBooks({ books: s.books, accounts, budgets: s.budgets, txs: s.txs });
+          return { accounts };
+        }),
+      removeAccount: (id, opts) =>
+        set((s) => {
+          if (s.accounts.length <= 1) return s;
+          const accounts = s.accounts.filter((a) => a.id !== id);
+          const txs = opts?.unhook ? s.txs.map((t) => unhookTx(t, id)) : s.txs.filter((t) => t.accountId !== id && t.transferToId !== id);
+          snapBooks({ books: s.books, accounts, budgets: s.budgets, txs });
+          return { accounts, txs };
+        }),
+      setBooks: (p) =>
+        set((s) => {
+          const books = { ...s.books, ...p };
+          snapBooks({ books, accounts: s.accounts, budgets: s.budgets, txs: s.txs });
+          return { books };
+        }),
+      replaceBooks: (file, opts) =>
+        set(() => {
+          const next = {
+            books: normalizeBooks(file.books),
+            accounts: file.accounts.map((a, i) => normalizeAccount(a, i)).filter((a): a is Account => Boolean(a)),
+            budgets: file.budgets.map((b, i) => normalizeBudget(b, i)).filter((b): b is Budget => Boolean(b)),
+            txs: file.txs.map((t, i) => normalizeTx(t, i)).filter((t): t is Tx => Boolean(t)),
+          };
+          if (opts?.snapshot !== false) snapBooks(next);
+          return next;
+        }),
+      clearBooks: () =>
+        set((s) => {
+          const next = emptyBooks(s.books.name);
+          snapBooks(next);
+          return next;
+        }),
+      reloadSampleBooks: () =>
+        set((s) => {
+          const next = demoBooks(s.profile.name);
+          snapBooks(next);
+          return next;
+        }),
       addWatch: (item) =>
         set((s) => {
           if (s.watch.some((w) => w.id === item.id || w.symbol === item.symbol)) return s;
           return { watch: [...s.watch, item] };
         }),
-      removeWatch: (id) =>
-        set((s) => ({ watch: s.watch.filter((w) => w.id !== id) })),
+      removeWatch: (id) => set((s) => ({ watch: s.watch.filter((w) => w.id !== id) })),
+      toggleWatchStar: (id) =>
+        set((s) => ({
+          watch: s.watch.map((w) => (w.id === id ? { ...w, starred: !w.starred } : w)),
+        })),
+      updateWatch: (id, patch) =>
+        set((s) => ({
+          watch: s.watch.map((w) => (w.id === id ? { ...w, ...patch } : w)),
+        })),
       setQuoteCcy: (quoteCcy) => set({ quoteCcy }),
+      setMarketPrefs: (p) => set((s) => ({ marketPrefs: { ...s.marketPrefs, ...p } })),
       toggleFeed: (id) =>
         set((s) => ({
-          feeds: s.feeds.map((f) =>
-            f.id === id ? { ...f, enabled: !f.enabled } : f,
-          ),
+          feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
         })),
-      addFeed: (f) => set((s) => ({ feeds: [...s.feeds, f] })),
+      addFeed: (f) =>
+        set((s) => {
+          if (s.feeds.some((x) => x.url === f.url || x.id === f.id)) return s;
+          return { feeds: [...s.feeds, f] };
+        }),
+      removeFeed: (id) => set((s) => ({ feeds: s.feeds.filter((f) => f.id !== id) })),
+      setRailCollapsed: (railCollapsed) => set({ railCollapsed }),
       reset: () => {
         const next = initial();
         applyTheme(next.theme);
@@ -459,7 +549,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 6,
+      version: 15,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -508,6 +598,29 @@ export const useAtrium = create<State>()(
             })),
           };
         }
+        if (version < 14) {
+          const demo = demoBooks(p.profile?.name ?? "Eric");
+          const accounts = (p.accounts ?? demo.accounts)
+            .map((a, i) => normalizeAccount(a, i))
+            .filter((a): a is Account => Boolean(a));
+          const txs = (p.txs ?? demo.txs)
+            .map((t, i) => normalizeTx(t, i))
+            .filter((t): t is Tx => Boolean(t));
+          const budgets = (p.budgets ?? demo.budgets)
+            .map((b, i) => normalizeBudget(b, i))
+            .filter((b): b is Budget => Boolean(b));
+          p = {
+            ...p,
+            books: normalizeBooks(p.books ?? demo.books),
+            accounts: accounts.length ? accounts : demo.accounts,
+            txs,
+            budgets: budgets.length ? budgets : demo.budgets,
+            marketPrefs: {
+              ...DEFAULT_MARKET_PREFS,
+              ...(p.marketPrefs ?? {}),
+            },
+          };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -518,12 +631,15 @@ export const useAtrium = create<State>()(
         events: s.events,
         notes: s.notes,
         windows: s.windows,
+        books: s.books,
         accounts: s.accounts,
         budgets: s.budgets,
         txs: s.txs,
         watch: s.watch,
         feeds: s.feeds,
         quoteCcy: s.quoteCcy,
+        marketPrefs: s.marketPrefs,
+        railCollapsed: s.railCollapsed,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
@@ -536,12 +652,19 @@ export const useAtrium = create<State>()(
                 persistedView === "calendar" ||
                 persistedView === "notes" ||
                 persistedView === "finance" ||
+                persistedView === "quotes" ||
                 persistedView === "news" ||
                 persistedView === "options"
               ? persistedView
               : current.view;
         const rawLat = Number(p.profile?.lat ?? current.profile.lat);
         const rawLon = Number(p.profile?.lon ?? current.profile.lon);
+        const demo = demoBooks(p.profile?.name ?? current.profile.name);
+        const accounts = (p.accounts ?? current.accounts)
+          .map((a, i) => normalizeAccount(a, i))
+          .filter((a): a is Account => Boolean(a));
+        const prefs = p.marketPrefs ?? current.marketPrefs;
+        const sparkRaw = (prefs as { sparkRange?: string } | undefined)?.sparkRange ?? "";
         return {
           ...current,
           ...p,
@@ -563,11 +686,27 @@ export const useAtrium = create<State>()(
             h: n.h ?? 176,
             pinned: n.pinned ?? false,
           })),
+          books: normalizeBooks(p.books ?? current.books ?? demo.books),
+          accounts: accounts.length ? accounts : current.accounts,
+          budgets: p.budgets ?? current.budgets,
+          txs: p.txs ?? current.txs,
           watch: p.watch ?? current.watch,
           feeds: withDefaultFeeds(p.feeds ?? current.feeds),
           quoteCcy: QUOTE_CCY.includes((p.quoteCcy as QuoteCcy) ?? "PHP")
             ? ((p.quoteCcy as QuoteCcy) ?? "PHP")
             : current.quoteCcy,
+          railCollapsed: Boolean(p.railCollapsed ?? current.railCollapsed),
+          marketPrefs: {
+            ...DEFAULT_MARKET_PREFS,
+            ...current.marketPrefs,
+            ...prefs,
+            tab: normalizeTab(prefs?.tab),
+            sort: normalizeSort(prefs?.sort),
+            sortDir: prefs?.sortDir === 1 ? 1 : -1,
+            sparkRange: SPARK_RANGE_IDS.includes(sparkRaw as (typeof SPARK_RANGE_IDS)[number])
+              ? (sparkRaw as MarketPrefs["sparkRange"])
+              : "3m",
+          },
         };
       },
       onRehydrateStorage: () => (state) => {
@@ -578,7 +717,5 @@ export const useAtrium = create<State>()(
 );
 
 function nextZ(s: { notes: StickyNote[]; windows: FloatWin[] }) {
-  return (
-    Math.max(1, ...s.notes.map((n) => n.z), ...s.windows.map((w) => w.z)) + 1
-  );
+  return Math.max(1, ...s.notes.map((n) => n.z), ...s.windows.map((w) => w.z)) + 1;
 }

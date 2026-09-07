@@ -2,6 +2,84 @@ const SOURCE_TAIL = /\s+[-–—|]\s*(?:help\.)?x\.com\s*$/i;
 const PROFILE_ON_X = /\(@[\w.]+\)\s+on X(?:\s+[-–—]\s*x\.com)?\s*$/i;
 const EMOJI_BITS = /\p{Extended_Pictographic}|\p{Emoji_Component}|[\uFE0F\u200D]/gu;
 
+export const NEWS_TAGS = [
+  "Philippines",
+  "World",
+  "Business",
+  "Markets",
+  "Sports",
+  "Entertainment",
+  "Tech",
+  "Science",
+  "Opinion",
+] as const;
+export type NewsTag = (typeof NEWS_TAGS)[number];
+
+const TAG_RULES: { tag: NewsTag; re: RegExp }[] = [
+  {
+    tag: "Sports",
+    re: /\b(nba|pba|uaap|ncaa|ufc|fifa|premier league|la liga|serie a|olympic|olympics|fiba|mpbl|volleyball|tennis|golf|boxing|pacquiao|gilas|azkals|football|soccer|basketball|baseball|mlb|nfl|nhl|f1|formula 1|grand prix|world cup|asian games|sea games|wimbledon)\b/i,
+  },
+  {
+    tag: "Entertainment",
+    re: /\b(hollywood|netflix|k-?pop|concert|box office|oscar|grammy|album|celebrity|actor|actress|movie|film|tv series|billboard|showbiz|met gala|disney|marvel|variety)\b/i,
+  },
+  {
+    tag: "Markets",
+    re: /\b(pse|psEi|stock market|stocks?|equit(?:y|ies)|crypto|bitcoin|forex|bond yield|wall street|nasdaq|dow jones|s&p)\b/i,
+  },
+  {
+    tag: "Business",
+    re: /\b(inflation|gdp|earnings|merger|ipo|banks?|economy|economic|ayala|jollibee|san miguel|revenue|unemployment|tariff|trade war|interest rate|bsp)\b/i,
+  },
+  {
+    tag: "Tech",
+    re: /\b(apple|google|microsoft|openai|chatgpt|semiconductor|iphone|android|spacex|\bai\b|tesla)\b/i,
+  },
+  {
+    tag: "Science",
+    re: /\b(nasa|climate|vaccine|cancer|physics|genome|asteroid|space station|quantum)\b/i,
+  },
+  { tag: "Opinion", re: /\b(opinion|editorial|columnist)\b/i },
+  {
+    tag: "Philippines",
+    re: /\b(philippines|filipino|manila|duterte|marcos|senate|malacañang|comelec|\bncr\b|luzon|visayas|mindanao|quezon city|\bcebu\b|\bdavao\b)\b/i,
+  },
+];
+
+const CAT_TAG: Record<string, NewsTag> = {
+  ph: "Philippines",
+  philippines: "Philippines",
+  top: "World",
+  world: "World",
+  tech: "Tech",
+  sports: "Sports",
+  business: "Business",
+  entertainment: "Entertainment",
+  science: "Science",
+  markets: "Markets",
+  opinion: "Opinion",
+  x: "World",
+};
+
+export function tagStory(s: { title: string; desc?: string; src?: string; category?: string }): NewsTag {
+  const hay = `${s.title} ${s.desc ?? ""}`;
+  for (const rule of TAG_RULES) {
+    if (rule.re.test(hay)) return rule.tag;
+  }
+  const mapped = CAT_TAG[(s.category ?? "").toLowerCase()];
+  if (mapped) return mapped;
+  return "World";
+}
+
+export function newsTagList<T extends { title: string; desc?: string; src?: string; category?: string }>(
+  items: T[],
+): NewsTag[] {
+  const seen = new Set<NewsTag>();
+  for (const it of items) seen.add(tagStory(it));
+  return NEWS_TAGS.filter((t) => seen.has(t));
+}
+
 export function cleanHeadline(title: string) {
   return title.replace(SOURCE_TAIL, "").replace(PROFILE_ON_X, "").replace(/\s+/g, " ").trim();
 }
@@ -53,13 +131,13 @@ export function mixStories<T extends { src?: string; category?: string; date?: s
     let added = false;
     for (const q of queues) {
       const next = q.shift();
-      if (!next) continue;
-      out.push(next);
-      added = true;
-      if (out.length >= limit) break;
+      if (next) {
+        out.push(next);
+        added = true;
+        if (out.length >= limit) break;
+      }
     }
     if (!added) break;
   }
   return out;
 }
-
