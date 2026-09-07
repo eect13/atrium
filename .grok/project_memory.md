@@ -1,1 +1,0 @@
-- Building Atrium personal dashboard at artifacts/atrium — modular local-first command center (calendar ICS, sticky notes, finance watcher, RSS news) [2026-09-06]
