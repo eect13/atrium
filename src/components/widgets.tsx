@@ -608,6 +608,7 @@ export function useMarkets() {
   const marketsOn = useAtrium((s) => s.marketPrefs.showMarkets !== false);
   const tab = useAtrium((s) => s.marketPrefs.tab);
   const screen = useAtrium((s) => s.marketPrefs.screen);
+  const stockTape = useAtrium((s) => s.marketPrefs.stockTape ?? "auto");
   const region = useAtrium((s) => s.profile.region);
   const boardQuery = useAtrium((s) => s.boardQuery);
   const searching = boardQuery.trim().length > 0;
@@ -635,6 +636,7 @@ export function useMarkets() {
   const screener = marketsOn && tab === "screen" ? screen : undefined;
   const yahooRegion = regionOf(region).yahoo;
   const wantPse =
+    stockTape !== "yahoo" &&
     marketsOn &&
     (searching ||
       tab === "all" ||
@@ -653,7 +655,7 @@ export function useMarkets() {
       tab === "all" ||
       watch.some((w) => w.kind === "crypto"));
   return useQuery({
-    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, screener, yahooRegion],
+    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, screener, yahooRegion, stockTape],
     queryFn: async () => {
       const data = await fetchMarkets({
         data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, screener, yahooRegion },
@@ -751,7 +753,7 @@ export function FinancePeek() {
         <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
       </button>
       {marketsOn ? (
-      <div className="mt-4 space-y-2" aria-busy={quotesPending || undefined}>
+      <div className="mt-4 grid grid-cols-[3.25rem_minmax(0,1fr)_max-content] gap-x-3 gap-y-1" aria-busy={quotesPending || undefined}>
         {watch.slice(0, 4).map((w) => {
           const q = quotes[w.symbol] ?? quotes[w.id] ?? quotes[w.label];
           const spark =
@@ -765,7 +767,7 @@ export function FinancePeek() {
             <button
               key={w.id}
               type="button"
-              className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
+              className="col-span-3 grid min-h-11 grid-cols-subgrid items-center text-left"
               onClick={() => {
                 setMarketPrefs({ home: "markets", showMarkets: true });
                 setBoardFocus(w.symbol);
@@ -774,17 +776,21 @@ export function FinancePeek() {
             >
               <span className="font-mono text-sm text-muted-foreground">{w.label}</span>
               {quotesPending && !q ? (
-                <Skeleton className="h-4 w-24" />
+                <Skeleton className="col-span-2 h-4 w-full" />
               ) : (
-                <span className="flex min-w-0 items-center gap-2">
+                <>
                   {spark && spark.length >= 2 ? (
-                    <Spark values={spark} up={up} className="h-8 w-20 sm:h-10 sm:w-24" />
-                  ) : null}
-                  <span className={`tabular-nums text-sm ${ch == null ? "" : up ? "text-ok" : "text-destructive"}`}>
+                    <Spark values={spark} up={up} className="h-8 w-full justify-self-stretch sm:h-9" />
+                  ) : (
+                    <span />
+                  )}
+                  <span
+                    className={`whitespace-nowrap text-right tabular-nums text-sm ${ch == null ? "text-muted-foreground" : up ? "text-ok" : "text-destructive"}`}
+                  >
                     {q ? moneyQuote(q.price, q.ccy) : "—"}
                     {q && ch != null ? ` ${pct(ch)}` : ""}
                   </span>
-                </span>
+                </>
               )}
             </button>
           );

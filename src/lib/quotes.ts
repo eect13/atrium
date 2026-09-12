@@ -228,6 +228,23 @@ const BRAINY_RSS = [
   "https://www.brainyquote.com/link/quotena.rss",
 ];
 
+export const QUOTE_TOPICS = [
+  { id: "all", label: "All" },
+  { id: "life", label: "Life", rss: "https://www.brainyquote.com/link/quoteli.rss", path: "/topics/life-quotes" },
+  { id: "funny", label: "Funny", rss: "https://www.brainyquote.com/link/quotefu.rss", path: "/topics/funny-quotes" },
+  { id: "love", label: "Love", rss: "https://www.brainyquote.com/link/quotelo.rss", path: "/topics/love-quotes" },
+  { id: "wisdom", label: "Wisdom", rss: "https://www.brainyquote.com/link/quotewi.rss", path: "/topics/wisdom-quotes" },
+  { id: "success", label: "Success", rss: "https://www.brainyquote.com/link/quotesu.rss", path: "/topics/success-quotes" },
+  { id: "motivational", label: "Motivational", rss: "https://www.brainyquote.com/link/quotemo.rss", path: "/topics/motivational-quotes" },
+  { id: "nature", label: "Nature", rss: "https://www.brainyquote.com/link/quotena.rss", path: "/topics/nature-quotes" },
+] as const;
+
+export type QuoteTopicId = (typeof QUOTE_TOPICS)[number]["id"];
+
+export function normalizeQuoteTopic(raw?: string): QuoteTopicId {
+  return QUOTE_TOPICS.some((t) => t.id === raw) ? (raw as QuoteTopicId) : "all";
+}
+
 function hash(s: string) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i += 1) {
@@ -296,6 +313,23 @@ async function fromRss(): Promise<DeskQuote[]> {
   return data;
 }
 
+async function fromTopic(id: QuoteTopicId): Promise<DeskQuote[]> {
+  if (id === "all") return fromRss();
+  const spec = QUOTE_TOPICS.find((t) => t.id === id);
+  if (!spec || !("rss" in spec) || !spec.rss) return fromRss();
+  const key = `topic:${id}`;
+  const hit = cache().get(key);
+  if (hit && hit.exp > Date.now()) return hit.data;
+  const xml = await pull(spec.rss);
+  let data = xml ? parseBrainyRss(xml) : [];
+  if (!data.length && spec.path) {
+    const html = await pull(`https://www.brainyquote.com${spec.path}`);
+    data = html ? parseBrainyHtml(html) : [];
+  }
+  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
+  return data;
+}
+
 function unique(list: DeskQuote[]) {
   const seen = new Set<string>();
   return list.filter((q) => {
@@ -324,14 +358,16 @@ export const fetchQuotes = createServerFn({ method: "POST" })
     z.object({
       mode: z.enum(["random", "popular", "author"]),
       author: z.string().trim().max(80).optional(),
+      topic: z.string().trim().max(24).optional(),
       limit: z.number().int().min(1).max(40).optional(),
       seed: z.string().max(40).optional(),
     }),
   )
-  .handler(async ({ data }): Promise<{ quotes: DeskQuote[]; author?: string; from: string }> => {
+  .handler(async ({ data }): Promise<{ quotes: DeskQuote[]; author?: string; from: string; topic?: string }> => {
     const limit = data.limit ?? 12;
     const seed = data.seed ?? `${Date.now()}`;
-    const daily = await fromRss();
+    const topic = normalizeQuoteTopic(data.topic);
+    const daily = topic === "all" ? await fromRss() : await fromTopic(topic);
 
     if (data.mode === "author") {
       const name = (data.author ?? "").trim();
@@ -358,11 +394,11 @@ export const fetchQuotes = createServerFn({ method: "POST" })
     }
 
     if (data.mode === "popular") {
-      const quotes = liveQuotePool(daily, LOCAL_QUOTES).slice(0, limit);
-      return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local" };
+      const quotes = (topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : unique(daily)).slice(0, limit);
+      return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
     }
 
-    const pool = liveQuotePool(daily, LOCAL_QUOTES);
+    const pool = topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : unique(daily);
     const quotes = shuffle(pool, seed).slice(0, limit);
-    return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local" };
+    return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
   });

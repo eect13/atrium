@@ -133,13 +133,50 @@ export function DesktopLayer({
               minW={180}
               minH={120}
               extra={
-                <>
+                <button
+                  type="button"
+                  className="relative z-[4] flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100"
+                  aria-label="Send back to board"
+                  title="Send back to board"
+                  onClick={() => unpinNote(n.id)}
+                >
+                  <PinOff className="size-3.5" />
+                </button>
+              }
+              onMove={(x, y) => updateNote(n.id, { x, y })}
+              onResize={(w, h) => updateNote(n.id, { w, h })}
+              onRaise={() => raise("note", n.id)}
+              onClose={() => unpinNote(n.id)}
+            >
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="relative min-h-0 flex-1">
+                  <NoteInk
+                    strokes={n.ink ?? []}
+                    color={ink}
+                    active={drawing}
+                    onChange={(inkStrokes) => updateNote(n.id, { ink: inkStrokes })}
+                  />
+                  <textarea
+                    className={cn(
+                      "relative z-[1] h-full w-full resize-none bg-transparent text-sm leading-snug text-ink outline-none",
+                      drawing && "pointer-events-none",
+                    )}
+                    value={n.text}
+                    placeholder="Write…"
+                    onChange={(e) => updateNote(n.id, { text: e.target.value })}
+                  />
+                </div>
+                <div
+                  className="relative z-[1] flex items-center gap-0.5 pt-1"
+                  style={{ color: ink, opacity: 0.8 }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
                   <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
                   <button
                     type="button"
                     className={cn(
-                      "flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100",
-                      drawing && "bg-black/10 opacity-100",
+                      "flex size-9 items-center justify-center rounded-sm hover:bg-black/10",
+                      drawing && "bg-black/10",
                     )}
                     aria-label={drawing ? "Stop drawing" : "Draw"}
                     aria-pressed={drawing}
@@ -151,7 +188,7 @@ export function DesktopLayer({
                   {(n.ink?.length ?? 0) > 0 ? (
                     <button
                       type="button"
-                      className="flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100"
+                      className="flex size-9 items-center justify-center rounded-sm hover:bg-black/10"
                       aria-label="Clear drawing"
                       title="Clear drawing"
                       onClick={() => updateNote(n.id, { ink: [] })}
@@ -159,38 +196,7 @@ export function DesktopLayer({
                       <Eraser className="size-3.5" />
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100"
-                    aria-label="Send back to board"
-                    title="Send back to board"
-                    onClick={() => unpinNote(n.id)}
-                  >
-                    <PinOff className="size-3.5" />
-                  </button>
-                </>
-              }
-              onMove={(x, y) => updateNote(n.id, { x, y })}
-              onResize={(w, h) => updateNote(n.id, { w, h })}
-              onRaise={() => raise("note", n.id)}
-              onClose={() => unpinNote(n.id)}
-            >
-              <div className="relative h-full min-h-0">
-                <NoteInk
-                  strokes={n.ink ?? []}
-                  color={ink}
-                  active={drawing}
-                  onChange={(inkStrokes) => updateNote(n.id, { ink: inkStrokes })}
-                />
-                <textarea
-                  className={cn(
-                    "relative z-[1] h-full w-full resize-none bg-transparent text-sm leading-snug text-ink outline-none",
-                    drawing && "pointer-events-none",
-                  )}
-                  value={n.text}
-                  placeholder="Write…"
-                  onChange={(e) => updateNote(n.id, { text: e.target.value })}
-                />
+                </div>
               </div>
             </FloatWindow>
           </div>

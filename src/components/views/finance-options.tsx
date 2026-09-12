@@ -25,6 +25,7 @@ import {
 import { deskZone, isoDate } from "@/lib/format";
 import { PRIMARY_TABS } from "@/lib/market-board";
 import { useAtrium } from "@/lib/store";
+import { STOCK_TAPE_OFF, STOCK_TAPES } from "@/lib/types";
 import { Chip } from "./finance-chip";
 
 function stampLabel(iso: string) {
@@ -353,9 +354,26 @@ export function FinanceOptions() {
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Watcher layout. USDT last shows coins in dollars with PHP on the line below. Spark range is 1D–1Y — coins
-            from Binance, FX from Frankfurter, PSE from this desk's tape, global names and commodities from Yahoo
-            (delayed).
+            from Binance, FX from Frankfurter, PSE from this desk's tape unless you pick Yahoo-only.
           </p>
+          <div>
+            <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Stock tape</p>
+            <div className="flex flex-wrap gap-2">
+              {STOCK_TAPES.map((t) => (
+                <Chip
+                  key={t.id}
+                  active={(marketPrefs.stockTape ?? "auto") === t.id}
+                  onClick={() => setMarketPrefs({ stockTape: t.id })}
+                >
+                  {t.label}
+                </Chip>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {(STOCK_TAPES.find((t) => t.id === (marketPrefs.stockTape ?? "auto")) ?? STOCK_TAPES[0]).blurb}{" "}
+              {STOCK_TAPE_OFF.map((t) => t.label).join(", ")} are not public feeds.
+            </p>
+          </div>
           <div>
             <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Default board</p>
             <div className="flex flex-wrap gap-2">

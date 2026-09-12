@@ -37,9 +37,10 @@ import type {
 } from "./types";
 import { applyDeskRegion, DEFAULT_REGION, regionOf } from "./region";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
+import { DEFAULT_DASH, normalizeDash, type DashCard } from "./dash";
 import { asNewsTag } from "./headline";
 import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
-import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals } from "./types";
+import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 
 export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({ ...f, enabled: false }));
 
@@ -131,6 +132,7 @@ type Data = {
   feeds: Feed[];
   quoteCcy: QuoteCcy;
   marketPrefs: MarketPrefs;
+  dashOrder: DashCard[];
   railCollapsed: boolean;
   boardQuery: string;
   boardFocus: string | null;
@@ -176,6 +178,8 @@ type State = Data & {
   updateWatch: (id: string, patch: Partial<WatchItem>) => void;
   setQuoteCcy: (ccy: QuoteCcy) => void;
   setMarketPrefs: (p: Partial<MarketPrefs>) => void;
+  setDashOrder: (order: DashCard[]) => void;
+  resetDash: () => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
   addFeed: (f: Feed) => void;
@@ -248,18 +252,18 @@ function initial(): Data {
         y: 36,
         z: 1,
         w: 208,
-        h: 176,
+        h: 200,
         pinned: false,
       },
       {
         id: uid(),
         text: "Pin a city for weather",
         color: NOTE_COLORS[3],
-        x: 48,
-        y: 220,
+        x: 248,
+        y: 48,
         z: 2,
         w: 208,
-        h: 160,
+        h: 176,
         pinned: false,
       },
     ],
@@ -273,6 +277,7 @@ function initial(): Data {
     feeds: DEFAULT_FEEDS,
     quoteCcy: "PHP",
     marketPrefs: { ...DEFAULT_MARKET_PREFS },
+    dashOrder: [...DEFAULT_DASH],
     railCollapsed: false,
     boardQuery: "",
     boardFocus: null,
@@ -575,6 +580,8 @@ export const useAtrium = create<State>()(
         })),
       setQuoteCcy: (quoteCcy) => set({ quoteCcy }),
       setMarketPrefs: (p) => set((s) => ({ marketPrefs: { ...s.marketPrefs, ...p } })),
+      setDashOrder: (order) => set({ dashOrder: normalizeDash(order) }),
+      resetDash: () => set({ dashOrder: [...DEFAULT_DASH] }),
       toggleFeed: (id) =>
         set((s) => ({
           feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
@@ -603,7 +610,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 22,
+      version: 23,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -753,6 +760,17 @@ export const useAtrium = create<State>()(
             },
           };
         }
+        if (version < 23) {
+          p = {
+            ...p,
+            dashOrder: normalizeDash(p.dashOrder),
+            marketPrefs: {
+              ...DEFAULT_MARKET_PREFS,
+              ...(p.marketPrefs ?? {}),
+              stockTape: normalizeStockTape((p.marketPrefs as { stockTape?: string } | undefined)?.stockTape),
+            },
+          };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -772,6 +790,7 @@ export const useAtrium = create<State>()(
         feeds: s.feeds,
         quoteCcy: s.quoteCcy,
         marketPrefs: s.marketPrefs,
+        dashOrder: s.dashOrder,
         railCollapsed: s.railCollapsed,
       }),
       merge: (persisted, current) => {
@@ -827,6 +846,7 @@ export const useAtrium = create<State>()(
             ? ((p.quoteCcy as QuoteCcy) ?? "PHP")
             : current.quoteCcy,
           railCollapsed: Boolean(p.railCollapsed ?? current.railCollapsed),
+          dashOrder: normalizeDash(p.dashOrder ?? current.dashOrder),
           modules: {
             calendar: true,
             notes: (p.modules?.notes ?? current.modules.notes) !== false,
@@ -847,6 +867,7 @@ export const useAtrium = create<State>()(
             showMarkets: prefs?.showMarkets !== false,
             showBooks: prefs?.showBooks !== false,
             cmdtyPhp: prefs?.cmdtyPhp === true,
+            stockTape: normalizeStockTape((prefs as { stockTape?: string } | undefined)?.stockTape),
             screen: normalizeScreen((prefs as { screen?: string } | undefined)?.screen),
             screenPe: normalizeScreenPe((prefs as { screenPe?: string } | undefined)?.screenPe),
             screenCap: normalizeScreenCap((prefs as { screenCap?: string } | undefined)?.screenCap),

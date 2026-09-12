@@ -9,17 +9,18 @@ import { FloatBtn } from "@/components/widgets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchQuotes, nextQuoteSeed, POPULAR_AUTHORS, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
+import { fetchQuotes, nextQuoteSeed, POPULAR_AUTHORS, QUOTE_TOPICS, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
-export function useDeskQuotes(mode: "random" | "popular" | "author", author = "", seed = "desk") {
+export function useDeskQuotes(mode: "random" | "popular" | "author", author = "", seed = "desk", topic = "all") {
   return useQuery({
-    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : ""],
+    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic],
     queryFn: () =>
       fetchQuotes({
         data: {
           mode,
           author: author.trim() || undefined,
+          topic: topic === "all" ? undefined : topic,
           limit: mode === "author" ? 24 : 16,
           seed,
         },
@@ -72,8 +73,9 @@ export function QuotesView() {
   const [mode, setMode] = useState<"random" | "popular" | "author">("random");
   const [person, setPerson] = useState("");
   const [search, setSearch] = useState("");
+  const [topic, setTopic] = useState("all");
   const [seed, setSeed] = useState(readQuoteSeed);
-  const quotes = useDeskQuotes(mode, mode === "author" ? search : "", seed);
+  const quotes = useDeskQuotes(mode, mode === "author" ? search : "", seed, mode === "author" ? "all" : topic);
   const list = quotes.data?.quotes ?? [];
   const hero = list[0];
   const rest = list.slice(1);
@@ -112,9 +114,11 @@ export function QuotesView() {
           <p className="text-xs text-muted-foreground">
             {mode === "author" && search
               ? `By ${search}`
-              : mode === "popular"
-                ? "Popular voices"
-                : "A new roll each session"}
+              : topic !== "all"
+                ? QUOTE_TOPICS.find((t) => t.id === topic)?.label ?? "Topic"
+                : mode === "popular"
+                  ? "Popular voices"
+                  : "A new roll each session"}
           </p>
         </div>
         <FloatBtn kind="quote" />
@@ -128,6 +132,22 @@ export function QuotesView() {
           Popular
         </Chip>
       </div>
+
+      {mode !== "author" ? (
+        <div className="scroll-auto mb-5 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+          {QUOTE_TOPICS.map((t) => (
+            <Chip
+              key={t.id}
+              active={topic === t.id}
+              onClick={() => {
+                setTopic(t.id);
+              }}
+            >
+              {t.label}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
 
       <form
         className="mb-6 flex gap-2"
@@ -179,7 +199,11 @@ export function QuotesView() {
           </button>
         </p>
       ) : !hero ? (
-        <p className="text-sm text-muted-foreground">No quotes for that name. Try Einstein or Aurelius.</p>
+        <p className="text-sm text-muted-foreground">
+          {mode === "author"
+            ? "No quotes for that name. Try Einstein or Aurelius."
+            : "No quotes for that topic yet. Try All or Random."}
+        </p>
       ) : (
         <div className="space-y-4">
           <QuoteCard q={hero} featured onPick={pin} />

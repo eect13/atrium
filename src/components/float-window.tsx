@@ -1,12 +1,48 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { X } from "lucide-react";
-import { clampDesk, clampSize } from "@/lib/desk";
+import { GripHorizontal, X } from "lucide-react";
+import { clampDesk, clampSize, resizeFrom, type ResizeCorner } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
+
+const CORNERS: { id: ResizeCorner; box: string; cursor: string; mark: string }[] = [
+  { id: "nw", box: "left-0 top-0 items-start justify-start", cursor: "cursor-nw-resize", mark: "border-l-2 border-t-2" },
+  { id: "ne", box: "right-0 top-0 items-start justify-end", cursor: "cursor-ne-resize", mark: "border-r-2 border-t-2" },
+  { id: "sw", box: "bottom-0 left-0 items-end justify-start", cursor: "cursor-sw-resize", mark: "border-b-2 border-l-2" },
+  { id: "se", box: "bottom-0 right-0 items-end justify-end", cursor: "cursor-se-resize", mark: "border-b-2 border-r-2" },
+];
+
+export function ResizeHandles({
+  onCorner,
+}: {
+  onCorner: (e: React.PointerEvent, corner: ResizeCorner) => void;
+}) {
+  return (
+    <>
+      {CORNERS.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          aria-label={`Resize ${c.id}`}
+          className={cn(
+            "absolute z-[3] flex size-11 touch-none p-2 opacity-40 md:size-7 md:p-1 md:opacity-0 md:group-hover:opacity-50 md:group-focus-within:opacity-50",
+            c.box,
+            c.cursor,
+          )}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onCorner(e, c.id);
+          }}
+        >
+          <span className={cn("block size-2.5 border-current", c.mark)} />
+        </button>
+      ))}
+    </>
+  );
+}
 
 export function FloatWindow({
   x,
@@ -46,17 +82,14 @@ export function FloatWindow({
   const live = useRef({ x, y, w, h });
   if (!dragging.current) live.current = { x, y, w, h };
 
-  function drag(e: React.PointerEvent, kind: "move" | "resize") {
+  function drag(e: React.PointerEvent, kind: "move" | ResizeCorner) {
     if (e.button !== 0) return;
     if (e.cancelable) e.preventDefault();
     onRaise();
     dragging.current = true;
     const ox = e.clientX;
     const oy = e.clientY;
-    const sx = live.current.x;
-    const sy = live.current.y;
-    const sw = live.current.w;
-    const sh = live.current.h;
+    const start = { ...live.current };
     const article = articleRef.current;
     e.currentTarget.setPointerCapture(e.pointerId);
     if (article) article.style.willChange = "transform";
@@ -66,17 +99,21 @@ export function FloatWindow({
       const dx = ev.clientX - ox;
       const dy = ev.clientY - oy;
       if (kind === "move") {
-        const next = clampDesk(sx + dx, sy + dy, live.current.w, live.current.h);
+        const next = clampDesk(start.x + dx, start.y + dy, live.current.w, live.current.h);
         live.current.x = next.x;
         live.current.y = next.y;
         if (article) {
-          article.style.transform = `translate(${next.x - sx}px, ${next.y - sy}px)`;
+          article.style.transform = `translate(${next.x - start.x}px, ${next.y - start.y}px)`;
         }
       } else {
-        const next = clampSize(sx, sy, Math.max(minW, sw + dx), Math.max(minH, sh + dy));
-        live.current.w = next.w;
-        live.current.h = next.h;
+        const raw = resizeFrom(kind, start, dx, dy, minW, minH);
+        const sized = clampSize(raw.x, raw.y, raw.w, raw.h);
+        const pos = clampDesk(raw.x, raw.y, sized.w, sized.h);
+        live.current = { x: pos.x, y: pos.y, w: sized.w, h: sized.h };
         if (article) {
+          article.style.transform = "";
+          article.style.left = `${live.current.x}px`;
+          article.style.top = `${live.current.y}px`;
           article.style.width = `${live.current.w}px`;
           article.style.height = `${live.current.h}px`;
         }
@@ -92,7 +129,10 @@ export function FloatWindow({
         article.style.top = `${live.current.y}px`;
       }
       if (kind === "move") onMove(live.current.x, live.current.y);
-      else onResize(live.current.w, live.current.h);
+      else {
+        onMove(live.current.x, live.current.y);
+        onResize(live.current.w, live.current.h);
+      }
     };
     window.addEventListener("pointermove", move, { signal });
     window.addEventListener("pointerup", stop, { signal });
@@ -106,7 +146,7 @@ export function FloatWindow({
     <article
       ref={articleRef}
       className={cn(
-        "absolute flex flex-col overflow-hidden rounded-lg shadow-[var(--shadow-float)]",
+        "group absolute flex flex-col overflow-hidden rounded-lg shadow-[var(--shadow-float)]",
         paper ? "" : "bg-card text-card-foreground",
       )}
       style={{
@@ -122,7 +162,7 @@ export function FloatWindow({
     >
       <header
         className={cn(
-          "flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
+          "relative z-[2] flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
           paper ? "border-current/20" : "border-border bg-muted",
         )}
         onPointerDown={(e) => {
@@ -132,17 +172,20 @@ export function FloatWindow({
       >
         <span
           className={cn(
-            "grow truncate px-1.5 text-xs font-medium uppercase tracking-[0.06em]",
+            "shrink-0 truncate px-1.5 text-xs font-medium uppercase tracking-[0.06em]",
             paper ? "opacity-70" : "text-muted-foreground",
           )}
         >
           {title}
         </span>
-        {extra}
+        <span className="flex min-w-0 grow justify-center" aria-hidden>
+          <GripHorizontal className={cn("size-4 opacity-40", paper ? "" : "text-muted-foreground")} />
+        </span>
+        {extra ? <span className="relative z-[4] flex items-center">{extra}</span> : null}
         <button
           type="button"
           className={cn(
-            "flex size-9 items-center justify-center rounded-sm",
+            "relative z-[4] flex size-9 items-center justify-center rounded-sm",
             paper
               ? "opacity-70 hover:bg-black/10 hover:opacity-100"
               : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -154,17 +197,7 @@ export function FloatWindow({
         </button>
       </header>
       <div className="scroll-auto min-h-0 flex-1 bg-inherit p-3">{children}</div>
-      <button
-        type="button"
-        aria-label="Resize window"
-        className={cn(
-          "absolute bottom-0 right-0 flex size-11 cursor-se-resize touch-none items-end justify-end p-2",
-          paper ? "opacity-50" : "text-muted-foreground",
-        )}
-        onPointerDown={(e) => drag(e, "resize")}
-      >
-        <span className="block size-2.5 border-b-2 border-r-2 border-current" />
-      </button>
+      <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>
   );
 }

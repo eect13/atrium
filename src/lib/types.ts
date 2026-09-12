@@ -14,6 +14,22 @@ export type BoardTab = "all" | "watcher" | "starred" | "blue" | "reit" | "div" |
 export type BoardSort = "name" | "chg" | "vol" | "last" | "pe" | "cap";
 export type SparkRange = "1d" | "1w" | "1m" | "3m" | "6m" | "1y";
 export type ScreenId = ScreenerId;
+export type StockTape = "auto" | "yahoo";
+
+export const STOCK_TAPES = [
+  { id: "auto" as const, label: "Auto", blurb: "PSE last from phisix. Global last, sparks, and PE from Yahoo." },
+  { id: "yahoo" as const, label: "Yahoo", blurb: "Last, sparks, and PE from Yahoo — including .PS names." },
+] as const;
+
+export const STOCK_TAPE_OFF = [
+  { id: "google", label: "Google Finance", blurb: "No public quote API." },
+  { id: "msn", label: "MSN Money", blurb: "No public quote API." },
+  { id: "investa", label: "Investa", blurb: "Broker tape — not a public feed." },
+] as const;
+
+export function normalizeStockTape(raw?: string): StockTape {
+  return raw === "yahoo" ? "yahoo" : "auto";
+}
 
 export type MarketPrefs = {
   spark: boolean;
@@ -26,6 +42,7 @@ export type MarketPrefs = {
   showMarkets: boolean;
   showBooks: boolean;
   cmdtyPhp: boolean;
+  stockTape: StockTape;
   screen: ScreenId;
   screenPe: ScreenPe;
   screenCap: ScreenCap;
@@ -48,6 +65,7 @@ export const DEFAULT_MARKET_PREFS: MarketPrefs = {
   showMarkets: true,
   showBooks: true,
   cmdtyPhp: false,
+  stockTape: "auto",
   screen: "day_gainers",
   screenPe: "any",
   screenCap: "any",

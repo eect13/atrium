@@ -6,6 +6,8 @@ export const DESK_HEADER = 56;
 /** Tab chips + home-indicator. Matches `.pb-dock` (chips ~52px + safe-area). */
 export const DESK_DOCK = 72;
 
+export type ResizeCorner = "nw" | "ne" | "sw" | "se";
+
 export function isNarrow(width = typeof window === "undefined" ? 1280 : window.innerWidth) {
   return width < MD;
 }
@@ -59,4 +61,45 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   const { minX, minY } = deskMin();
   const step = isNarrow() ? 12 : 28;
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
+}
+
+/** Resize from a corner. North/west moves origin; south/east grows. */
+export function resizeFrom(
+  corner: ResizeCorner,
+  start: { x: number; y: number; w: number; h: number },
+  dx: number,
+  dy: number,
+  minW = 180,
+  minH = 120,
+) {
+  let x = start.x;
+  let y = start.y;
+  let w = start.w;
+  let h = start.h;
+  if (corner === "se") {
+    w = start.w + dx;
+    h = start.h + dy;
+  } else if (corner === "sw") {
+    w = start.w - dx;
+    h = start.h + dy;
+    x = start.x + dx;
+  } else if (corner === "ne") {
+    w = start.w + dx;
+    h = start.h - dy;
+    y = start.y + dy;
+  } else {
+    w = start.w - dx;
+    h = start.h - dy;
+    x = start.x + dx;
+    y = start.y + dy;
+  }
+  if (w < minW) {
+    if (corner === "nw" || corner === "sw") x -= minW - w;
+    w = minW;
+  }
+  if (h < minH) {
+    if (corner === "nw" || corner === "ne") y -= minH - h;
+    h = minH;
+  }
+  return { x, y, w, h };
 }

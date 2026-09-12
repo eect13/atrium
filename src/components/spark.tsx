@@ -15,7 +15,7 @@ function lastDot(values: number[], w: number, h: number, pad = 1) {
 
 export function Spark({ values, up, className }: { values?: number[]; up: boolean; className?: string }) {
   if (!values || values.length < 2) {
-    return <span className={cn("inline-block h-8 w-16 sm:h-9 sm:w-20", className)} />;
+    return <span className={cn("inline-block h-8 w-full sm:h-9", className)} />;
   }
   const w = 160;
   const h = 44;
@@ -24,13 +24,13 @@ export function Spark({ values, up, className }: { values?: number[]; up: boolea
   return (
     <svg
       viewBox={`0 0 ${w} ${h}`}
-      className={cn("h-8 w-16 shrink-0 sm:h-9 sm:w-20", up ? "text-ok" : "text-destructive", className)}
+      className={cn("h-8 w-full shrink-0 sm:h-9", up ? "text-ok" : "text-destructive", className)}
       preserveAspectRatio="none"
       aria-hidden
     >
-      <path fill="currentColor" opacity="0.16" d={area} />
-      <path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" d={line} />
-      <circle cx={dot.x} cy={dot.y} r="3.2" fill="currentColor" />
+      <path fill="currentColor" opacity="0.1" d={area} />
+      <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" d={line} />
+      <circle cx={Math.max(3, dot.x - 2)} cy={dot.y} r="2.4" fill="currentColor" />
     </svg>
   );
 }

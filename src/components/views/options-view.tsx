@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { LocateFixed } from "lucide-react";
+import { ChevronDown, ChevronUp, LocateFixed } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { AppearancePicker } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
-import { DEFAULT_TAGLINE, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { DEFAULT_TAGLINE, STOCK_TAPE_OFF, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
 import { lookupPlace, mapsPin, hasWeatherPin } from "@/lib/weather";
 import { locateMe } from "@/lib/locate";
@@ -40,7 +41,9 @@ const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" }[] = [
 const JUMP = [
   { id: "opt-appearance", label: "Appearance" },
   { id: "opt-desk", label: "Desk" },
+  { id: "opt-dash", label: "Dashboard" },
   { id: "opt-modules", label: "Modules" },
+  { id: "opt-markets", label: "Markets" },
   { id: "opt-news", label: "News" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
@@ -299,6 +302,11 @@ export function OptionsView() {
     notes,
     feeds,
     setFeedPack,
+    dashOrder,
+    setDashOrder,
+    resetDash,
+    marketPrefs,
+    setMarketPrefs,
   } = useAtrium(
     useShallow((s) => ({
       modules: s.modules,
@@ -314,6 +322,11 @@ export function OptionsView() {
       notes: s.notes,
       feeds: s.feeds,
       setFeedPack: s.setFeedPack,
+      dashOrder: s.dashOrder,
+      setDashOrder: s.setDashOrder,
+      resetDash: s.resetDash,
+      marketPrefs: s.marketPrefs,
+      setMarketPrefs: s.setMarketPrefs,
     })),
   );
   const pinned = notes.filter((n) => n.pinned).length;
@@ -327,7 +340,7 @@ export function OptionsView() {
     <div className="max-w-2xl space-y-4">
       <h2 className="font-display text-2xl font-medium tracking-tight">Options</h2>
       <nav className="flex flex-wrap gap-2" aria-label="Jump to section">
-        {JUMP.filter((s) => s.id !== "opt-news" || modules.news).map((s) => (
+        {JUMP.filter((s) => (s.id !== "opt-news" || modules.news) && (s.id !== "opt-markets" || modules.finance)).map((s) => (
           <button
             key={s.id}
             type="button"
@@ -357,7 +370,7 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Pop widgets out like sticky notes — calendar, weather, markets, headlines. Nothing floats until you pin a note or open one from this list or the desk menu. Drag the title bar, resize the corner, Esc to dock.
+            Pop widgets out like sticky notes — calendar, weather, markets, headlines. Nothing floats until you pin a note or open one from this list or the desk menu. Drag the bar at the top, resize any corner, Esc to dock.
           </p>
           {DESK.filter((d) => !d.need || modules[d.need]).map((d) => {
             const win = windows.find((w) => w.kind === d.kind);
@@ -385,6 +398,45 @@ export function OptionsView() {
         </CardContent>
       </Card>
 
+      <Card id="opt-dash" className="scroll-mt-4">
+        <CardHeader>
+          <CardTitle>Dashboard</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Drag the grip on each card, or step them here. Reset restores the factory order.
+          </p>
+          {dashOrder.map((id, i) => (
+            <div key={id} className="flex items-center justify-between gap-2 border-b border-border py-1 last:border-0">
+              <p className="text-sm">{DASH_LABEL[id]}</p>
+              <div className="flex">
+                <button
+                  type="button"
+                  className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label={`Move ${DASH_LABEL[id]} up`}
+                  disabled={i === 0}
+                  onClick={() => setDashOrder(shiftDash(dashOrder, id as DashCard, -1))}
+                >
+                  <ChevronUp className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label={`Move ${DASH_LABEL[id]} down`}
+                  disabled={i === dashOrder.length - 1}
+                  onClick={() => setDashOrder(shiftDash(dashOrder, id as DashCard, 1))}
+                >
+                  <ChevronDown className="size-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+          <Button variant="outline" onClick={() => resetDash()}>
+            Reset dashboard
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card id="opt-modules" className="scroll-mt-4">
         <CardHeader>
           <CardTitle>Modules</CardTitle>
@@ -408,6 +460,49 @@ export function OptionsView() {
           ))}
         </CardContent>
       </Card>
+
+      {modules.finance ? (
+        <Card id="opt-markets" className="scroll-mt-4">
+          <CardHeader>
+            <CardTitle>Stock tape</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Auto keeps PSE last on phisix and uses Yahoo for global last, sparks, and PE. Yahoo-only skips phisix.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {STOCK_TAPES.map((t) => (
+                <Chip
+                  key={t.id}
+                  active={(marketPrefs.stockTape ?? "auto") === t.id}
+                  onClick={() => setMarketPrefs({ stockTape: t.id })}
+                >
+                  {t.label}
+                </Chip>
+              ))}
+            </div>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {STOCK_TAPES.map((t) => (
+                <li key={t.id}>
+                  {t.label} — {t.blurb}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">Not available without a paid feed:</p>
+            <div className="flex flex-wrap gap-2">
+              {STOCK_TAPE_OFF.map((t) => (
+                <span
+                  key={t.id}
+                  title={t.blurb}
+                  className="inline-flex min-h-11 items-center rounded-full border border-border px-3 text-xs text-muted-foreground opacity-60"
+                >
+                  {t.label}
+                </span>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {modules.news ? (
         <Card id="opt-news" className="scroll-mt-4">

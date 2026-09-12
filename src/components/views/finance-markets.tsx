@@ -812,7 +812,7 @@ export function FinanceMarkets() {
                   </button>
                   {marketPrefs.spark ? (
                     <div className="hidden w-16 shrink-0 sm:block">
-                      {pending ? <Skeleton className="h-7 w-16" /> : <Spark values={r.q?.spark} up={up} />}
+                      {pending ? <Skeleton className="h-7 w-16" /> : <Spark values={r.q?.spark} up={up} className="h-7 w-16 sm:h-8 sm:w-20" />}
                     </div>
                   ) : null}
                   <button type="button" className={cn("shrink-0 py-2 text-right sm:w-24", rowH)} onClick={() => setOpen(r)}>

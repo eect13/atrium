@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorSlug, liveQuotePool, parseBrainyHtml, parseBrainyRss } from "./quotes.ts";
+import { authorSlug, liveQuotePool, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss } from "./quotes.ts";
 
 const SNIP = `
 <a href="/quotes/albert_einstein_121993" class="b-qt qt_121993 oncl_q" title="view quote">We cannot solve our problems with the same thinking we used when we created them.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_121993 oncl_a" title="view author">Albert Einstein</a>
@@ -96,4 +96,10 @@ test("liveQuotePool uses desk copies only when the public feed is empty", () => 
   const pool = liveQuotePool([], local);
   assert.equal(pool.length, 1);
   assert.equal(pool[0]?.source, "local");
+});
+
+test("normalizeQuoteTopic keeps known topics", () => {
+  assert.equal(normalizeQuoteTopic("funny"), "funny");
+  assert.equal(normalizeQuoteTopic("motivational"), "motivational");
+  assert.equal(normalizeQuoteTopic("nope"), "all");
 });

@@ -1,11 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Eraser, LayoutGrid, LayoutList, Pencil, Pin, PinOff } from "lucide-react";
+import { Eraser, GripHorizontal, LayoutGrid, LayoutList, Pencil, Pin, PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { AddColorWheel, NoteColor } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
+import { ResizeHandles } from "@/components/float-window";
 import { Button } from "@/components/ui/button";
+import { resizeFrom, type ResizeCorner } from "@/lib/desk";
 import { inkOnPaper, NOTE_COLORS, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
@@ -40,8 +42,8 @@ export function NotesView() {
       x: 32 + Math.random() * 80,
       y: 32 + Math.random() * 60,
       z: notes.reduce((m, n) => Math.max(m, n.z), 1) + 1,
-      w: 208,
-      h: 176,
+      w: 220,
+      h: 200,
       pinned: false,
     });
   }
@@ -52,7 +54,7 @@ export function NotesView() {
         <h2 className="font-display text-2xl font-medium tracking-tight">Sticky notes</h2>
         <p className="text-sm text-muted-foreground">
           <span className="lg:hidden">Board or list. Pin is for the desktop desk.</span>
-          <span className="hidden lg:inline">Pin a note to float it over every screen. Pencil for freehand.</span>
+          <span className="hidden lg:inline">Drag the bar at the top. Corners resize. Pencil for freehand.</span>
         </p>
         <div className="grow" />
         <Chip active={layout === "list"} onClick={() => setNotesLayout("list")}>
@@ -92,26 +94,14 @@ export function NotesView() {
                   placeholder="Write…"
                   onChange={(e) => updateNote(n.id, { text: e.target.value })}
                 />
-                <div className="flex items-center justify-between gap-2 text-xs" style={{ color: ink, opacity: 0.7 }}>
+                <div className="flex items-center justify-between text-xs" style={{ color: ink, opacity: 0.7 }}>
                   <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
                   <div className="flex">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2"
-                      style={{ color: ink }}
-                      onClick={() => pinNote(n.id)}
-                    >
+                    <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={() => pinNote(n.id)}>
                       <Pin className="size-3.5" />
                       Float
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2"
-                      style={{ color: ink }}
-                      onClick={() => removeNote(n.id)}
-                    >
+                    <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={() => removeNote(n.id)}>
                       Delete
                     </Button>
                   </div>
@@ -172,7 +162,7 @@ export function NotesView() {
             </div>
           ))}
           <p className="mt-2 hidden text-xs text-muted-foreground lg:block">
-            Drag a pinned note anywhere over the app. Close or unpin to send it back.
+            Drag the bar at the top. Corners resize. Close or unpin to send it back.
           </p>
           <p className="mt-2 text-xs text-muted-foreground lg:hidden">
             Pinned notes float on a wide screen. Unpin to edit them here.
@@ -209,37 +199,36 @@ function BoardNote({
   const ink = inkOnPaper(note.color);
   const article = useRef<HTMLElement>(null);
 
-  function drag(e: React.PointerEvent, kind: "move" | "resize") {
+  function drag(e: React.PointerEvent, kind: "move" | ResizeCorner) {
     if (e.button !== 0) return;
-    if (kind === "move" && (e.target as HTMLElement).closest("textarea,button,input,label,svg")) return;
     onRaise();
     const el = article.current;
     if (!el) return;
-    const r0 = el.getBoundingClientRect();
-    const ox = e.clientX - r0.left;
-    const oy = e.clientY - r0.top;
-    const sw = note.w;
-    const sh = note.h;
-    const sx = note.x;
-    const sy = note.y;
-    el.setPointerCapture?.(e.pointerId);
-    let nx = sx;
-    let ny = sy;
-    let nw = sw;
-    let nh = sh;
+    const start = { x: note.x, y: note.y, w: note.w, h: note.h };
+    const ox = e.clientX;
+    const oy = e.clientY;
+    let nx = start.x;
+    let ny = start.y;
+    let nw = start.w;
+    let nh = start.h;
     const ac = new AbortController();
     const { signal } = ac;
     const move = (ev: PointerEvent) => {
       const r = board.current?.getBoundingClientRect();
       if (!r) return;
       if (kind === "move") {
-        nx = Math.min(Math.max(0, r.width - nw), Math.max(0, ev.clientX - r.left - ox));
-        ny = Math.min(Math.max(0, r.height - nh), Math.max(0, ev.clientY - r.top - oy));
+        nx = Math.min(Math.max(0, r.width - nw), Math.max(0, start.x + (ev.clientX - ox)));
+        ny = Math.min(Math.max(0, r.height - nh), Math.max(0, start.y + (ev.clientY - oy)));
         el.style.left = `${nx}px`;
         el.style.top = `${ny}px`;
       } else {
-        nw = Math.min(Math.max(160, ev.clientX - r.left - sx), Math.max(160, r.width - sx));
-        nh = Math.min(Math.max(140, ev.clientY - r.top - sy), Math.max(140, r.height - sy));
+        const next = resizeFrom(kind, start, ev.clientX - ox, ev.clientY - oy, 160, 140);
+        nw = Math.min(Math.max(160, next.w), r.width);
+        nh = Math.min(Math.max(140, next.h), r.height);
+        nx = Math.min(Math.max(0, next.x), Math.max(0, r.width - nw));
+        ny = Math.min(Math.max(0, next.y), Math.max(0, r.height - nh));
+        el.style.left = `${nx}px`;
+        el.style.top = `${ny}px`;
         el.style.width = `${nw}px`;
         el.style.height = `${nh}px`;
       }
@@ -247,7 +236,10 @@ function BoardNote({
     const stop = () => {
       ac.abort();
       if (kind === "move") onMove(nx, ny);
-      else onResize(nw, nh);
+      else {
+        onMove(nx, ny);
+        onResize(nw, nh);
+      }
     };
     window.addEventListener("pointermove", move, { signal });
     window.addEventListener("pointerup", stop, { signal });
@@ -257,10 +249,7 @@ function BoardNote({
   return (
     <article
       ref={article}
-      className={cn(
-        "absolute overflow-hidden rounded-sm p-3 shadow-[var(--shadow-border)]",
-        drawing ? "cursor-crosshair" : "cursor-grab touch-none active:cursor-grabbing",
-      )}
+      className="group absolute overflow-hidden rounded-sm shadow-[var(--shadow-border)]"
       style={{
         left: note.x,
         top: note.y,
@@ -270,12 +259,19 @@ function BoardNote({
         color: ink,
         zIndex: note.z,
       }}
-      onPointerDown={(e) => {
-        if (drawing) return;
-        drag(e, "move");
-      }}
     >
-      <div className="absolute inset-0 bottom-11">
+      <header
+        className="relative z-[2] flex h-9 shrink-0 cursor-grab touch-none items-center justify-center border-b border-current/15 active:cursor-grabbing"
+        onPointerDown={(e) => {
+          if (drawing) return;
+          if ((e.target as HTMLElement).closest("button,input,label")) return;
+          drag(e, "move");
+        }}
+      >
+        <GripHorizontal className="size-4 opacity-45" aria-hidden />
+        <span className="sr-only">Drag note</span>
+      </header>
+      <div className="absolute inset-x-0 bottom-11 top-9">
         <NoteInk
           strokes={note.ink ?? []}
           color={ink}
@@ -285,7 +281,7 @@ function BoardNote({
       </div>
       <textarea
         className={cn(
-          "relative z-[1] h-[calc(100%-2.5rem)] w-full resize-none bg-transparent text-sm leading-snug outline-none",
+          "relative z-[1] h-[calc(100%-4.75rem)] w-full resize-none bg-transparent px-3 pt-2 text-sm leading-snug outline-none",
           drawing && "pointer-events-none",
         )}
         style={{ color: ink }}
@@ -293,8 +289,11 @@ function BoardNote({
         placeholder="Write…"
         onChange={(e) => onUpdate({ text: e.target.value })}
       />
-      <div className="relative z-[1] flex items-center justify-between gap-1 text-xs" style={{ color: ink, opacity: 0.8 }}>
-        <div className="flex items-center gap-0.5">
+      <div
+        className="relative z-[4] flex items-center justify-between gap-1 px-1 pb-1 text-xs"
+        style={{ color: ink, opacity: 0.8 }}
+      >
+        <div className="flex items-center">
           <NoteColor color={note.color} onChange={(color) => onUpdate({ color })} ink={ink} />
           <button
             type="button"
@@ -326,18 +325,7 @@ function BoardNote({
           </Button>
         </div>
       </div>
-      <button
-        type="button"
-        data-resize
-        aria-label="Resize note"
-        className="absolute bottom-0 right-0 z-[2] flex size-11 cursor-se-resize touch-none items-end justify-end p-2 opacity-50"
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          drag(e, "resize");
-        }}
-      >
-        <span className="block size-2.5 border-b-2 border-r-2 border-current" />
-      </button>
+      <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>
   );
 }

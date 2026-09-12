@@ -1,12 +1,16 @@
 "use client";
 
+import { useState, type ReactNode } from "react";
+import { GripVertical } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgendaBody, FinancePeek, FloatBtn, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
+import { DASH_LABEL, DASH_SPAN, DEFAULT_DASH, moveDash, type DashCard } from "@/lib/dash";
 import { deskZone } from "@/lib/format";
 import { regionOf } from "@/lib/region";
 import { useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export function DashboardView({
   headlines,
@@ -17,22 +21,30 @@ export function DashboardView({
   newsLoading?: boolean;
   newsError?: boolean;
 }) {
-  const { profile, notes, modules } = useAtrium(
+  const { profile, notes, modules, dashOrder, setDashOrder, resetDash } = useAtrium(
     useShallow((s) => ({
       profile: s.profile,
       notes: s.notes,
       modules: s.modules,
+      dashOrder: s.dashOrder,
+      setDashOrder: s.setDashOrder,
+      resetDash: s.resetDash,
     })),
   );
+  const [drag, setDrag] = useState<DashCard | null>(null);
 
-  return (
-    <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-12">
-      <Card className="lg:col-span-5">
-        <CardHeader className="flex-row items-start justify-between space-y-0">
-          <CardTitle>Today</CardTitle>
-          <FloatBtn kind="weather" />
-        </CardHeader>
-        <CardContent>
+  const visible = dashOrder.filter((id) => {
+    if (id === "quote") return modules.quotes !== false;
+    if (id === "finance") return modules.finance;
+    if (id === "notes") return modules.notes;
+    if (id === "news") return modules.news;
+    return true;
+  });
+
+  function body(id: DashCard): ReactNode {
+    if (id === "weather") {
+      return (
+        <>
           <p className="font-display text-2xl font-medium tracking-tight md:text-3xl">
             {new Date().toLocaleDateString(deskZone().locale, {
               weekday: "long",
@@ -49,70 +61,91 @@ export function DashboardView({
           <div className="mt-5">
             <WeatherBody />
           </div>
-        </CardContent>
-      </Card>
+        </>
+      );
+    }
+    if (id === "agenda") return <AgendaBody />;
+    if (id === "quote") return <QuoteBody />;
+    if (id === "finance") return <FinancePeek />;
+    if (id === "notes") {
+      return (
+        <>
+          <NotesPeek />
+          {notes.some((n) => n.pinned) ? (
+            <p className="mt-3 hidden text-xs text-muted-foreground lg:block">
+              Pinned notes float over every screen on desktop.
+            </p>
+          ) : null}
+        </>
+      );
+    }
+    return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} />;
+  }
 
-      <Card className="lg:col-span-4">
-        <CardHeader className="flex-row items-start justify-between space-y-0">
-          <CardTitle>Up next</CardTitle>
-          <FloatBtn kind="calendar" />
-        </CardHeader>
-        <CardContent>
-          <AgendaBody />
-        </CardContent>
-      </Card>
+  function floatKind(id: DashCard) {
+    if (id === "weather") return "weather" as const;
+    if (id === "agenda") return "calendar" as const;
+    if (id === "quote") return "quote" as const;
+    if (id === "finance") return "finance" as const;
+    if (id === "news") return "news" as const;
+    return null;
+  }
 
-      {modules.quotes !== false && (
-        <Card className="order-last lg:order-none lg:col-span-3">
-          <CardHeader className="flex-row items-start justify-between space-y-0">
-            <CardTitle>Quote</CardTitle>
-            <FloatBtn kind="quote" />
-          </CardHeader>
-          <CardContent>
-            <QuoteBody />
-          </CardContent>
-        </Card>
+  const dirty = dashOrder.some((id, i) => id !== DEFAULT_DASH[i]);
+
+  return (
+    <div>
+      {dirty ? (
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            type="button"
+            className="min-h-11 px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={() => resetDash()}
+          >
+            Reset layout
+          </button>
+        </div>
+      ) : (
+        <p className="mb-2 hidden text-right text-xs text-muted-foreground lg:block">Drag a card grip to rearrange</p>
       )}
-
-      {modules.finance && (
-        <Card className="lg:col-span-4">
-          <CardHeader className="flex-row items-start justify-between space-y-0">
-            <CardTitle>Finance</CardTitle>
-            <FloatBtn kind="finance" />
-          </CardHeader>
-          <CardContent>
-            <FinancePeek />
-          </CardContent>
-        </Card>
-      )}
-
-      {modules.notes && (
-        <Card className="lg:col-span-4">
-          <CardHeader>
-            <CardTitle>Notes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <NotesPeek />
-            {notes.some((n) => n.pinned) ? (
-              <p className="mt-3 hidden text-xs text-muted-foreground lg:block">
-                Pinned notes float over every screen on desktop.
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
-
-      {modules.news && (
-        <Card className="lg:col-span-4">
-          <CardHeader className="flex-row items-start justify-between space-y-0">
-            <CardTitle>Headlines</CardTitle>
-            <FloatBtn kind="news" />
-          </CardHeader>
-          <CardContent>
-            <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} />
-          </CardContent>
-        </Card>
-      )}
+    <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-12">
+      {visible.map((id) => {
+        const kind = floatKind(id);
+        return (
+          <Card
+            key={id}
+            className={cn(DASH_SPAN[id], drag === id && "ring-1 ring-ring")}
+            onDragOver={(e) => {
+              e.preventDefault();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (drag) setDashOrder(moveDash(dashOrder, drag, id));
+              setDrag(null);
+            }}
+          >
+            <CardHeader className="flex-row items-start justify-between space-y-0">
+              <div className="flex min-w-0 items-center gap-1">
+                <button
+                  type="button"
+                  draggable
+                  aria-label={`Move ${DASH_LABEL[id]}`}
+                  title="Drag to rearrange"
+                  className="flex size-9 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                  onDragStart={() => setDrag(id)}
+                  onDragEnd={() => setDrag(null)}
+                >
+                  <GripVertical className="size-4" />
+                </button>
+                <CardTitle>{DASH_LABEL[id]}</CardTitle>
+              </div>
+              {kind ? <FloatBtn kind={kind} /> : null}
+            </CardHeader>
+            <CardContent>{body(id)}</CardContent>
+          </Card>
+        );
+      })}
+    </div>
     </div>
   );
 }

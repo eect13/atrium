@@ -37,10 +37,11 @@ export function NoteColor({
         type="button"
         aria-label="Note color"
         aria-expanded={open}
-        className="size-9 shrink-0 rounded-full ring-1 ring-black/20"
-        style={{ backgroundColor: current }}
+        className="flex size-9 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
         onClick={() => setOpen((v) => !v)}
-      />
+      >
+        <Palette className="size-3.5" />
+      </button>
       {open ? (
         <div className="absolute left-0 top-10 z-30 flex items-center gap-1 rounded-md bg-card p-1.5 shadow-[var(--shadow-float)]">
           {NOTE_COLORS.map((c) => (
