@@ -9,7 +9,7 @@ import { NoteInk } from "@/components/note-ink";
 import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { fitBox } from "@/lib/desk";
-import { inkOnPaper } from "@/lib/format";
+import { inkOnPaper, noteTitle } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
 
@@ -128,7 +128,7 @@ export function DesktopLayer({
               z={n.z}
               w={n.w}
               h={n.h}
-              title="Note"
+              title={noteTitle(n)}
               paper={n.color}
               minW={200}
               minH={160}
@@ -149,7 +149,7 @@ export function DesktopLayer({
               onClose={() => unpinNote(n.id)}
             >
               <div className="flex h-full min-h-0 flex-col">
-                <div className="max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                <div className="max-md:opacity-100 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100">
                   <NoteFormat
                     ink={ink}
                     drawing={drawing}

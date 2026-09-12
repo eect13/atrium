@@ -7,6 +7,8 @@ export const DESK_HEADER = 56;
 export const DESK_DOCK = 72;
 
 export type ResizeCorner = "nw" | "ne" | "sw" | "se";
+export type ResizeEdge = "n" | "s" | "e" | "w";
+export type ResizeHandle = ResizeCorner | ResizeEdge;
 
 export function isNarrow(width = typeof window === "undefined" ? 1280 : window.innerWidth) {
   return width < MD;
@@ -63,9 +65,9 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
 }
 
-/** Resize from a corner. North/west moves origin; south/east grows. */
+/** Resize from a corner or edge. North/west moves origin; south/east grows. */
 export function resizeFrom(
-  corner: ResizeCorner,
+  handle: ResizeHandle,
   start: { x: number; y: number; w: number; h: number },
   dx: number,
   dy: number,
@@ -76,29 +78,39 @@ export function resizeFrom(
   let y = start.y;
   let w = start.w;
   let h = start.h;
-  if (corner === "se") {
+  if (handle === "se") {
     w = start.w + dx;
     h = start.h + dy;
-  } else if (corner === "sw") {
+  } else if (handle === "sw") {
     w = start.w - dx;
     h = start.h + dy;
     x = start.x + dx;
-  } else if (corner === "ne") {
+  } else if (handle === "ne") {
     w = start.w + dx;
     h = start.h - dy;
     y = start.y + dy;
-  } else {
+  } else if (handle === "nw") {
     w = start.w - dx;
     h = start.h - dy;
     x = start.x + dx;
     y = start.y + dy;
+  } else if (handle === "n") {
+    h = start.h - dy;
+    y = start.y + dy;
+  } else if (handle === "s") {
+    h = start.h + dy;
+  } else if (handle === "e") {
+    w = start.w + dx;
+  } else if (handle === "w") {
+    w = start.w - dx;
+    x = start.x + dx;
   }
   if (w < minW) {
-    if (corner === "nw" || corner === "sw") x -= minW - w;
+    if (handle === "nw" || handle === "sw" || handle === "w") x -= minW - w;
     w = minW;
   }
   if (h < minH) {
-    if (corner === "nw" || corner === "ne") y -= minH - h;
+    if (handle === "nw" || handle === "ne" || handle === "n") y -= minH - h;
     h = minH;
   }
   return { x, y, w, h };

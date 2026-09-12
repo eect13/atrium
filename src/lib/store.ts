@@ -135,7 +135,7 @@ type Data = {
   dashOrder: DashCard[];
   dashLocked: boolean;
   dashSpan: Partial<Record<DashCard, number>>;
-  calPeek: "month" | "week";
+  calPeek: "auto" | "month" | "week";
   newsQuery: string;
   newsTag: string;
   railCollapsed: boolean;
@@ -187,7 +187,7 @@ type State = Data & {
   setDashLocked: (v: boolean) => void;
   setDashSpan: (id: DashCard, n: number) => void;
   resetDash: () => void;
-  setCalPeek: (v: "month" | "week") => void;
+  setCalPeek: (v: "auto" | "month" | "week") => void;
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
   toggleFeed: (id: string) => void;
@@ -290,7 +290,7 @@ function initial(): Data {
     dashOrder: [...DEFAULT_DASH],
     dashLocked: true,
     dashSpan: {},
-    calPeek: "week",
+    calPeek: "auto",
     newsQuery: "",
     newsTag: "All",
     railCollapsed: false,
@@ -636,7 +636,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 24,
+      version: 25,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -803,12 +803,19 @@ export const useAtrium = create<State>()(
             ...p,
             dashLocked: p.dashLocked !== false,
             dashSpan: normalizeDashSpan(p.dashSpan),
-            calPeek: p.calPeek === "month" ? "month" : "week",
+            calPeek: p.calPeek === "month" || p.calPeek === "week" || p.calPeek === "auto" ? p.calPeek : "auto",
             newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : "",
             newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : "All"),
             profile: prev
               ? { ...prev, tagline: staleTagline(prev.tagline) }
               : prev,
+          };
+        }
+        if (version < 25) {
+          const peek = p.calPeek;
+          p = {
+            ...p,
+            calPeek: peek === "month" || peek === "week" || peek === "auto" ? peek : "auto",
           };
         }
         return p as Data;
@@ -894,7 +901,7 @@ export const useAtrium = create<State>()(
           dashOrder: normalizeDash(p.dashOrder ?? current.dashOrder),
           dashLocked: (p.dashLocked ?? current.dashLocked) !== false,
           dashSpan: normalizeDashSpan(p.dashSpan ?? current.dashSpan),
-          calPeek: (p.calPeek ?? current.calPeek) === "month" ? "month" : "week",
+          calPeek: ((p.calPeek ?? current.calPeek) === "month" || (p.calPeek ?? current.calPeek) === "week" || (p.calPeek ?? current.calPeek) === "auto") ? (p.calPeek ?? current.calPeek) as "auto" | "month" | "week" : "auto",
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
           newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
           modules: {

@@ -20,3 +20,19 @@ test("resizeFrom respects min size from the west", () => {
   assert.equal(next.x, 120);
   assert.equal(next.y, 80);
 });
+
+test("resizeFrom e grows width only", () => {
+  const box = { x: 100, y: 80, w: 200, h: 160 };
+  const next = resizeFrom("e", box, 40, 99, 180, 120);
+  assert.equal(next.x, 100);
+  assert.equal(next.y, 80);
+  assert.equal(next.w, 240);
+  assert.equal(next.h, 160);
+});
+
+test("resizeFrom n moves top", () => {
+  const box = { x: 100, y: 80, w: 200, h: 160 };
+  const next = resizeFrom("n", box, 0, -20, 180, 120);
+  assert.equal(next.y, 60);
+  assert.equal(next.h, 180);
+});

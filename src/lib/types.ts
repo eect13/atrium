@@ -97,6 +97,8 @@ export type NotePhoto = { id: string; src: string };
 export type StickyNote = {
   id: string;
   text: string;
+  /** Plain title line (Windows Sticky Notes). Empty → first body line is shown. */
+  title?: string;
   color: string;
   x: number;
   y: number;

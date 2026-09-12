@@ -14,8 +14,7 @@ import {
   Underline,
   Undo2,
 } from "lucide-react";
-import { NoteColor } from "@/components/note-color";
-import { NoteInk } from "@/components/note-ink";
+import { Tip } from "@/components/ui/tooltip";
 import { inkOnPaper, notePlain, uid } from "@/lib/format";
 import type { NotePhoto, StickyNote } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -54,6 +53,7 @@ export function NoteEditor({
   onUpdate: (patch: Partial<StickyNote>) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -65,27 +65,44 @@ export function NoteEditor({
     if (el.innerHTML !== next) el.innerHTML = next;
   }, [note.id, note.html, note.text]);
 
-  function emit() {
+  function emitBody() {
     const el = ref.current;
     if (!el) return;
     onUpdate({ html: el.innerHTML, text: notePlain(el.innerHTML, el.innerText) });
   }
 
   return (
-    <div
-      ref={ref}
-      contentEditable={!drawing}
-      role="textbox"
-      aria-label="Note text"
-      suppressContentEditableWarning
-      className={cn(
-        "relative z-[1] min-h-16 w-full flex-1 bg-transparent px-3 py-2 text-sm leading-snug outline-none [&_ul]:list-disc [&_ul]:pl-4",
-        drawing && "pointer-events-none",
-      )}
-      style={{ color: ink }}
-      onInput={emit}
-      onBlur={emit}
-    />
+    <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+      <input
+        ref={titleRef}
+        type="text"
+        aria-label="Note title"
+        placeholder="Title"
+        disabled={drawing}
+        value={note.title ?? ""}
+        className={cn(
+          "w-full shrink-0 bg-transparent px-3 pb-0.5 pt-1 text-sm font-semibold leading-snug outline-none placeholder:opacity-40",
+          drawing && "pointer-events-none",
+        )}
+        style={{ color: ink }}
+        onChange={(e) => onUpdate({ title: e.target.value })}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+      <div
+        ref={ref}
+        contentEditable={!drawing}
+        role="textbox"
+        aria-label="Note body"
+        suppressContentEditableWarning
+        className={cn(
+          "min-h-12 w-full flex-1 bg-transparent px-3 py-1 text-sm leading-snug outline-none [&_ul]:list-disc [&_ul]:pl-4",
+          drawing && "pointer-events-none",
+        )}
+        style={{ color: ink }}
+        onInput={emitBody}
+        onBlur={emitBody}
+      />
+    </div>
   );
 }
 
@@ -107,7 +124,12 @@ export function NoteFormat({
   onPhoto: (files: FileList | null) => void;
 }) {
   return (
-    <div className="relative z-[4] flex flex-wrap items-center gap-0.5 px-1" style={{ color: ink }} onPointerDown={(e) => e.stopPropagation()}>
+    <div
+      className="relative z-[4] flex flex-wrap items-center gap-0.5 border-b border-current/10 px-1 pb-0.5"
+      style={{ color: ink }}
+      onPointerDown={(e) => e.stopPropagation()}
+      data-no-drag
+    >
       {(
         [
           ["bold", Bold, "Bold"],
@@ -117,49 +139,57 @@ export function NoteFormat({
           ["insertUnorderedList", List, "Bullets"],
         ] as const
       ).map(([cmd, Icon, label]) => (
-        <button
-          key={cmd}
-          type="button"
-          aria-label={label}
-          title={label}
-          className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => runCmd(cmd)}
-        >
-          <Icon className="size-3.5" />
-        </button>
+        <Tip key={cmd} label={label}>
+          <button
+            type="button"
+            aria-label={label}
+            className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runCmd(cmd)}
+          >
+            <Icon className="size-3.5" />
+          </button>
+        </Tip>
       ))}
-      <label className="flex size-8 cursor-pointer items-center justify-center rounded-sm hover:bg-black/10" title="Add picture">
-        <ImagePlus className="size-3.5" />
-        <input
-          type="file"
-          accept="image/*"
-          className="sr-only"
-          onChange={(e) => {
-            onPhoto(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </label>
-      <button
-        type="button"
-        aria-label={drawing ? "Stop drawing" : "Draw"}
-        aria-pressed={drawing}
-        title="Draw"
-        className={cn("flex size-8 items-center justify-center rounded-sm hover:bg-black/10", drawing && "bg-black/10")}
-        onClick={onDraw}
-      >
-        <Pencil className="size-3.5" />
-      </button>
-      {canUndo ? (
-        <button type="button" aria-label="Undo stroke" title="Undo stroke" className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10" onClick={onUndo}>
-          <Undo2 className="size-3.5" />
+      <Tip label="Add picture">
+        <label className="flex size-8 cursor-pointer items-center justify-center rounded-sm hover:bg-black/10">
+          <ImagePlus className="size-3.5" />
+          <span className="sr-only">Add picture</span>
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => {
+              onPhoto(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </Tip>
+      <Tip label={drawing ? "Stop drawing" : "Draw"}>
+        <button
+          type="button"
+          aria-label={drawing ? "Stop drawing" : "Draw"}
+          aria-pressed={drawing}
+          className={cn("flex size-8 items-center justify-center rounded-sm hover:bg-black/10", drawing && "bg-black/10")}
+          onClick={onDraw}
+        >
+          <Pencil className="size-3.5" />
         </button>
+      </Tip>
+      {canUndo ? (
+        <Tip label="Undo stroke">
+          <button type="button" aria-label="Undo stroke" className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10" onClick={onUndo}>
+            <Undo2 className="size-3.5" />
+          </button>
+        </Tip>
       ) : null}
       {canUndo ? (
-        <button type="button" aria-label="Clear drawing" title="Clear drawing" className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10" onClick={onClear}>
-          <Eraser className="size-3.5" />
-        </button>
+        <Tip label="Clear drawing">
+          <button type="button" aria-label="Clear drawing" className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10" onClick={onClear}>
+            <Eraser className="size-3.5" />
+          </button>
+        </Tip>
       ) : null}
     </div>
   );
@@ -183,19 +213,21 @@ export function NoteMore({
     return () => ac.abort();
   }, [open]);
   return (
-    <div ref={root} className="relative z-[4]" onPointerDown={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        aria-label="Note menu"
-        aria-expanded={open}
-        className="flex size-8 items-center justify-center rounded-sm opacity-0 hover:bg-black/10 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-70"
-        style={{ color: ink }}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <MoreHorizontal className="size-3.5" />
-      </button>
+    <div ref={root} className="relative z-[4]" onPointerDown={(e) => e.stopPropagation()} data-no-drag>
+      <Tip label="More">
+        <button
+          type="button"
+          aria-label="Note menu"
+          aria-expanded={open}
+          className="flex size-8 items-center justify-center rounded-sm opacity-0 hover:bg-black/10 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-70"
+          style={{ color: ink }}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <MoreHorizontal className="size-3.5" />
+        </button>
+      </Tip>
       {open ? (
-        <div className="absolute right-0 top-9 z-30 min-w-36 rounded-md bg-card p-1 text-card-foreground shadow-[var(--shadow-float)]">
+        <div data-desk-menu className="absolute right-0 top-9 z-30 min-w-36 rounded-md bg-card p-1 text-card-foreground shadow-[var(--shadow-float)]">
           {children}
         </div>
       ) : null}

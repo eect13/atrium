@@ -21,7 +21,7 @@ export function Providers({ children }: { children: ReactNode }) {
   );
   return (
     <QueryClientProvider client={client}>
-      <TooltipProvider delayDuration={350}>
+      <TooltipProvider delayDuration={400} skipDelayDuration={200} disableHoverableContent>
         <SwRegister />
         {children}
         <ThemedToaster />

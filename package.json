@@ -1,5 +1,5 @@
 {
-  "name": "app-builder-workspace",
+  "name": "atrium",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -18,7 +18,13 @@
     "check:auth": "node scripts/check-auth-invariant.mjs",
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/books.test.ts src/lib/dash.test.ts src/lib/desk-search.test.ts src/lib/desk.test.ts src/lib/feeds.test.ts src/lib/format.test.ts src/lib/issuer.test.ts src/lib/market-board.test.ts src/lib/pse-index.test.ts src/lib/quotes.test.ts src/lib/region.test.ts src/lib/research.test.ts src/lib/screener.test.ts src/lib/sparks.test.ts src/lib/yahoo.test.ts",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:windows": "node scripts/deploy.mjs",
+    "deploy:android": "node scripts/pack-android.mjs",
+    "desktop": "tauri dev",
+    "desktop:build": "tauri build",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -92,6 +98,9 @@
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.2.0"
-  }
+    "vite": "^8.2.0",
+    "@tauri-apps/cli": "^2.5.0"
+  },
+  "version": "1.1.0",
+  "description": "Atrium \u2014 personal command center (Asia/Manila, atrium.v1)."
 }

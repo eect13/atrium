@@ -435,7 +435,23 @@ export function CalendarPeek({
     else setView("calendar");
   };
   const grid = useMemo(() => monthCells(cursor), [cursor]);
-  const peekMonth = calPeek === "month";
+  const shell = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 360, h: 480 });
+  useEffect(() => {
+    const node = shell.current;
+    if (!node) return;
+    const measure = () => {
+      const r = node.getBoundingClientRect();
+      setBox({ w: r.width, h: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, []);
+  const roomy = box.w >= 320 && box.h >= 380;
+  const peekMonth =
+    calPeek === "month" ? true : calPeek === "week" ? false : roomy;
 
   useLayoutEffect(() => {
     if (peekMonth) return;
@@ -447,28 +463,26 @@ export function CalendarPeek({
 
   const modeBar = (
     <div className="mb-2 flex flex-wrap items-center gap-1">
-      <button
-        type="button"
-        aria-pressed={peekMonth}
-        className={cn(
-          "min-h-8 rounded-md px-2 text-xs",
-          peekMonth ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-        )}
-        onClick={() => setCalPeek("month")}
-      >
-        Month
-      </button>
-      <button
-        type="button"
-        aria-pressed={!peekMonth}
-        className={cn(
-          "min-h-8 rounded-md px-2 text-xs",
-          !peekMonth ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-        )}
-        onClick={() => setCalPeek("week")}
-      >
-        Day
-      </button>
+      {(
+        [
+          ["auto", "Auto"],
+          ["month", "Month"],
+          ["week", "Compact"],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={calPeek === id}
+          className={cn(
+            "min-h-8 rounded-md px-2 text-xs",
+            calPeek === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setCalPeek(id)}
+        >
+          {label}
+        </button>
+      ))}
       {peekMonth ? (
         <>
           <button
@@ -497,9 +511,38 @@ export function CalendarPeek({
     </div>
   );
 
+  const dayAgenda = (
+    <div className="mt-2 min-h-0 flex-1 overflow-auto">
+      <p className="mb-1 text-xs uppercase tracking-[0.06em] text-muted-foreground">
+        {fmtDate(manilaAt(day, 12).toISOString())}
+      </p>
+      {!list.length ? (
+        <p className="text-xs text-muted-foreground">No events</p>
+      ) : (
+        <div className="space-y-1">
+          {list.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              className="flex min-h-9 w-full flex-col items-start rounded-sm px-2 py-1 text-left"
+              style={{ boxShadow: `inset 3px 0 0 ${CAT_COLORS[e.cat]}` }}
+              onClick={() => pick(e)}
+            >
+              <span className="truncate text-sm">{e.title}</span>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {isAllDayEvent(e) ? "All day" : fmtWhen(e)}
+                {e.loc ? ` · ${e.loc}` : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   if (peekMonth) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div ref={shell} className="flex h-full min-h-0 flex-col">
         {modeBar}
         <div className="grid grid-cols-7 gap-0.5">
           {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
@@ -516,10 +559,7 @@ export function CalendarPeek({
               <button
                 key={key + (c.out ? "-out" : "")}
                 type="button"
-                onClick={() => {
-                  setDay(key);
-                  setCalPeek("week");
-                }}
+                onClick={() => setDay(key)}
                 className={cn(
                   "flex min-h-9 flex-col items-center justify-center rounded-sm text-xs tabular-nums",
                   c.out && "opacity-40",
@@ -528,15 +568,22 @@ export function CalendarPeek({
                 )}
               >
                 {c.day}
-                {count ? <span className={cn("mt-0.5 size-1 rounded-full", on ? "bg-primary-foreground" : "bg-ring")} /> : null}
+                {count ? (
+                  <span className="mt-0.5 flex gap-0.5">
+                    {Array.from({ length: Math.min(3, count) }).map((_, i) => (
+                      <span key={i} className={cn("size-1 rounded-full", on ? "bg-primary-foreground" : "bg-ring")} />
+                    ))}
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </div>
+        {dayAgenda}
         {embedded ? null : (
           <button
             type="button"
-            className="mt-3 text-left text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="mt-2 shrink-0 text-left text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             onClick={() => setView("calendar")}
           >
             Full calendar
@@ -547,7 +594,7 @@ export function CalendarPeek({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={shell} className="flex h-full min-h-0 flex-col">
       {modeBar}
       <div className="grid grid-cols-7 gap-1">
         {days.map((d) => {

@@ -26,4 +26,33 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
+/** Short native-feeling tip. Skips on coarse pointers (touch) so it never spam. */
+export function Tip({
+  label,
+  side = "bottom",
+  children,
+  disabled = false,
+}: {
+  label: string;
+  side?: "top" | "right" | "bottom" | "left";
+  children: React.ReactElement;
+  disabled?: boolean;
+}) {
+  const [fine, setFine] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const sync = () => setFine(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
+  if (disabled || !label || !fine) return children;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side}>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

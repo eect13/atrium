@@ -15,3 +15,10 @@ attachments
 AGENTS.md
 AGENTS.project.md
 .node_modules.lock
+
+# Tauri / native
+src-tauri/target
+src-tauri/gen
+.vercel
+deploy/android/*.apk
+deploy/windows/*-setup.exe

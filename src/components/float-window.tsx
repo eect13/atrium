@@ -1,34 +1,42 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { GripHorizontal, X } from "lucide-react";
-import { clampDesk, clampSize, resizeFrom, type ResizeCorner } from "@/lib/desk";
+import { X } from "lucide-react";
+import { clampDesk, clampSize, resizeFrom, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/components/ui/tooltip";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
 
-const CORNERS: { id: ResizeCorner; box: string; cursor: string; mark: string }[] = [
-  { id: "nw", box: "left-0 top-0 items-start justify-start", cursor: "cursor-nw-resize", mark: "border-l-2 border-t-2" },
-  { id: "ne", box: "right-0 top-0 items-start justify-end", cursor: "cursor-ne-resize", mark: "border-r-2 border-t-2" },
-  { id: "sw", box: "bottom-0 left-0 items-end justify-start", cursor: "cursor-sw-resize", mark: "border-b-2 border-l-2" },
-  { id: "se", box: "bottom-0 right-0 items-end justify-end", cursor: "cursor-se-resize", mark: "border-b-2 border-r-2" },
+type Handle = ResizeCorner | ResizeEdge;
+
+const HANDLES: { id: Handle; box: string; cursor: string }[] = [
+  { id: "n", box: "left-3 right-3 top-0 h-1.5", cursor: "cursor-n-resize" },
+  { id: "s", box: "left-3 right-3 bottom-0 h-1.5", cursor: "cursor-s-resize" },
+  { id: "e", box: "top-3 bottom-3 right-0 w-1.5", cursor: "cursor-e-resize" },
+  { id: "w", box: "top-3 bottom-3 left-0 w-1.5", cursor: "cursor-w-resize" },
+  { id: "nw", box: "left-0 top-0 size-3", cursor: "cursor-nw-resize" },
+  { id: "ne", box: "right-0 top-0 size-3", cursor: "cursor-ne-resize" },
+  { id: "sw", box: "bottom-0 left-0 size-3", cursor: "cursor-sw-resize" },
+  { id: "se", box: "bottom-0 right-0 size-3", cursor: "cursor-se-resize" },
 ];
 
 export function ResizeHandles({
   onCorner,
 }: {
-  onCorner: (e: React.PointerEvent, corner: ResizeCorner) => void;
+  onCorner: (e: React.PointerEvent, corner: Handle) => void;
 }) {
   return (
     <>
-      {CORNERS.map((c) => (
-        <button
+      {HANDLES.map((c) => (
+        <div
           key={c.id}
-          type="button"
+          role="separator"
           aria-label={`Resize ${c.id}`}
           className={cn(
-            "absolute z-[3] flex size-8 touch-none p-1.5 opacity-30 md:size-5 md:p-0.5 md:opacity-0 md:group-hover:opacity-50 md:group-focus-within:opacity-50",
+            "absolute z-[3] touch-none opacity-0 hover:opacity-100",
+            "before:absolute before:inset-0 before:bg-transparent",
             c.box,
             c.cursor,
           )}
@@ -36,9 +44,7 @@ export function ResizeHandles({
             e.stopPropagation();
             onCorner(e, c.id);
           }}
-        >
-          <span className={cn("block size-2.5 border-current", c.mark)} />
-        </button>
+        />
       ))}
     </>
   );
@@ -82,7 +88,7 @@ export function FloatWindow({
   const live = useRef({ x, y, w, h });
   if (!dragging.current) live.current = { x, y, w, h };
 
-  function drag(e: React.PointerEvent, kind: "move" | ResizeCorner) {
+  function drag(e: React.PointerEvent, kind: "move" | Handle) {
     if (e.button !== 0) return;
     if (e.cancelable) e.preventDefault();
     onRaise();
@@ -162,39 +168,38 @@ export function FloatWindow({
     >
       <header
         className={cn(
-          "relative z-[2] flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
+          "relative z-[2] flex h-10 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
           paper ? "border-current/20" : "border-border bg-muted",
         )}
         onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest("button,input,label")) return;
+          if ((e.target as HTMLElement).closest("button,input,label,a,[data-no-drag]")) return;
           drag(e, "move");
         }}
       >
         <span
           className={cn(
-            "shrink-0 truncate px-1.5 text-xs font-medium uppercase tracking-[0.06em]",
-            paper ? "opacity-70" : "text-muted-foreground",
+            "min-w-0 grow truncate px-1.5 text-xs font-medium tracking-wide",
+            paper ? "opacity-80" : "text-muted-foreground",
           )}
         >
           {title}
         </span>
-        <span className="flex min-w-0 grow justify-center" aria-hidden>
-          <GripHorizontal className={cn("size-4 opacity-0 group-hover:opacity-40", paper ? "" : "text-muted-foreground")} />
-        </span>
-        {extra ? <span className="relative z-[4] flex items-center">{extra}</span> : null}
-        <button
-          type="button"
-          className={cn(
-            "relative z-[4] flex size-9 items-center justify-center rounded-sm",
-            paper
-              ? "opacity-70 hover:bg-black/10 hover:opacity-100"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-          )}
-          aria-label="Close window"
-          onClick={onClose}
-        >
-          <X className="size-4" />
-        </button>
+        {extra ? <span className="relative z-[4] flex shrink-0 items-center" data-no-drag>{extra}</span> : null}
+        <Tip label="Close">
+          <button
+            type="button"
+            className={cn(
+              "relative z-[4] flex size-8 shrink-0 items-center justify-center rounded-sm",
+              paper
+                ? "opacity-70 hover:bg-black/10 hover:opacity-100"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            aria-label="Close window"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </Tip>
       </header>
       <div className="scroll-auto min-h-0 flex-1 bg-inherit p-3">{children}</div>
       <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />

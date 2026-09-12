@@ -16,8 +16,8 @@ import {
 } from "@/components/note-pad";
 import { ResizeHandles } from "@/components/float-window";
 import { Button } from "@/components/ui/button";
-import { resizeFrom, type ResizeCorner } from "@/lib/desk";
-import { inkOnPaper, NOTE_COLORS, notePlain, uid } from "@/lib/format";
+import { resizeFrom, type ResizeHandle } from "@/lib/desk";
+import { inkOnPaper, NOTE_COLORS, notePlain, noteTitle, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
 import { Chip } from "./finance-chip";
@@ -61,8 +61,8 @@ export function NotesView() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="font-display text-2xl font-medium tracking-tight">Sticky notes</h2>
         <p className="text-sm text-muted-foreground">
-          <span className="lg:hidden">Board or list. Pin is for the desktop desk.</span>
-          <span className="hidden lg:inline">Drag the top bar. Type, format, add a picture. Corners resize.</span>
+          <span className="lg:hidden">Board or list. Pin floats on the desk.</span>
+          <span className="hidden lg:inline">Title + body, colors, format tools. Drag the title bar; edges resize.</span>
         </p>
         <div className="grow" />
         <Chip active={layout === "list"} onClick={() => setNotesLayout("list")}>
@@ -106,7 +106,7 @@ export function NotesView() {
                 />
                 <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />
                 <NoteEditor note={n} ink={ink} drawing={false} onUpdate={(patch) => updateNote(n.id, patch)} />
-                <div className="flex items-center justify-between px-1 pb-1 text-xs" style={{ color: ink, opacity: 0.7 }}>
+                <div className="flex items-center justify-between gap-2 px-2 pb-2 text-xs" style={{ color: ink, opacity: 0.75 }}>
                   <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
                   <div className="flex">
                     <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={() => pinNote(n.id)}>
@@ -167,7 +167,7 @@ export function NotesView() {
           {pinned.map((n) => (
             <div key={n.id} className="flex items-center gap-2 border-b border-border py-2">
               <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} />
-              <span className="min-w-0 grow truncate text-sm">{notePlain(n.html, n.text).split("\n")[0] || "Untitled"}</span>
+              <span className="min-w-0 grow truncate text-sm font-medium">{noteTitle(n)}</span>
               <Button variant="ghost" size="sm" onClick={() => unpinNote(n.id)}>
                 Unpin
               </Button>
@@ -211,7 +211,7 @@ function BoardNote({
   const ink = inkOnPaper(note.color);
   const article = useRef<HTMLElement>(null);
 
-  function drag(e: React.PointerEvent, kind: "move" | ResizeCorner) {
+  function drag(e: React.PointerEvent, kind: "move" | ResizeHandle) {
     if (e.button !== 0) return;
     onRaise();
     const el = article.current;
@@ -273,15 +273,14 @@ function BoardNote({
       }}
     >
       <header
-        className="relative z-[2] flex h-8 shrink-0 cursor-grab touch-none items-center px-1 active:cursor-grabbing"
+        className="relative z-[2] flex h-9 shrink-0 cursor-grab touch-none items-center gap-1 border-b border-current/10 px-1 active:cursor-grabbing"
         onPointerDown={(e) => {
           if (drawing) return;
-          if ((e.target as HTMLElement).closest("button,input,label")) return;
+          if ((e.target as HTMLElement).closest("button,input,label,[data-no-drag]")) return;
           drag(e, "move");
         }}
       >
-        <span className="sr-only">Drag note</span>
-        <div className="grow" />
+        <span className="min-w-0 grow truncate px-1.5 text-xs font-semibold opacity-80">{noteTitle(note)}</span>
         <NoteMore ink={ink}>
           <div className="px-1 py-1">
             <NoteColor color={note.color} onChange={(color) => onUpdate({ color })} ink={ink} />
@@ -293,7 +292,7 @@ function BoardNote({
           <MenuRow onClick={onDelete}>Delete</MenuRow>
         </NoteMore>
       </header>
-      <div className="max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+      <div className="max-md:opacity-100 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100">
         <NoteFormat
           ink={ink}
           drawing={drawing}

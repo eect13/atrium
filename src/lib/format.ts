@@ -481,3 +481,13 @@ export function staleTagline(raw?: string) {
   if (!line || line === "Local-first desk" || line === "Local-first · Asia/Manila") return "";
   return line.slice(0, 48);
 }
+
+
+/** Display title for a sticky note — explicit title, else first body line. */
+export function noteTitle(note: { title?: string; html?: string; text: string }) {
+  const t = (note.title ?? "").trim();
+  if (t) return t;
+  const body = notePlain(note.html, note.text).trim();
+  const line = body.split("\n").find((l) => l.trim()) ?? "";
+  return line.trim() || "Untitled";
+}

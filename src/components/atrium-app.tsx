@@ -14,7 +14,7 @@ import {
   Settings2,
   Wallet,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { DesktopLayer } from "@/components/desktop-layer";
@@ -25,11 +25,18 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CalendarView } from "@/components/views/calendar-view";
 import { DashboardView } from "@/components/views/dashboard-view";
-import { FinanceView } from "@/components/views/finance-view";
-import { NewsView } from "@/components/views/news-view";
 import { NotesView } from "@/components/views/notes-view";
 import { OptionsView } from "@/components/views/options-view";
-import { QuotesView } from "@/components/views/quotes-view";
+
+const FinanceView = lazy(() =>
+  import("@/components/views/finance-view").then((m) => ({ default: m.FinanceView })),
+);
+const NewsView = lazy(() =>
+  import("@/components/views/news-view").then((m) => ({ default: m.NewsView })),
+);
+const QuotesView = lazy(() =>
+  import("@/components/views/quotes-view").then((m) => ({ default: m.QuotesView })),
+);
 import { DeskMenu, WarmQueries } from "@/components/widgets";
 import { resolveCommand, suggestCommands } from "@/lib/desk-search";
 import { fetchFeed } from "@/lib/feeds";
@@ -94,6 +101,10 @@ async function pullFeeds(list: Feed[]) {
     else failed += 1;
   }
   return { items, failed };
+}
+
+function ViewFallback() {
+  return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
 }
 
 function DeskClock() {
@@ -619,15 +630,25 @@ export function AtriumApp() {
           )}
           {view === "calendar" && <CalendarView />}
           {view === "notes" && modules.notes && <NotesView />}
-          {view === "finance" && modules.finance && <FinanceView />}
-          {view === "quotes" && modules.quotes && <QuotesView />}
+          {view === "finance" && modules.finance && (
+            <Suspense fallback={<ViewFallback />}>
+              <FinanceView />
+            </Suspense>
+          )}
+          {view === "quotes" && modules.quotes && (
+            <Suspense fallback={<ViewFallback />}>
+              <QuotesView />
+            </Suspense>
+          )}
           {view === "news" && modules.news && (
-            <NewsView
+            <Suspense fallback={<ViewFallback />}>
+              <NewsView
               items={headlines}
               loading={news.isFetching}
               error={news.isError}
               onRefresh={() => void news.refetch()}
             />
+            </Suspense>
           )}
           {view === "options" && <OptionsView />}
         </main>
