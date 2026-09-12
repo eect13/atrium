@@ -78,6 +78,29 @@ html.light {
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  html:hover,
+  html:focus-within {
+    scrollbar-color: color-mix(in oklab, var(--color-foreground) 28%, transparent) transparent;
+  }
+  html::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  html::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  html::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 99px;
+  }
+  html:hover::-webkit-scrollbar-thumb,
+  html:focus-within::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--color-foreground) 22%, transparent);
+  }
   body {
     font-family: var(--font-sans);
   }
@@ -136,6 +159,25 @@ html.light {
     font-size: 7.5rem;
     line-height: 1;
     opacity: 0.1;
+  }
+  input[type="color"].color-wheel {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="color"].color-wheel::-webkit-color-swatch-wrapper {
+    padding: 3px;
+  }
+  input[type="color"].color-wheel::-webkit-color-swatch {
+    border: none;
+    border-radius: 4px;
+  }
+  input[type="color"].color-wheel::-moz-color-swatch {
+    border: none;
+    border-radius: 4px;
   }
 }
 

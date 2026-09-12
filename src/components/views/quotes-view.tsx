@@ -9,14 +9,7 @@ import { FloatBtn } from "@/components/widgets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  fetchQuotes,
-  nextQuoteSeed,
-  POPULAR_AUTHORS,
-  readQuoteSeed,
-  writeQuoteSession,
-  type DeskQuote,
-} from "@/lib/quotes";
+import { fetchQuotes, nextQuoteSeed, POPULAR_AUTHORS, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
 export function useDeskQuotes(mode: "random" | "popular" | "author", author = "", seed = "desk") {
@@ -48,15 +41,15 @@ function QuoteCard({
   return (
     <article
       className={cn(
-        "rounded-xl bg-card p-5 text-card-foreground shadow-[var(--shadow-border)]",
-        featured && "lg:col-span-2",
+        "rounded-xl bg-card text-card-foreground shadow-[var(--shadow-border)]",
+        featured ? "p-6 md:p-8" : "p-5",
       )}
     >
       <Quote className="mb-3 size-4 text-muted-foreground" aria-hidden />
-      <p className={cn("font-display leading-snug", featured ? "text-2xl md:text-3xl" : "text-lg")}>{q.text}</p>
+      <p className={cn("font-display leading-snug", featured ? "text-2xl md:text-4xl" : "text-lg")}>{q.text}</p>
       <p className="mt-4 text-sm text-muted-foreground">— {q.author}</p>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {onPick ? (
+      {onPick ? (
+        <div className="mt-4">
           <Button
             type="button"
             variant="outline"
@@ -68,16 +61,8 @@ function QuoteCard({
           >
             Use this
           </Button>
-        ) : null}
-        <a
-          href={q.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          BrainyQuote
-        </a>
-      </div>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -120,12 +105,16 @@ export function QuotesView() {
   }
 
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div className="mx-auto max-w-5xl">
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="min-w-0">
           <h2 className="font-display text-2xl font-medium tracking-tight">Quotes</h2>
           <p className="text-xs text-muted-foreground">
-            BrainyQuote daily feeds · new roll each session · search a person
+            {mode === "author" && search
+              ? `By ${search}`
+              : mode === "popular"
+                ? "Popular voices"
+                : "A new roll each session"}
           </p>
         </div>
         <FloatBtn kind="quote" />
@@ -141,7 +130,7 @@ export function QuotesView() {
       </div>
 
       <form
-        className="mb-5 flex flex-wrap gap-2"
+        className="mb-6 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           goAuthor(person);
@@ -150,17 +139,17 @@ export function QuotesView() {
         <Input
           value={person}
           onChange={(e) => setPerson(e.target.value)}
-          placeholder="Person — Einstein, Marcus Aurelius, Maya Angelou"
+          placeholder="Search a person — Einstein, Marcus Aurelius, Maya Angelou"
           className="h-11 min-w-0 flex-1"
           aria-label="Search quotes by person"
         />
-        <Button type="submit" className="h-11">
+        <Button type="submit" className="h-11 shrink-0">
           Search
         </Button>
       </form>
 
-      <div className="scroll-auto mb-5 flex flex-nowrap gap-2 overflow-x-auto pb-1 sm:flex-wrap">
-        {POPULAR_AUTHORS.slice(0, 12).map((a) => (
+      <div className="mb-6 hidden flex-wrap gap-2 sm:flex">
+        {POPULAR_AUTHORS.slice(0, 8).map((a) => (
           <Chip
             key={a.slug}
             active={mode === "author" && search.toLowerCase() === a.name.toLowerCase()}
@@ -175,13 +164,16 @@ export function QuotesView() {
       </div>
 
       {quotes.isPending && !list.length ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-48 rounded-xl" />
-          <Skeleton className="h-48 rounded-xl" />
+        <div className="space-y-4">
+          <Skeleton className="h-52 rounded-xl" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+          </div>
         </div>
       ) : quotes.isError ? (
         <p className="text-sm text-muted-foreground">
-          Couldn’t reach BrainyQuote.{" "}
+          Couldn’t load quotes.{" "}
           <button type="button" className="underline" onClick={() => void quotes.refetch()}>
             Retry
           </button>
@@ -189,19 +181,23 @@ export function QuotesView() {
       ) : !hero ? (
         <p className="text-sm text-muted-foreground">No quotes for that name. Try Einstein or Aurelius.</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
           <QuoteCard q={hero} featured onPick={pin} />
-          {rest.map((q) => (
-            <QuoteCard key={`${q.author}-${q.text}`} q={q} onPick={pin} />
-          ))}
+          {rest.length ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {rest.map((q) => (
+                <QuoteCard key={`${q.author}-${q.text}`} q={q} onPick={pin} />
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
       {quotes.data?.from === "local" ? (
         <p className="mt-4 text-xs text-muted-foreground">
-          BrainyQuote was quiet — showing the desk copy. Try again in a moment.
+          Public feed was quiet — showing the desk copy. Try Random again in a moment.
         </p>
       ) : (
-        <p className="mt-4 text-xs text-muted-foreground">Sourced from BrainyQuote for personal use.</p>
+        <p className="mt-4 text-xs text-muted-foreground">Source: public quote feed.</p>
       )}
     </div>
   );

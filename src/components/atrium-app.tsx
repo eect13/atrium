@@ -14,7 +14,7 @@ import {
   Settings2,
   Wallet,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { DesktopLayer } from "@/components/desktop-layer";
@@ -31,12 +31,16 @@ import { NotesView } from "@/components/views/notes-view";
 import { OptionsView } from "@/components/views/options-view";
 import { QuotesView } from "@/components/views/quotes-view";
 import { DeskMenu, WarmQueries } from "@/components/widgets";
+import { resolveCommand, suggestCommands } from "@/lib/desk-search";
 import { fetchFeed } from "@/lib/feeds";
 import { mixStories } from "@/lib/headline";
-import { TZ, NOTE_COLORS, isoDate, uid } from "@/lib/format";
+import { NOTE_COLORS, deskZone, isoDate, uid } from "@/lib/format";
+import { applyDeskRegion, regionOf } from "@/lib/region";
+import { useModHint } from "@/lib/keys";
 import { parseWhen } from "@/lib/parse-when";
 import { useAtrium } from "@/lib/store";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
+import { DEFAULT_TAGLINE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const NEWS_SNAP = "atrium.news.snap";
@@ -53,8 +57,12 @@ function readNewsSnap(ids: string[]): NewsItem[] | undefined {
 }
 
 function writeNewsSnap(ids: string[], items: NewsItem[]) {
-  if (typeof localStorage === "undefined" || !items.length) return;
+  if (typeof localStorage === "undefined") return;
   try {
+    if (!ids.length || !items.length) {
+      localStorage.removeItem(NEWS_SNAP);
+      return;
+    }
     localStorage.setItem(NEWS_SNAP, JSON.stringify({ key: ids.join(","), items }));
   } catch {
     /* quota */
@@ -71,7 +79,7 @@ const NAV: {
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "notes", label: "Notes", icon: NotebookPen, module: "notes" },
   { id: "finance", label: "Finance", icon: Wallet, module: "finance" },
-  { id: "quotes", label: "Quotes", icon: Quote },
+  { id: "quotes", label: "Quotes", icon: Quote, module: "quotes" },
   { id: "news", label: "News", icon: Newspaper, module: "news" },
 ];
 
@@ -88,25 +96,35 @@ async function pullFeeds(list: Feed[]) {
   return { items, failed };
 }
 
-function ManilaClock() {
+function DeskClock() {
+  const region = useAtrium((s) => s.profile.region);
   const [clock, setClock] = useState("");
   useEffect(() => {
-    const tick = () =>
+    applyDeskRegion(region);
+    const tick = () => {
+      const z = deskZone();
+      const r = regionOf(region);
       setClock(
-        new Date().toLocaleString("en-PH", {
+        `${new Date().toLocaleString(z.locale, {
           weekday: "short",
           hour: "numeric",
           minute: "2-digit",
           second: "2-digit",
-          timeZone: TZ,
-        }),
+          timeZone: z.tz,
+        })} · ${r.id}`,
       );
+    };
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [region]);
   return (
-    <span className="hidden tabular-nums text-xs text-muted-foreground lg:inline">{clock}</span>
+    <>
+      <span className="tabular-nums text-[0.65rem] uppercase tracking-[0.08em] text-muted-foreground lg:hidden">
+        {regionOf(region).id}
+      </span>
+      <span className="hidden tabular-nums text-xs text-muted-foreground lg:inline">{clock}</span>
+    </>
   );
 }
 
@@ -153,20 +171,27 @@ function RailFoot({
   onOptions,
   collapsed,
   onToggle,
+  tagline,
+  onTagline,
 }: {
   optionsOn: boolean;
   onOptions: () => void;
   collapsed?: boolean;
   onToggle?: () => void;
+  tagline: string;
+  onTagline: (v: string) => void;
 }) {
+  const [draft, setDraft] = useState(tagline);
+  useEffect(() => {
+    setDraft(tagline);
+  }, [tagline]);
   return (
     <div className="mt-auto border-t border-border pt-3">
-      <NavButton label="Options" icon={Settings2} on={optionsOn} onClick={onOptions} collapsed={collapsed} />
       {onToggle ? (
         <button
           type="button"
           className={cn(
-            "mt-1 flex min-h-11 w-full items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
+            "flex min-h-11 w-full items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
             collapsed ? "justify-center" : "gap-3 px-3",
           )}
           onClick={onToggle}
@@ -176,13 +201,42 @@ function RailFoot({
           {collapsed ? null : <span className="text-sm">Collapse</span>}
         </button>
       ) : null}
-      {collapsed ? null : <p className="px-3 pt-2 text-xs text-muted-foreground">Local-first · Asia/Manila</p>}
+      <NavButton label="Options" icon={Settings2} on={optionsOn} onClick={onOptions} collapsed={collapsed} />
+      {collapsed ? null : (
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => onTagline(draft.trim() || DEFAULT_TAGLINE)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          maxLength={48}
+          aria-label="Sidebar tagline"
+          className="mt-1 w-full bg-transparent px-3 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus:text-foreground"
+        />
+      )}
     </div>
   );
 }
 
 export function AtriumApp() {
-  const { view, setView, modules, toggleModule, addEvent, addNote, addTx, feeds, railCollapsed, setRailCollapsed } = useAtrium(
+  const {
+    view,
+    setView,
+    modules,
+    toggleModule,
+    addEvent,
+    addNote,
+    addTx,
+    feeds,
+    railCollapsed,
+    setRailCollapsed,
+    profile,
+    setProfile,
+    setMarketPrefs,
+    setBoardQuery,
+    setBoardFocus,
+  } = useAtrium(
     useShallow((s) => ({
       view: s.view,
       setView: s.setView,
@@ -194,11 +248,35 @@ export function AtriumApp() {
       feeds: s.feeds,
       railCollapsed: s.railCollapsed,
       setRailCollapsed: s.setRailCollapsed,
+      profile: s.profile,
+      setProfile: s.setProfile,
+      setMarketPrefs: s.setMarketPrefs,
+      setBoardQuery: s.setBoardQuery,
+      setBoardFocus: s.setBoardFocus,
     })),
   );
   const [cmd, setCmd] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [hit, setHit] = useState(-1);
+  const [omniBox, setOmniBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  const omniWrap = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const modHint = useModHint();
+  const hits = useMemo(() => suggestCommands(cmd), [cmd]);
+
+  useLayoutEffect(() => {
+    const el = omniWrap.current;
+    if (!el || !cmd.trim() || !hits.length) {
+      setOmniBox(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    setOmniBox({ top: r.bottom + 4, left: r.left, width: r.width });
+  }, [cmd, hits.length]);
+
+  useEffect(() => {
+    setHit(-1);
+  }, [cmd]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -215,45 +293,65 @@ export function AtriumApp() {
     return () => ac.abort();
   }, []);
 
+  useEffect(() => {
+    const ac = new AbortController();
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!omniWrap.current?.contains(e.target as Node)) setHit(-1);
+      },
+      { signal: ac.signal },
+    );
+    return () => ac.abort();
+  }, []);
+
   const enabledIds = feeds.filter((f) => f.enabled).map((f) => f.id);
+  const newsOn = modules.news && enabledIds.length > 0;
   const news = useQuery({
     queryKey: ["feeds", enabledIds],
-    enabled: modules.news,
+    enabled: newsOn,
     queryFn: async () => {
       const enabled = feeds.filter((f) => f.enabled);
-      const priority = enabled.filter((f) => f.id === "gnews" || f.id === "bbc" || f.id === "rappler");
-      const rest = enabled.filter((f) => !priority.some((p) => p.id === f.id));
-      const first = await pullFeeds(priority.length ? priority : enabled.slice(0, 2));
-      if (rest.length) {
-        void pullFeeds(rest).then((more) => {
-          const mixed = mixStories([...first.items, ...more.items], 40);
+      if (!enabled.length) return [];
+      const items: NewsItem[] = [];
+      let failed = 0;
+      const size = 4;
+      for (let i = 0; i < enabled.length; i += size) {
+        const batch = await pullFeeds(enabled.slice(i, i + size));
+        items.push(...batch.items);
+        failed += batch.failed;
+        if (i + size < enabled.length && items.length) {
+          const mixed = mixStories(items, 40);
           writeNewsSnap(enabledIds, mixed);
           queryClient.setQueryData(["feeds", enabledIds], mixed);
-        });
+        }
       }
-      if (!first.items.length && first.failed) throw new Error("feeds");
-      const mixed = mixStories(first.items, 40);
+      if (!items.length && failed) throw new Error("feeds");
+      const mixed = mixStories(items, 40);
       writeNewsSnap(enabledIds, mixed);
       return mixed;
     },
     staleTime: 15 * 60_000,
     gcTime: 60 * 60_000,
-    placeholderData: (prev) => prev ?? readNewsSnap(enabledIds),
+    placeholderData: (prev) => {
+      if (!newsOn) return [];
+      return prev ?? readNewsSnap(enabledIds);
+    },
   });
 
   function runCommand(raw: string) {
     const s = raw.trim();
     if (!s) return;
     setCmd("");
-    if (/^(note:|sticky:)/i.test(s)) {
-      const text = s.replace(/^(note:|sticky:)/i, "").trim();
-      if (!text) {
+    const cmd = resolveCommand(s);
+    if (cmd.type === "note") {
+      if (!cmd.text) {
         toast("Write something after note:");
         return;
       }
       addNote({
         id: uid(),
-        text,
+        text: cmd.text,
         color: NOTE_COLORS[0],
         x: 40,
         y: 40,
@@ -262,40 +360,57 @@ export function AtriumApp() {
         h: 176,
         pinned: false,
       });
+      if (!modules.notes) toggleModule("notes");
       setView("notes");
       toast("Note added");
       return;
     }
-    if (/^(spend|paid|expense)\s/i.test(s)) {
-      const rest = s.replace(/^(spend|paid|expense)\s/i, "").trim();
-      const num = rest.match(/-?\d[\d,]*(?:\.\d+)?/);
-      if (!num) {
-        toast("Need an amount — try spend 500 Grab");
-        return;
-      }
-      const amount = -Math.abs(Number(num[0].replaceAll(",", "")));
-      if (!Number.isFinite(amount) || amount === 0) {
-        toast("Need an amount — try spend 500 Grab");
-        return;
-      }
-      const payee = rest.replace(num[0], "").replace(/\s+/g, " ").trim() || "Expense";
+    if (cmd.type === "spend") {
       addTx({
         id: uid(),
         date: isoDate(),
-        payee,
-        amount,
+        payee: cmd.payee,
+        amount: cmd.amount,
         cat: "other",
         kind: "expense",
         status: "cleared",
       });
+      if (!modules.finance) toggleModule("finance");
+      setMarketPrefs({ home: "books", showBooks: true });
       setView("finance");
       toast("Logged expense");
       return;
     }
-    const ev = parseWhen(s);
-    addEvent({ id: uid(), ...ev, cat: "personal", loc: "", source: "local" });
-    setView("calendar");
-    toast("Event: " + ev.title);
+    if (cmd.type === "view") {
+      go(cmd.view);
+      return;
+    }
+    if (cmd.type === "ticker") {
+      if (!modules.finance) toggleModule("finance");
+      setMarketPrefs({ tab: cmd.tab, home: "markets", showMarkets: true });
+      setBoardQuery(cmd.item.label);
+      setBoardFocus(cmd.item.symbol);
+      setView("finance");
+      toast(cmd.item.label);
+      return;
+    }
+    if (cmd.type === "search") {
+      if (!modules.finance) toggleModule("finance");
+      setMarketPrefs({ home: "markets", showMarkets: true });
+      setBoardQuery(cmd.query);
+      setBoardFocus(null);
+      setView("finance");
+      toast(`Search “${cmd.query}”`);
+      return;
+    }
+    if (cmd.type === "event") {
+      const ev = parseWhen(cmd.text);
+      addEvent({ id: uid(), ...ev, cat: "personal", loc: "", source: "local" });
+      setView("calendar");
+      toast("Event: " + ev.title);
+      return;
+    }
+    toast("Nothing matched — try BDO, finance, or Lunch Friday 1pm");
   }
 
   function go(id: ViewId) {
@@ -306,8 +421,8 @@ export function AtriumApp() {
   }
 
   const title = view === "options" ? "Options" : (NAV.find((n) => n.id === view)?.label ?? "Atrium");
-  const headlines = news.data ?? [];
-  const newsLoading = news.isPending && !headlines.length;
+  const headlines = newsOn ? (news.data ?? []) : [];
+  const newsLoading = newsOn && news.isLoading && !headlines.length;
 
   const navButtons = NAV.map((n) => {
     const off = Boolean(n.module && !modules[n.module]);
@@ -356,6 +471,8 @@ export function AtriumApp() {
           onOptions={() => go("options")}
           collapsed={railCollapsed}
           onToggle={() => setRailCollapsed(!railCollapsed)}
+          tagline={profile.tagline}
+          onTagline={(tagline) => setProfile({ tagline })}
         />
       </aside>
 
@@ -384,7 +501,16 @@ export function AtriumApp() {
               );
             })}
           </nav>
-          <RailFoot optionsOn={view === "options"} onOptions={() => go("options")} />
+          <RailFoot
+            optionsOn={view === "options"}
+            onOptions={() => go("options")}
+            onToggle={() => {
+              setRailCollapsed(true);
+              setMenuOpen(false);
+            }}
+            tagline={profile.tagline}
+            onTagline={(tagline) => setProfile({ tagline })}
+          />
         </SheetContent>
       </Sheet>
 
@@ -406,9 +532,9 @@ export function AtriumApp() {
               </TooltipTrigger>
               <TooltipContent>Menu</TooltipContent>
             </Tooltip>
-            <p className="shrink-0 font-display text-lg leading-none lg:hidden">{title}</p>
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <p className="sr-only">{title}</p>
+            <div className="relative min-w-0 flex-1" ref={omniWrap}>
+              <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Input
@@ -416,42 +542,99 @@ export function AtriumApp() {
                     value={cmd}
                     onChange={(e) => setCmd(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") runCommand(cmd);
+                      if (e.key === "ArrowDown" && hits.length) {
+                        e.preventDefault();
+                        setHit((i) => (i + 1) % hits.length);
+                        return;
+                      }
+                      if (e.key === "ArrowUp" && hits.length) {
+                        e.preventDefault();
+                        setHit((i) => (i <= 0 ? hits.length - 1 : i - 1));
+                        return;
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setCmd("");
+                        setHit(-1);
+                        return;
+                      }
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const pick = hit >= 0 ? hits[hit] : undefined;
+                        runCommand(pick?.fill ?? cmd);
+                      }
                     }}
-                    placeholder="Command — event, note:, or spend"
+                    placeholder="Search"
                     autoComplete="off"
                     spellCheck={false}
-                    className="h-10 bg-muted pl-9 pr-12 text-base md:pr-16 md:text-sm"
+                    className="h-10 bg-muted pl-9 pr-3 text-base md:pr-16 md:text-sm"
                     aria-label="Command bar"
+                    aria-autocomplete="list"
+                    aria-expanded={Boolean(cmd.trim() && hits.length)}
+                    aria-controls="omni-hits"
                   />
                 </TooltipTrigger>
-                <TooltipContent>Lunch Friday 1pm · note: buy rice · spend 500 Grab</TooltipContent>
+                <TooltipContent>BDO · finance · note: buy rice · Lunch Friday 1pm</TooltipContent>
               </Tooltip>
               <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded-sm border border-border bg-background px-1.5 font-mono text-[0.65rem] leading-5 text-muted-foreground md:inline">
-                ⌘K
+                {modHint}
               </kbd>
+              {cmd.trim() && hits.length && omniBox ? (
+                <ul
+                  id="omni-hits"
+                  role="listbox"
+                  style={{ top: omniBox.top, left: omniBox.left, width: omniBox.width }}
+                  className="fixed z-[80] max-h-72 overflow-auto rounded-md border border-border bg-card py-1 shadow-[var(--shadow-border)]"
+                >
+                  {hits.map((h, i) => (
+                    <li key={h.id} role="option" aria-selected={i === hit}>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm",
+                          i === hit ? "bg-muted" : "hover:bg-muted",
+                        )}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          runCommand(h.fill);
+                        }}
+                      >
+                        <span className="truncate">{h.label}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">{h.hint}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
-            <ManilaClock />
+            <DeskClock />
             <DeskMenu />
             <ThemeToggle />
           </div>
         </header>
-        <main className="scroll-auto min-h-0 flex-1 bg-background p-4 pb-dock md:p-6 lg:pb-6">
+        <main className="scroll-auto min-h-0 min-w-0 flex-1 bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6">
           {view === "dashboard" && (
             <DashboardView headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
           )}
           {view === "calendar" && <CalendarView />}
           {view === "notes" && modules.notes && <NotesView />}
           {view === "finance" && modules.finance && <FinanceView />}
-          {view === "quotes" && <QuotesView />}
+          {view === "quotes" && modules.quotes && <QuotesView />}
           {view === "news" && modules.news && (
-            <NewsView items={headlines} loading={news.isFetching} onRefresh={() => void news.refetch()} />
+            <NewsView
+              items={headlines}
+              loading={news.isFetching}
+              error={news.isError}
+              onRefresh={() => void news.refetch()}
+            />
           )}
           {view === "options" && <OptionsView />}
         </main>
       </div>
 
-      <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+      <div className="pointer-events-none fixed inset-0 z-40 hidden lg:block">
+        <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+      </div>
     </div>
   );
 }

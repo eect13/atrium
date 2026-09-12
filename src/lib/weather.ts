@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { isoDate, manilaParts, TZ } from "./format";
+import { isoDate, manilaParts, deskZone } from "./format";
 
 export type WmoKind = "sun" | "partly" | "cloud" | "fog" | "drizzle" | "rain" | "snow" | "storm";
 
@@ -114,7 +114,7 @@ async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload |
   );
   url.searchParams.set("hourly", "temperature_2m,precipitation_probability");
   url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min");
-  url.searchParams.set("timezone", TZ);
+  url.searchParams.set("timezone", deskZone().tz);
   url.searchParams.set("forecast_days", "5");
   url.searchParams.set("forecast_hours", "24");
   try {
@@ -298,6 +298,10 @@ export const reversePlace = createServerFn({ method: "POST" })
       return { city: "", lat: data.lat, lon: data.lon };
     }
   });
+
+export function hasWeatherPin(p: { lat?: number | null; lon?: number | null }) {
+  return typeof p.lat === "number" && typeof p.lon === "number" && Number.isFinite(p.lat) && Number.isFinite(p.lon);
+}
 
 export function mapsPin(lat: number, lon: number, z = 15) {
   const q = `${lat},${lon}`;

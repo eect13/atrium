@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
-import { PinOff } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Eraser, Pencil, PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { FloatWindow } from "@/components/float-window";
+import { NoteColor } from "@/components/note-color";
+import { NoteInk } from "@/components/note-ink";
 import { WidgetBody } from "@/components/widgets";
 import { fitBox } from "@/lib/desk";
+import { inkOnPaper } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean }) {
+function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean }) {
   if (kind === "finance") return modules.finance;
   if (kind === "news") return modules.news;
+  if (kind === "quote") return modules.quotes !== false;
   return true;
 }
 
@@ -49,6 +54,7 @@ export function DesktopLayer({
       raise: s.raise,
     })),
   );
+  const [inkId, setInkId] = useState<string | null>(null);
   const pinned = modules.notes ? notes.filter((n) => n.pinned) : [];
   const floating = windows.filter((w) => allowed(w.kind, modules));
 
@@ -111,43 +117,85 @@ export function DesktopLayer({
           </FloatWindow>
         </div>
       ))}
-      {pinned.map((n) => (
-        <div key={n.id} className="pointer-events-auto">
-          <FloatWindow
-            x={n.x}
-            y={n.y}
-            z={n.z}
-            w={n.w}
-            h={n.h}
-            title="Note"
-            paper={n.color}
-            minW={180}
-            minH={120}
-            extra={
-              <button
-                type="button"
-                className="flex size-9 items-center justify-center rounded-sm text-ink/70 hover:bg-ink/10 hover:text-ink"
-                aria-label="Send back to board"
-                title="Send back to board"
-                onClick={() => unpinNote(n.id)}
-              >
-                <PinOff className="size-3.5" />
-              </button>
-            }
-            onMove={(x, y) => updateNote(n.id, { x, y })}
-            onResize={(w, h) => updateNote(n.id, { w, h })}
-            onRaise={() => raise("note", n.id)}
-            onClose={() => unpinNote(n.id)}
-          >
-            <textarea
-              className="h-full w-full resize-none bg-inherit text-sm leading-snug text-ink outline-none"
-              value={n.text}
-              placeholder="Write…"
-              onChange={(e) => updateNote(n.id, { text: e.target.value })}
-            />
-          </FloatWindow>
-        </div>
-      ))}
+      {pinned.map((n) => {
+        const ink = inkOnPaper(n.color);
+        const drawing = inkId === n.id;
+        return (
+          <div key={n.id} className="pointer-events-auto">
+            <FloatWindow
+              x={n.x}
+              y={n.y}
+              z={n.z}
+              w={n.w}
+              h={n.h}
+              title="Note"
+              paper={n.color}
+              minW={180}
+              minH={120}
+              extra={
+                <>
+                  <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100",
+                      drawing && "bg-black/10 opacity-100",
+                    )}
+                    aria-label={drawing ? "Stop drawing" : "Draw"}
+                    aria-pressed={drawing}
+                    title="Draw"
+                    onClick={() => setInkId((id) => (id === n.id ? null : n.id))}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  {(n.ink?.length ?? 0) > 0 ? (
+                    <button
+                      type="button"
+                      className="flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100"
+                      aria-label="Clear drawing"
+                      title="Clear drawing"
+                      onClick={() => updateNote(n.id, { ink: [] })}
+                    >
+                      <Eraser className="size-3.5" />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100"
+                    aria-label="Send back to board"
+                    title="Send back to board"
+                    onClick={() => unpinNote(n.id)}
+                  >
+                    <PinOff className="size-3.5" />
+                  </button>
+                </>
+              }
+              onMove={(x, y) => updateNote(n.id, { x, y })}
+              onResize={(w, h) => updateNote(n.id, { w, h })}
+              onRaise={() => raise("note", n.id)}
+              onClose={() => unpinNote(n.id)}
+            >
+              <div className="relative h-full min-h-0">
+                <NoteInk
+                  strokes={n.ink ?? []}
+                  color={ink}
+                  active={drawing}
+                  onChange={(inkStrokes) => updateNote(n.id, { ink: inkStrokes })}
+                />
+                <textarea
+                  className={cn(
+                    "relative z-[1] h-full w-full resize-none bg-transparent text-sm leading-snug text-ink outline-none",
+                    drawing && "pointer-events-none",
+                  )}
+                  value={n.text}
+                  placeholder="Write…"
+                  onChange={(e) => updateNote(n.id, { text: e.target.value })}
+                />
+              </div>
+            </FloatWindow>
+          </div>
+        );
+      })}
     </div>
   );
 }

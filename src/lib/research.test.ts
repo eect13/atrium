@@ -37,12 +37,15 @@ test("research PDF is a real PDF", () => {
   assert.equal(note.bias, "Bullish");
   assert.match(note.index, /PSEi/);
   assert.ok(note.technical.length >= 1);
+  assert.ok(note.suggestions.length >= 2);
   const bytes = researchPdf(note);
   const head = new TextDecoder().decode(bytes.slice(0, 8));
   assert.equal(head.startsWith("%PDF-1."), true);
   const body = new TextDecoder().decode(bytes);
   assert.match(body, /PSEi/);
-  assert.match(body, /TECHNICAL STANDPOINT/);
+  assert.match(body, /STANDPOINT/);
+  assert.match(body, /WATCH/);
+  assert.match(body, /RISK/);
   assert.match(body, /ATRIUM RESEARCH/);
 });
 
@@ -50,5 +53,8 @@ test("related news query is ticker-aware", () => {
   const url = relatedNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.match(url, /news\.google\.com\/rss\/search/);
   assert.match(decodeURIComponent(url), /BDO Unibank/);
+  assert.match(url, /gl=PH/);
+  const crypto = relatedNewsUrl({ label: "BTC", symbol: "bitcoin", name: "Bitcoin", kind: "crypto" });
+  assert.match(crypto, /gl=US/);
 });
 

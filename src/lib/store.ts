@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   applyTx,
+  booksTitle,
   demoBooks,
   emptyBooks,
   inferAccountKind,
@@ -10,6 +11,7 @@ import {
   normalizeBudget,
   normalizeTx,
   toBooksFile,
+  withoutCvc,
   writeBooksSnap,
 } from "./books";
 import { fitBox, placeWindow } from "./desk";
@@ -24,6 +26,7 @@ import type {
   FloatWin,
   MarketPrefs,
   ModuleId,
+  NotesLayout,
   Profile,
   QuoteCcy,
   StickyNote,
@@ -32,57 +35,28 @@ import type {
   WatchItem,
   WidgetKind,
 } from "./types";
-import { DEFAULT_MARKET_PREFS, QUOTE_CCY, WATCH_CATALOG } from "./types";
+import { applyDeskRegion, DEFAULT_REGION, regionOf } from "./region";
+import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
+import { asNewsTag } from "./headline";
+import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
+import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals } from "./types";
 
-export const DEFAULT_FEEDS: Feed[] = [
-  {
-    id: "gnews",
-    name: "Top stories",
-    url: "https://news.google.com/rss?hl=en-PH&gl=PH&ceid=PH:en",
-    category: "Top",
-    enabled: true,
-  },
-  {
-    id: "bbc",
-    name: "BBC World",
-    url: "https://feeds.bbci.co.uk/news/world/rss.xml",
-    category: "World",
-    enabled: true,
-  },
-  {
-    id: "verge",
-    name: "The Verge",
-    url: "https://www.theverge.com/rss/index.xml",
-    category: "Tech",
-    enabled: true,
-  },
-  {
-    id: "rappler",
-    name: "Rappler",
-    url: "https://www.rappler.com/feed/",
-    category: "PH",
-    enabled: true,
-  },
-  {
-    id: "bilyonaryo",
-    name: "Bilyonaryo",
-    url: "https://news.google.com/rss/search?q=site:bilyonaryo.com&hl=en-PH&gl=PH&ceid=PH:en",
-    category: "PH",
-    enabled: true,
-  },
-  {
-    id: "x",
-    name: "X",
-    url: "https://news.google.com/rss/search?q=site:x.com&hl=en-PH&gl=PH&ceid=PH:en",
-    category: "X",
-    enabled: true,
-  },
-];
+export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({ ...f, enabled: false }));
 
 function withDefaultFeeds(feeds: Feed[]) {
   const have = new Set(feeds.map((f) => f.id));
   const extra = DEFAULT_FEEDS.filter((f) => !have.has(f.id));
-  return extra.length ? [...feeds, ...extra] : feeds;
+  const catalog = new Map(DEFAULT_FEEDS.map((f) => [f.id, f]));
+  const next = extra.length ? [...feeds, ...extra] : feeds;
+  return next.map((f) => {
+    const def = catalog.get(f.id);
+    return {
+      ...f,
+      name: def?.name ?? f.name,
+      url: def?.url ?? f.url,
+      category: asNewsTag(def?.category ?? f.category),
+    };
+  });
 }
 
 function seedEvents(): CalendarEvent[] {
@@ -100,11 +74,11 @@ function seedEvents(): CalendarEvent[] {
     },
     {
       id: uid(),
-      title: "Lunch at home",
-      start: at(day, 12, 30),
-      end: at(day, 14),
-      cat: "family",
-      loc: "Las Piñas",
+      title: "Focus block",
+      start: at(day, 14),
+      end: at(day, 16),
+      cat: "work",
+      loc: "",
       source: "local",
     },
     {
@@ -127,10 +101,10 @@ function seedEvents(): CalendarEvent[] {
     },
     {
       id: uid(),
-      title: "Family day",
+      title: "Open day",
       start: fromManila(year, month, day + 3, 0).toISOString(),
       end: fromManila(year, month, day + 3, 23, 59).toISOString(),
-      cat: "family",
+      cat: "personal",
       loc: "",
       source: "local",
       allDay: true,
@@ -147,6 +121,7 @@ type Data = {
   modules: Modules;
   events: CalendarEvent[];
   notes: StickyNote[];
+  notesLayout: NotesLayout;
   windows: FloatWin[];
   books: Books;
   accounts: Account[];
@@ -157,6 +132,8 @@ type Data = {
   quoteCcy: QuoteCcy;
   marketPrefs: MarketPrefs;
   railCollapsed: boolean;
+  boardQuery: string;
+  boardFocus: string | null;
 };
 
 type State = Data & {
@@ -173,6 +150,7 @@ type State = Data & {
   removeNote: (id: string) => void;
   pinNote: (id: string) => void;
   unpinNote: (id: string) => void;
+  setNotesLayout: (v: NotesLayout) => void;
   openWindow: (kind: WidgetKind) => void;
   updateWindow: (id: string, patch: Partial<FloatWin>) => void;
   closeWindow: (id: string) => void;
@@ -185,6 +163,9 @@ type State = Data & {
   addAccount: (a: Account) => void;
   updateAccount: (id: string, patch: Partial<Account>) => void;
   removeAccount: (id: string, opts?: { unhook?: boolean }) => void;
+  updateBudget: (id: string, patch: Partial<Budget>) => void;
+  addBudget: (b: Budget) => void;
+  removeBudget: (id: string) => void;
   setBooks: (p: Partial<Books>) => void;
   replaceBooks: (file: { books: Books; accounts: Account[]; budgets: Budget[]; txs: Tx[] }, opts?: { snapshot?: boolean }) => void;
   clearBooks: () => void;
@@ -196,13 +177,47 @@ type State = Data & {
   setQuoteCcy: (ccy: QuoteCcy) => void;
   setMarketPrefs: (p: Partial<MarketPrefs>) => void;
   toggleFeed: (id: string) => void;
+  setFeedPack: (packId: string, on: boolean) => void;
   addFeed: (f: Feed) => void;
   removeFeed: (id: string) => void;
   setRailCollapsed: (v: boolean) => void;
+  setBoardQuery: (q: string) => void;
+  setBoardFocus: (id: string | null) => void;
   reset: () => void;
 };
 
 const SPARK_RANGE_IDS = ["1d", "1w", "1m", "3m", "6m", "1y"] as const;
+
+function asCoord(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function asProfile(raw?: Partial<Profile> | null, fallback?: Profile): Profile {
+  const name = typeof raw?.name === "string" ? raw.name : (fallback?.name ?? "");
+  const city = typeof raw?.city === "string" ? raw.city : (fallback?.city ?? "");
+  const demo = name === "Eric" && (city === "Las Piñas" || city === "Las Pinas");
+  const line = typeof raw?.tagline === "string" ? raw.tagline.trim() : (fallback?.tagline ?? "");
+  const tagline = !line || line === "Local-first · Asia/Manila" ? DEFAULT_TAGLINE : line.slice(0, 48);
+  if (demo) return { name: "", city: "", lat: null, lon: null, tagline, region: DEFAULT_REGION };
+  return {
+    name,
+    city,
+    lat: asCoord(raw?.lat ?? fallback?.lat),
+    lon: asCoord(raw?.lon ?? fallback?.lon),
+    tagline,
+    region: regionOf(raw?.region ?? fallback?.region).id,
+  };
+}
+
+function asBooksName(books: Books | undefined, profileName: string): Books | undefined {
+  if (!books) return books;
+  if (books.name === "Eric — personal books" || books.name === "Eric - personal books") {
+    return { ...books, name: booksTitle(profileName) };
+  }
+  return books;
+}
 
 function windowSize(kind: WidgetKind) {
   if (kind === "calendar") return { w: 440, h: 540 };
@@ -217,17 +232,17 @@ function snapBooks(slice: Pick<Data, "books" | "accounts" | "budgets" | "txs">) 
 }
 
 function initial(): Data {
-  const demo = demoBooks("Eric");
+  const demo = demoBooks();
   return {
-    profile: { name: "Eric", city: "Las Piñas", lat: 14.4508, lon: 120.9828 },
+    profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION },
     theme: "dark",
     view: "dashboard",
-    modules: { calendar: true, notes: true, finance: true, news: true },
+    modules: { calendar: true, notes: true, finance: true, news: true, quotes: true },
     events: seedEvents(),
     notes: [
       {
         id: uid(),
-        text: "Ship Atrium v1\nCalendar ICS, finance, briefing",
+        text: "Welcome to Atrium\nName the desk in Options.",
         color: NOTE_COLORS[0],
         x: 36,
         y: 36,
@@ -238,7 +253,7 @@ function initial(): Data {
       },
       {
         id: uid(),
-        text: "Read markets before 9am",
+        text: "Pin a city for weather",
         color: NOTE_COLORS[3],
         x: 48,
         y: 220,
@@ -248,16 +263,19 @@ function initial(): Data {
         pinned: false,
       },
     ],
+    notesLayout: "board",
     windows: [],
     books: demo.books,
     accounts: demo.accounts,
     budgets: demo.budgets,
     txs: demo.txs,
-    watch: WATCH_CATALOG.filter((w) => ["bdo", "sm", "jfc", "btc", "eth", "usdphp"].includes(w.id)),
+    watch: WATCH_CATALOG.filter((w) => ["bdo", "sm", "jfc", "btc", "eth", "usdphp", "spx", "gold"].includes(w.id)),
     feeds: DEFAULT_FEEDS,
     quoteCcy: "PHP",
     marketPrefs: { ...DEFAULT_MARKET_PREFS },
     railCollapsed: false,
+    boardQuery: "",
+    boardFocus: null,
   };
 }
 
@@ -322,15 +340,22 @@ export const useAtrium = create<State>()(
           if (id === "news" && !next.news) {
             windows = windows.filter((w) => w.kind !== "news");
           }
+          if (id === "quotes" && !next.quotes) {
+            windows = windows.filter((w) => w.kind !== "quote");
+          }
           return { modules: next, view, windows };
         }),
       setProfile: (p) =>
         set((s) => {
           const next = { ...s.profile, ...p };
-          const lat = Number(next.lat);
-          const lon = Number(next.lon);
-          next.lat = Number.isFinite(lat) ? lat : 14.4508;
-          next.lon = Number.isFinite(lon) ? lon : 120.9828;
+          next.lat = asCoord(next.lat);
+          next.lon = asCoord(next.lon);
+          const line = typeof next.tagline === "string" ? next.tagline.trim() : "";
+          next.tagline = (line || DEFAULT_TAGLINE).slice(0, 48);
+          if (typeof next.name === "string") next.name = next.name.trim();
+          if (typeof next.city === "string") next.city = next.city.trim();
+          next.region = regionOf(next.region).id;
+          applyDeskRegion(next.region);
           return { profile: next };
         }),
       addEvent: (e) => set((s) => ({ events: [...s.events, e] })),
@@ -382,6 +407,7 @@ export const useAtrium = create<State>()(
         set((s) => ({
           notes: s.notes.map((n) => (n.id === id ? { ...n, pinned: false, x: 32, y: 32 } : n)),
         })),
+      setNotesLayout: (notesLayout) => set({ notesLayout }),
       openWindow: (kind) =>
         set((s) => {
           const existing = s.windows.find((w) => w.kind === kind);
@@ -485,6 +511,25 @@ export const useAtrium = create<State>()(
           snapBooks({ books: s.books, accounts, budgets: s.budgets, txs });
           return { accounts, txs };
         }),
+      updateBudget: (id, patch) =>
+        set((s) => {
+          const budgets = s.budgets.map((b) => (b.id === id ? { ...b, ...patch } : b));
+          snapBooks({ books: s.books, accounts: s.accounts, budgets, txs: s.txs });
+          return { budgets };
+        }),
+      addBudget: (b) =>
+        set((s) => {
+          if (s.budgets.some((x) => x.id === b.id)) return s;
+          const budgets = [...s.budgets, b];
+          snapBooks({ books: s.books, accounts: s.accounts, budgets, txs: s.txs });
+          return { budgets };
+        }),
+      removeBudget: (id) =>
+        set((s) => {
+          const budgets = s.budgets.filter((b) => b.id !== id);
+          snapBooks({ books: s.books, accounts: s.accounts, budgets, txs: s.txs });
+          return { budgets };
+        }),
       setBooks: (p) =>
         set((s) => {
           const books = { ...s.books, ...p };
@@ -534,6 +579,13 @@ export const useAtrium = create<State>()(
         set((s) => ({
           feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
         })),
+      setFeedPack: (packId, on) =>
+        set((s) => {
+          const pack = FEED_PACKS.find((p) => p.id === packId);
+          if (!pack) return s;
+          const ids = new Set(pack.ids);
+          return { feeds: s.feeds.map((f) => (ids.has(f.id) ? { ...f, enabled: on } : f)) };
+        }),
       addFeed: (f) =>
         set((s) => {
           if (s.feeds.some((x) => x.url === f.url || x.id === f.id)) return s;
@@ -541,6 +593,8 @@ export const useAtrium = create<State>()(
         }),
       removeFeed: (id) => set((s) => ({ feeds: s.feeds.filter((f) => f.id !== id) })),
       setRailCollapsed: (railCollapsed) => set({ railCollapsed }),
+      setBoardQuery: (boardQuery) => set({ boardQuery }),
+      setBoardFocus: (boardFocus) => set({ boardFocus }),
       reset: () => {
         const next = initial();
         applyTheme(next.theme);
@@ -549,7 +603,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 15,
+      version: 22,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -599,7 +653,7 @@ export const useAtrium = create<State>()(
           };
         }
         if (version < 14) {
-          const demo = demoBooks(p.profile?.name ?? "Eric");
+          const demo = demoBooks(p.profile?.name ?? "");
           const accounts = (p.accounts ?? demo.accounts)
             .map((a, i) => normalizeAccount(a, i))
             .filter((a): a is Account => Boolean(a));
@@ -621,6 +675,84 @@ export const useAtrium = create<State>()(
             },
           };
         }
+        if (version < 16) {
+          const prev = p.profile;
+          const line = typeof prev?.tagline === "string" ? prev.tagline.trim() : "";
+          p = {
+            ...p,
+            profile: {
+              name: prev?.name ?? "",
+              city: prev?.city ?? "",
+              lat: asCoord(prev?.lat),
+              lon: asCoord(prev?.lon),
+              tagline: (line || DEFAULT_TAGLINE).slice(0, 48),
+              region: DEFAULT_REGION,
+            },
+          };
+        }
+        if (version < 17) {
+          const prev = p.profile;
+          const demoSeed = prev?.name === "Eric" && prev?.city === "Las Piñas";
+          const rawLine = typeof prev?.tagline === "string" ? prev.tagline.trim() : "";
+          const tagline =
+            !rawLine || rawLine === "Local-first · Asia/Manila" ? DEFAULT_TAGLINE : rawLine.slice(0, 48);
+          p = {
+            ...p,
+            feeds: withDefaultFeeds(p.feeds ?? []),
+            profile: demoSeed
+              ? { name: "", city: "", lat: null, lon: null, tagline, region: DEFAULT_REGION }
+              : {
+                  name: prev?.name ?? "",
+                  city: prev?.city ?? "",
+                  lat: asCoord(prev?.lat),
+                  lon: asCoord(prev?.lon),
+                  tagline,
+                  region: DEFAULT_REGION,
+                },
+            books:
+              p.books?.name === "Eric — personal books"
+                ? { ...p.books, name: booksTitle() }
+                : p.books,
+          };
+        }
+        if (version < 18) {
+          p = {
+            ...p,
+            feeds: withDefaultFeeds(p.feeds ?? []),
+            profile: asProfile(p.profile),
+            books: asBooksName(p.books, p.profile?.name ?? "") ?? p.books,
+          };
+        }
+        if (version < 19) {
+          p = {
+            ...p,
+            feeds: withDefaultFeeds(p.feeds ?? []).map((f) => ({ ...f, enabled: false })),
+          };
+        }
+        if (version < 20) {
+          p = {
+            ...p,
+            notesLayout: p.notesLayout === "list" ? "list" : "board",
+            accounts: (p.accounts ?? []).map((a) => (a ? withoutCvc(a) : a)),
+            books: p.books ? normalizeBooks(p.books) : p.books,
+          };
+        }
+        if (version < 21) {
+          p = { ...p, watch: withFactoryGlobals(p.watch ?? []) };
+        }
+        if (version < 22) {
+          p = {
+            ...p,
+            modules: {
+              calendar: true,
+              notes: true,
+              finance: true,
+              news: true,
+              quotes: true,
+              ...(p.modules ?? {}),
+            },
+          };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -630,9 +762,10 @@ export const useAtrium = create<State>()(
         modules: s.modules,
         events: s.events,
         notes: s.notes,
+        notesLayout: s.notesLayout,
         windows: s.windows,
         books: s.books,
-        accounts: s.accounts,
+        accounts: s.accounts.map(withoutCvc),
         budgets: s.budgets,
         txs: s.txs,
         watch: s.watch,
@@ -657,24 +790,21 @@ export const useAtrium = create<State>()(
                 persistedView === "options"
               ? persistedView
               : current.view;
-        const rawLat = Number(p.profile?.lat ?? current.profile.lat);
-        const rawLon = Number(p.profile?.lon ?? current.profile.lon);
         const demo = demoBooks(p.profile?.name ?? current.profile.name);
         const accounts = (p.accounts ?? current.accounts)
           .map((a, i) => normalizeAccount(a, i))
           .filter((a): a is Account => Boolean(a));
         const prefs = p.marketPrefs ?? current.marketPrefs;
         const sparkRaw = (prefs as { sparkRange?: string } | undefined)?.sparkRange ?? "";
+        const profile = asProfile(p.profile, current.profile);
+        const booksRaw = asBooksName(p.books ?? current.books, profile.name);
         return {
           ...current,
           ...p,
           view,
-          profile: {
-            ...current.profile,
-            ...(p.profile ?? {}),
-            lat: Number.isFinite(rawLat) ? rawLat : 14.4508,
-            lon: Number.isFinite(rawLon) ? rawLon : 120.9828,
-          },
+          boardQuery: current.boardQuery,
+          boardFocus: current.boardFocus,
+          profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,
             w: w.w ?? 300,
@@ -686,8 +816,9 @@ export const useAtrium = create<State>()(
             h: n.h ?? 176,
             pinned: n.pinned ?? false,
           })),
-          books: normalizeBooks(p.books ?? current.books ?? demo.books),
-          accounts: accounts.length ? accounts : current.accounts,
+          notesLayout: p.notesLayout === "list" ? "list" : "board",
+          books: normalizeBooks(booksRaw ?? current.books ?? demo.books),
+          accounts: (accounts.length ? accounts : current.accounts).map(withoutCvc),
           budgets: p.budgets ?? current.budgets,
           txs: p.txs ?? current.txs,
           watch: p.watch ?? current.watch,
@@ -696,6 +827,13 @@ export const useAtrium = create<State>()(
             ? ((p.quoteCcy as QuoteCcy) ?? "PHP")
             : current.quoteCcy,
           railCollapsed: Boolean(p.railCollapsed ?? current.railCollapsed),
+          modules: {
+            calendar: true,
+            notes: (p.modules?.notes ?? current.modules.notes) !== false,
+            finance: (p.modules?.finance ?? current.modules.finance) !== false,
+            news: (p.modules?.news ?? current.modules.news) !== false,
+            quotes: (p.modules?.quotes ?? current.modules.quotes) !== false,
+          },
           marketPrefs: {
             ...DEFAULT_MARKET_PREFS,
             ...current.marketPrefs,
@@ -706,11 +844,20 @@ export const useAtrium = create<State>()(
             sparkRange: SPARK_RANGE_IDS.includes(sparkRaw as (typeof SPARK_RANGE_IDS)[number])
               ? (sparkRaw as MarketPrefs["sparkRange"])
               : "3m",
+            showMarkets: prefs?.showMarkets !== false,
+            showBooks: prefs?.showBooks !== false,
+            cmdtyPhp: prefs?.cmdtyPhp === true,
+            screen: normalizeScreen((prefs as { screen?: string } | undefined)?.screen),
+            screenPe: normalizeScreenPe((prefs as { screenPe?: string } | undefined)?.screenPe),
+            screenCap: normalizeScreenCap((prefs as { screenCap?: string } | undefined)?.screenCap),
+            screenVol: normalizeScreenVol((prefs as { screenVol?: string } | undefined)?.screenVol),
+            screenYld: normalizeScreenYld((prefs as { screenYld?: string } | undefined)?.screenYld),
           },
         };
       },
       onRehydrateStorage: () => (state) => {
         if (state?.theme) applyTheme(state.theme);
+        applyDeskRegion(state?.profile?.region);
       },
     },
   ),

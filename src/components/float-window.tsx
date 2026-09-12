@@ -3,6 +3,7 @@
 import { useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { clampDesk, clampSize } from "@/lib/desk";
+import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
@@ -99,13 +100,14 @@ export function FloatWindow({
   }
 
   const geom = live.current;
+  const ink = paper ? inkOnPaper(paper) : undefined;
 
   return (
     <article
       ref={articleRef}
       className={cn(
         "absolute flex flex-col overflow-hidden rounded-lg shadow-[var(--shadow-float)]",
-        paper ? "text-ink" : "bg-card text-card-foreground",
+        paper ? "" : "bg-card text-card-foreground",
       )}
       style={{
         left: geom.x,
@@ -114,23 +116,24 @@ export function FloatWindow({
         height: geom.h,
         zIndex: z,
         backgroundColor: paper || undefined,
+        color: ink,
       }}
       onPointerDown={onRaise}
     >
       <header
         className={cn(
           "flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
-          paper ? "border-ink/20" : "border-border bg-muted",
+          paper ? "border-current/20" : "border-border bg-muted",
         )}
         onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest("button")) return;
+          if ((e.target as HTMLElement).closest("button,input,label")) return;
           drag(e, "move");
         }}
       >
         <span
           className={cn(
             "grow truncate px-1.5 text-xs font-medium uppercase tracking-[0.06em]",
-            paper ? "text-ink/70" : "text-muted-foreground",
+            paper ? "opacity-70" : "text-muted-foreground",
           )}
         >
           {title}
@@ -141,7 +144,7 @@ export function FloatWindow({
           className={cn(
             "flex size-9 items-center justify-center rounded-sm",
             paper
-              ? "text-ink/70 hover:bg-ink/10 hover:text-ink"
+              ? "opacity-70 hover:bg-black/10 hover:opacity-100"
               : "text-muted-foreground hover:bg-accent hover:text-foreground",
           )}
           aria-label="Close window"
@@ -150,13 +153,13 @@ export function FloatWindow({
           <X className="size-4" />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto bg-inherit p-3">{children}</div>
+      <div className="scroll-auto min-h-0 flex-1 bg-inherit p-3">{children}</div>
       <button
         type="button"
         aria-label="Resize window"
         className={cn(
           "absolute bottom-0 right-0 flex size-11 cursor-se-resize touch-none items-end justify-end p-2",
-          paper ? "text-ink/50" : "text-muted-foreground",
+          paper ? "opacity-50" : "text-muted-foreground",
         )}
         onPointerDown={(e) => drag(e, "resize")}
       >

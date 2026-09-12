@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { BINANCE_PAIRS, downsample } from "./market-board.ts";
 import { isoDate } from "./format.ts";
+import { fetchYahooSpark } from "./yahoo.ts";
 
 export const SPARK_RANGES = [
   { id: "1d", label: "1D", days: 1 },
@@ -109,7 +110,7 @@ export function rememberTape(quotes: Record<string, { id?: string; price: number
   const day = isoDate();
   const prev = readTape();
   for (const q of Object.values(quotes)) {
-    if (q.kind !== "stock" && q.kind !== "fx") continue;
+    if (q.kind !== "stock" && q.kind !== "fx" && q.kind !== "global" && q.kind !== "cmdty") continue;
     const id = q.id;
     if (!id || !Number.isFinite(q.price) || q.price <= 0) continue;
     const row = [...(prev[id] ?? [])];
@@ -200,7 +201,7 @@ export const fetchSparks = createServerFn({ method: "POST" })
   .validator(
     z.object({
       range: z.enum(["1d", "1w", "1m", "3m", "6m", "1y"]),
-      items: z.array(z.object({ id: z.string(), kind: z.enum(["crypto", "fx", "stock"]) })),
+      items: z.array(z.object({ id: z.string(), kind: z.enum(["crypto", "fx", "stock", "global", "cmdty"]) })),
     }),
   )
   .handler(async ({ data }): Promise<Record<string, number[]>> => {
@@ -230,6 +231,12 @@ export const fetchSparks = createServerFn({ method: "POST" })
             }),
           );
         }
+      } else if (item.kind === "global" || item.kind === "cmdty") {
+        jobs.push(
+          fetchYahooSpark(item.id, data.range).then((vals) => {
+            if (vals.length) out[item.id] = vals;
+          }),
+        );
       }
     }
     await Promise.allSettled(jobs);

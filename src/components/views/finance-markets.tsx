@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, FileDown, Plus, RefreshCw, Search, SlidersHorizontal, Star } from "lucide-react";
+import { ArrowLeftRight, FileDown, Plus, RefreshCw, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { ChangePill, Spark, TickMark } from "@/components/spark";
@@ -14,21 +14,41 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useMarkets } from "@/components/widgets";
-import { isoDate, moneyQuote, phpQuote, peso, vol } from "@/lib/format";
+import { deskZone, isoDate, moneyQuote, phpQuote, peso, vol } from "@/lib/format";
 import {
   BOARD_SORTS,
   BOARD_TABS,
+  PRIMARY_TABS,
+  PSE_TABS,
+  SCREEN_SORTS,
   displayLast,
+  kindBoardRows,
   matchQuery,
   pairLabel,
   positionPnl,
   positionValue,
+  rankByQuery,
   sortRows,
   stockBoardRows,
   turnover,
+  universeRows,
   type BoardRow,
   type BoardSort,
 } from "@/lib/market-board";
+import {
+  SESSION_SCREENS,
+  STYLE_SCREENS,
+  SECTOR_SCREENS,
+  SCREEN_CAPS,
+  SCREEN_PES,
+  SCREEN_VOLS,
+  SCREEN_YLDS,
+  applyScreenFilters,
+  capLabel,
+  peLabel,
+  screensOn,
+  yldLabel,
+} from "@/lib/screener";
 import { fetchPseIndex } from "@/lib/pse-index";
 import {
   SPARK_RANGES,
@@ -42,8 +62,10 @@ import { bustPseCache } from "@/lib/sw-client";
 import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
+import { searchTickers } from "@/lib/prices";
 import { buildResearch, downloadPdf, relatedNewsUrl, researchPdf } from "@/lib/research";
 import { fetchFeed } from "@/lib/feeds";
+import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 
@@ -71,8 +93,8 @@ function volLabel(q?: { kind: string; volume?: number; php?: number; price: numb
   if (!q) return "";
   const n = turnover(q);
   if (!n) return "";
-  if (q.kind === "crypto") return `Vol ${vol(n)}`;
-  return `Vol ${phpQuote(n)}`;
+  if (q.kind === "stock") return `Vol ${phpQuote(n)}`;
+  return `Vol ${vol(n)}`;
 }
 
 function parseNum(s: string): number | undefined {
@@ -93,7 +115,7 @@ function sparkOf(
   const days = SPARK_RANGES.find((r) => r.id === range)?.days ?? 90;
   const tape = tapeSpark(item.symbol, days) ?? tapeSpark(item.id, days);
   if (tape && tape.length >= 3) return tape;
-  if (item.kind === "crypto" && q?.spark && q.spark.length >= 8 && (range === "1w" || range === "1d")) {
+  if ((item.kind === "crypto" || item.kind === "global" || item.kind === "cmdty") && q?.spark && q.spark.length >= 8 && (range === "1w" || range === "1d")) {
     return q.spark;
   }
   if (!q?.price || q.price <= 0) return undefined;
@@ -134,6 +156,10 @@ export function FinanceMarkets() {
     updateWatch,
     setQuoteCcy,
     setMarketPrefs,
+    boardQuery,
+    setBoardQuery,
+    boardFocus,
+    setBoardFocus,
   } = useAtrium(
     useShallow((s) => ({
       watch: s.watch,
@@ -145,16 +171,23 @@ export function FinanceMarkets() {
       updateWatch: s.updateWatch,
       setQuoteCcy: s.setQuoteCcy,
       setMarketPrefs: s.setMarketPrefs,
+      boardQuery: s.boardQuery,
+      setBoardQuery: s.setBoardQuery,
+      boardFocus: s.boardFocus,
+      setBoardFocus: s.setBoardFocus,
     })),
   );
   const [fromUnit, setFromUnit] = useState<(typeof FX_UNITS)[number]>("USD");
   const [toUnit, setToUnit] = useState<(typeof FX_UNITS)[number]>("PHP");
   const [fxAmt, setFxAmt] = useState("100");
-  const [query, setQuery] = useState("");
+  const [fxOpen, setFxOpen] = useState(false);
+  const query = boardQuery;
+  const setQuery = setBoardQuery;
   const [open, setOpen] = useState<BoardRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [addQuery, setAddQuery] = useState("");
+  const [addNeedle, setAddNeedle] = useState("");
   const queryClient = useQueryClient();
 
   const tab = marketPrefs.tab;
@@ -178,10 +211,24 @@ export function FinanceMarkets() {
   useEffect(() => {
     rememberTape(quotes);
   }, [quotes]);
+  useEffect(() => {
+    if (!addOpen) return;
+    const t = window.setTimeout(() => setAddNeedle(addQuery.trim()), 280);
+    return () => window.clearTimeout(t);
+  }, [addQuery, addOpen]);
+
+  const remoteAdd = useQuery({
+    queryKey: ["ticker-search", addNeedle],
+    queryFn: () => searchTickers({ data: { q: addNeedle } }),
+    enabled: addOpen && addNeedle.length >= 1,
+    staleTime: 60_000,
+  });
   const tape = [
     quotes.BDO,
     quotes.ICT,
     quotes.SM,
+    quotes["^GSPC"],
+    quotes["GC=F"],
     quotes.USDPHP,
     quotes.bitcoin ?? quotes.BTC,
     quotes.ethereum ?? quotes.ETH,
@@ -191,19 +238,22 @@ export function FinanceMarkets() {
   const watched = (item: WatchItem) => watch.find((w) => w.symbol === item.symbol || w.id === item.id);
 
   const sparkItems = useMemo(() => {
-    const out: { id: string; kind: "crypto" | "fx" | "stock" }[] = [];
+    const out: { id: string; kind: WatchItem["kind"] }[] = [];
     const seen = new Set<string>();
-    const push = (id: string, kind: "crypto" | "fx" | "stock") => {
+    const push = (id: string, kind: WatchItem["kind"]) => {
       if (!id || seen.has(id)) return;
       seen.add(id);
       out.push({ id, kind });
     };
-    for (const w of watch) push(w.kind === "crypto" ? w.symbol : w.symbol, w.kind);
-    for (const q of Object.values(quotes)) {
-      if (q.kind === "crypto" || q.kind === "fx") push(q.id, q.kind);
+    for (const w of watch) push(w.symbol, w.kind);
+    if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
+      for (const c of WATCH_CATALOG.filter((w) => w.kind === tab)) push(c.symbol, c.kind);
     }
-    return out.slice(0, 40);
-  }, [watch, quotes]);
+    if (tab === "screen") {
+      for (const q of markets.data?.screen ?? []) push(q.id, "global");
+    }
+    return out.slice(0, 24);
+  }, [watch, tab, markets.data?.screen]);
 
   const sparkQ = useQuery({
     queryKey: ["sparks", range, sparkItems.map((i) => i.id).join(",")],
@@ -214,40 +264,59 @@ export function FinanceMarkets() {
   const remoteSparks = sparkQ.data ?? {};
 
   const rows = useMemo(() => {
-    const list: BoardRow[] = [];
-    if (tab === "watcher" || tab === "starred") {
-      const src = tab === "starred" ? watch.filter((w) => w.starred) : watch;
-      for (const w of src) {
-        list.push({ key: w.id, item: w, q: quotes[w.symbol], watching: true });
-      }
-    } else if (tab === "crypto") {
-      const coins = Object.values(quotes).filter((q) => q.kind === "crypto");
-      const seen = new Set<string>();
-      for (const q of coins) {
-        seen.add(q.id);
-        list.push({ key: q.id, item: asItem(q, "crypto"), q, watching: watching(asItem(q, "crypto")) });
-      }
-      for (const c of WATCH_CATALOG.filter((w) => w.kind === "crypto")) {
-        if (seen.has(c.symbol)) continue;
-        list.push({ key: c.id, item: c, q: quotes[c.symbol], watching: watching(c) });
-      }
-    } else if (tab === "fx") {
-      for (const q of Object.values(quotes).filter((x) => x.kind === "fx")) {
-        list.push({ key: q.id, item: asItem(q, "fx"), q, watching: watching(asItem(q, "fx")) });
-      }
-    } else {
-      for (const r of stockBoardRows(tab, quotes, WATCH_CATALOG, watching, liveBlue)) {
-        list.push(r);
-      }
-    }
+    const searching = query.trim().length > 0;
+    const list: BoardRow[] = searching
+      ? universeRows(quotes, watch, WATCH_CATALOG, watching, liveBlue)
+      : (() => {
+          const out: BoardRow[] = [];
+          if (tab === "watcher" || tab === "starred") {
+            const src = tab === "starred" ? watch.filter((w) => w.starred) : watch;
+            for (const w of src) {
+              out.push({ key: w.id, item: w, q: quotes[w.symbol], watching: true });
+            }
+          } else if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
+            for (const r of kindBoardRows(tab, quotes, WATCH_CATALOG, watching)) out.push(r);
+          } else if (tab === "screen") {
+            const screened = applyScreenFilters(markets.data?.screen ?? [], {
+              pe: marketPrefs.screenPe,
+              cap: marketPrefs.screenCap,
+              vol: marketPrefs.screenVol,
+              yld: marketPrefs.screenYld,
+            });
+            for (const q of screened) {
+              const item = asItem(q, "global");
+              out.push({ key: q.id, item, q, watching: watching(item) });
+            }
+          } else {
+            for (const r of stockBoardRows(tab, quotes, WATCH_CATALOG, watching, liveBlue)) {
+              out.push(r);
+            }
+          }
+          return out;
+        })();
     const withSpark = list.map((r) => {
       const spark = sparkOf(r.item, r.q, range, remoteSparks);
       if (!spark || !r.q) return r;
       return { ...r, q: { ...r.q, spark } };
     });
     const filtered = withSpark.filter((r) => matchQuery(query, r.item));
-    return sortRows(filtered, sort, sortDir, { cryptoUsdt: marketPrefs.cryptoUsdt });
-  }, [tab, watch, quotes, query, sort, sortDir, marketPrefs.cryptoUsdt, liveBlue, range, remoteSparks]);
+    const sorted = sortRows(filtered, sort, sortDir, { cryptoUsdt: marketPrefs.cryptoUsdt });
+    return query.trim() ? rankByQuery(sorted, query) : sorted;
+  }, [tab, watch, quotes, query, sort, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen]);
+
+  useEffect(() => {
+    if (!boardFocus) return;
+    const needle = boardFocus.toUpperCase();
+    const hit = rows.find(
+      (r) =>
+        r.item.symbol.toUpperCase() === needle ||
+        r.item.label.toUpperCase() === needle ||
+        r.item.id.toUpperCase() === needle,
+    );
+    if (!hit) return;
+    setOpen(hit);
+    setBoardFocus(null);
+  }, [boardFocus, rows, setBoardFocus]);
 
   const addHits = useMemo(() => {
     const q = addQuery.trim().toLowerCase();
@@ -258,9 +327,28 @@ export function FinanceMarkets() {
       (item, i, all) => all.findIndex((x) => x.symbol === item.symbol) === i,
     );
     const free = pool.filter((item) => !watching(item));
-    if (!q) return free.slice(0, 16);
-    return free.filter((item) => matchQuery(q, item)).slice(0, 16);
-  }, [addQuery, quotes, watch]);
+    const local = !q ? free.slice(0, 12) : free.filter((item) => matchQuery(q, item)).slice(0, 12);
+    const seen = new Set(local.map((i) => i.symbol.toUpperCase()));
+    const remote = (remoteAdd.data ?? []).filter((item) => {
+      if (watching(item) || seen.has(item.symbol.toUpperCase())) return false;
+      seen.add(item.symbol.toUpperCase());
+      return true;
+    });
+    const typed = addNeedle.toUpperCase();
+    const extra =
+      /^[A-Z][A-Z0-9.=^-]{0,11}$/.test(typed) && !seen.has(typed) && !watch.some((w) => w.symbol.toUpperCase() === typed)
+        ? [
+            {
+              id: `yh-${typed}`,
+              symbol: typed,
+              label: typed,
+              name: "Add ticker",
+              kind: "global" as const,
+            },
+          ]
+        : [];
+    return [...local, ...remote, ...extra].slice(0, 16);
+  }, [addQuery, addNeedle, quotes, watch, remoteAdd.data]);
 
   const positions = useMemo(() => {
     return watch
@@ -277,7 +365,14 @@ export function FinanceMarkets() {
   const toPhp = fx ? fxToPhp(toUnit, fx) : 0;
   const converted = fromPhp && toPhp ? (Number(fxAmt) * fromPhp) / toPhp : 0;
   const compact = marketPrefs.compact;
-  const rowH = compact ? "min-h-11" : "min-h-14";
+  const screenFilterOn = screensOn({
+    pe: marketPrefs.screenPe,
+    cap: marketPrefs.screenCap,
+    vol: marketPrefs.screenVol,
+    yld: marketPrefs.screenYld,
+  });
+  const screenRawCount = markets.data?.screen?.length ?? 0;
+  const rowH = compact ? "min-h-11" : "min-h-11 sm:min-h-14";
   const totalValue = positions.reduce((s, p) => s + p.value, 0);
   const pnlParts = positions.map((p) => p.pnl).filter((n): n is number => n != null);
   const totalPnl = pnlParts.length ? pnlParts.reduce((a, b) => a + b, 0) : null;
@@ -305,14 +400,17 @@ export function FinanceMarkets() {
     if (pending) return <Skeleton className="ml-auto h-4 w-16" />;
     if (!shown) return <p className="text-sm text-muted-foreground">—</p>;
     const up = (q?.change ?? 0) >= 0;
+    const convert = q?.kind === "cmdty" ? marketPrefs.cmdtyPhp : marketPrefs.dualPhp;
     const phpUnder =
-      marketPrefs.dualPhp && shown.php != null && shown.ccy !== "PHP" ? phpQuote(shown.php) : null;
+      convert && shown.php != null && shown.ccy !== "PHP" ? phpQuote(shown.php) : null;
     return (
       <>
-        <p className={cn("tabular-nums text-sm", q?.change == null ? "" : up ? "text-ok" : "text-destructive")}>
+        <p className={cn("whitespace-nowrap tabular-nums text-sm", q?.change == null ? "" : up ? "text-ok" : "text-destructive")}>
           {moneyQuote(shown.price, shown.ccy)}
         </p>
-        {phpUnder ? <p className="text-xs tabular-nums text-muted-foreground">{phpUnder}</p> : null}
+        {phpUnder ? (
+          <p className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">{phpUnder}</p>
+        ) : null}
       </>
     );
   }
@@ -322,10 +420,13 @@ export function FinanceMarkets() {
     const holdVal = positionValue(held?.qty, r.q?.php);
     const parts = [
       r.item.name ?? r.item.kind,
+      peLabel(r.q?.pe),
+      r.q?.marketCap && (tab === "screen" || r.item.kind === "global") ? capLabel(r.q.marketCap) : "",
+      tab === "screen" && r.q?.yieldPct ? yldLabel(r.q.yieldPct) : "",
       marketPrefs.showVol ? volLabel(r.q) : "",
       holdVal > 0 ? peso(holdVal) : "",
-    ].filter(Boolean);
-    return parts.join(" · ");
+    ];
+    return parts.filter(Boolean).join(" · ");
   }
 
   return (
@@ -333,36 +434,190 @@ export function FinanceMarkets() {
       <div className="relative mb-3">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          className="h-11 pl-9"
+          className="h-11 pl-9 pr-11"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search coin, stock, pair…"
+          placeholder="BDO, AAPL, Gold, Bitcoin…"
           aria-label="Search markets"
         />
+        {query.trim() ? (
+          <button
+            type="button"
+            className="absolute right-1.5 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => setQuery("")}
+          >
+            <X className="size-4" />
+          </button>
+        ) : null}
       </div>
+      {query.trim() ? (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {rows.length === 1 ? "1 market" : `${rows.length} markets`} matching “{query.trim()}”
+        </p>
+      ) : null}
 
       <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
-        {BOARD_TABS.map((t) => (
-          <Chip key={t.id} active={tab === t.id} onClick={() => setMarketPrefs({ tab: t.id })}>
-            {t.label}
+        {PRIMARY_TABS.map((t) => (
+          <Chip key={t.id} active={tab === t.id || (t.id === "all" && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => setMarketPrefs({ tab: t.id })}>
+            {t.short ? (
+              <>
+                <span className="sm:hidden">{t.short}</span>
+                <span className="hidden sm:inline">{t.label}</span>
+              </>
+            ) : (
+              t.label
+            )}
           </Chip>
         ))}
       </div>
+      {tab === "all" || tab === "blue" || tab === "reit" || tab === "div" ? (
+        <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+          <Chip active={tab === "all"} onClick={() => setMarketPrefs({ tab: "all" })}>
+            PSE
+          </Chip>
+          {PSE_TABS.map((t) => (
+            <Chip key={t.id} active={tab === t.id} onClick={() => setMarketPrefs({ tab: t.id })}>
+              {t.label}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
+      {tab === "screen" ? (
+        <>
+          <div className="scroll-auto mb-2 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+            {SESSION_SCREENS.map((s) => (
+              <Chip
+                key={s.id}
+                active={(marketPrefs.screen ?? "day_gainers") === s.id}
+                onClick={() => setMarketPrefs({ screen: s.id })}
+              >
+                {s.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="scroll-auto mb-2 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+            {[...STYLE_SCREENS, ...SECTOR_SCREENS].map((s) => (
+              <Chip
+                key={s.id}
+                active={marketPrefs.screen === s.id}
+                onClick={() => setMarketPrefs({ screen: s.id })}
+              >
+                {s.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:hidden">
+            <select
+              aria-label="PE filter"
+              className={cn(FIELD_SELECT, "h-11")}
+              value={marketPrefs.screenPe ?? "any"}
+              onChange={(e) => setMarketPrefs({ screenPe: e.target.value as (typeof SCREEN_PES)[number]["id"] })}
+            >
+              {SCREEN_PES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Market cap filter"
+              className={cn(FIELD_SELECT, "h-11")}
+              value={marketPrefs.screenCap ?? "any"}
+              onChange={(e) => setMarketPrefs({ screenCap: e.target.value as (typeof SCREEN_CAPS)[number]["id"] })}
+            >
+              {SCREEN_CAPS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Volume filter"
+              className={cn(FIELD_SELECT, "h-11")}
+              value={marketPrefs.screenVol ?? "any"}
+              onChange={(e) => setMarketPrefs({ screenVol: e.target.value as (typeof SCREEN_VOLS)[number]["id"] })}
+            >
+              {SCREEN_VOLS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Yield filter"
+              className={cn(FIELD_SELECT, "h-11")}
+              value={marketPrefs.screenYld ?? "any"}
+              onChange={(e) => setMarketPrefs({ screenYld: e.target.value as (typeof SCREEN_YLDS)[number]["id"] })}
+            >
+              {SCREEN_YLDS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="mb-3 hidden flex-wrap items-center gap-1.5 sm:flex">
+            {SCREEN_PES.map((s) => (
+              <Chip key={s.id} active={(marketPrefs.screenPe ?? "any") === s.id} onClick={() => setMarketPrefs({ screenPe: s.id })}>
+                {s.label}
+              </Chip>
+            ))}
+            {SCREEN_CAPS.map((s) => (
+              <Chip key={`c-${s.id}`} active={(marketPrefs.screenCap ?? "any") === s.id} onClick={() => setMarketPrefs({ screenCap: s.id })}>
+                {s.label}
+              </Chip>
+            ))}
+            {SCREEN_VOLS.map((s) => (
+              <Chip key={`v-${s.id}`} active={(marketPrefs.screenVol ?? "any") === s.id} onClick={() => setMarketPrefs({ screenVol: s.id })}>
+                {s.label}
+              </Chip>
+            ))}
+            {SCREEN_YLDS.map((s) => (
+              <Chip key={`y-${s.id}`} active={(marketPrefs.screenYld ?? "any") === s.id} onClick={() => setMarketPrefs({ screenYld: s.id })}>
+                {s.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <p>
+              {quotesPending && !screenRawCount
+                ? "Loading list…"
+                : `${rows.length} of ${screenRawCount}${screenFilterOn ? " matching filters" : " on this list"}`}
+            </p>
+            {screenFilterOn ? (
+              <button
+                type="button"
+                className="underline hover:text-foreground"
+                onClick={() =>
+                  setMarketPrefs({ screenPe: "any", screenCap: "any", screenVol: "any", screenYld: "any" })
+                }
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {BOARD_SORTS.map((s) => (
-          <Chip key={s.id} active={sort === s.id} onClick={() => onSort(s.id)}>
-            {s.label}
-            {sort === s.id ? (sortDir === -1 ? " ↓" : " ↑") : ""}
-          </Chip>
-        ))}
-        {marketPrefs.spark
-          ? SPARK_RANGES.map((r) => (
+        <div className="hidden flex-wrap gap-2 sm:flex">
+          {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS).map((s) => (
+            <Chip key={s.id} active={sort === s.id} onClick={() => onSort(s.id)}>
+              {s.label}
+              {sort === s.id ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+            </Chip>
+          ))}
+        </div>
+        {marketPrefs.spark ? (
+          <div className="scroll-auto flex max-w-full flex-nowrap gap-2 overflow-x-auto pb-0.5">
+            {SPARK_RANGES.map((r) => (
               <Chip key={r.id} active={range === r.id} onClick={() => setMarketPrefs({ sparkRange: r.id })}>
                 {r.label}
               </Chip>
-            ))
-          : null}
+            ))}
+          </div>
+        ) : null}
         <div className="grow" />
         <select
           aria-label="Quote currency"
@@ -378,7 +633,7 @@ export function FinanceMarkets() {
         </select>
         <button
           type="button"
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+          className="inline-flex size-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-60 sm:h-11 sm:w-auto sm:px-3"
           onClick={() => {
             bustPseCache();
             void fetchPseIndex({ data: { fresh: true } }).then((snap) => {
@@ -388,9 +643,10 @@ export function FinanceMarkets() {
             void sparkQ.refetch();
           }}
           disabled={markets.isFetching && !markets.data}
+          aria-label={markets.isFetching && !markets.data ? "Updating prices" : "Refresh prices"}
         >
           <RefreshCw className={cn("size-3.5", markets.isFetching && "animate-spin")} />
-          {markets.isFetching && !markets.data ? "Updating…" : "Live"}
+          <span className="hidden sm:inline">{markets.isFetching && !markets.data ? "Updating…" : "Live"}</span>
         </button>
         <button
           type="button"
@@ -416,14 +672,22 @@ export function FinanceMarkets() {
       {marketPrefs.showTape ? (
         <div className="mb-4 flex gap-3 overflow-x-auto pb-1" aria-busy={quotesPending || undefined}>
           {tape.length ? (
-            tape.map((q) => (
-              <div key={q.id} className="min-w-36 shrink-0 rounded-md bg-card px-3 py-2 shadow-[var(--shadow-border)]">
-                <p className="font-mono text-xs text-muted-foreground">{q.label}</p>
-                <p className={`tabular-nums text-sm ${(q.change ?? 0) >= 0 ? "text-ok" : "text-destructive"}`}>
-                  {moneyQuote(q.price, q.ccy)}
-                </p>
-              </div>
-            ))
+            tape.map((q) => {
+              const item = asItem(q, q.kind);
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  className="min-w-36 shrink-0 rounded-md bg-card px-3 py-2 text-left shadow-[var(--shadow-border)]"
+                  onClick={() => setOpen({ key: q.id, item, q, watching: watching(item) })}
+                >
+                  <p className="font-mono text-xs text-muted-foreground">{q.label}</p>
+                  <p className={`tabular-nums text-sm ${(q.change ?? 0) >= 0 ? "text-ok" : "text-destructive"}`}>
+                    {moneyQuote(q.price, q.ccy)}
+                  </p>
+                </button>
+              );
+            })
           ) : quotesPending ? (
             Array.from({ length: 6 }, (_, i) => (
               <div key={i} className="min-w-36 shrink-0 rounded-md bg-card px-3 py-2 shadow-[var(--shadow-border)]">
@@ -452,7 +716,19 @@ export function FinanceMarkets() {
           </CardHeader>
           <CardContent className="px-0 pb-2 sm:px-5">
             {positions.map((p) => (
-              <div key={p.w.id} className="flex min-h-11 items-center justify-between gap-3 border-t border-border px-5">
+              <button
+                key={p.w.id}
+                type="button"
+                className="flex min-h-11 w-full items-center justify-between gap-3 border-t border-border px-5 text-left"
+                onClick={() =>
+                  setOpen({
+                    key: p.w.id,
+                    item: p.w,
+                    q: quotes[p.w.symbol] ?? quotes[p.w.id],
+                    watching: true,
+                  })
+                }
+              >
                 <p className="font-mono text-sm">{p.w.label}</p>
                 <div className="text-right">
                   <p className="tabular-nums text-sm">{peso(p.value)}</p>
@@ -462,7 +738,7 @@ export function FinanceMarkets() {
                     </p>
                   ) : null}
                 </div>
-              </div>
+              </button>
             ))}
           </CardContent>
         </Card>
@@ -470,40 +746,43 @@ export function FinanceMarkets() {
 
       <Card className="mb-4">
         <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>{BOARD_TABS.find((t) => t.id === tab)?.label ?? "Board"}</CardTitle>
+          <CardTitle>{query.trim() ? "Search" : (BOARD_TABS.find((t) => t.id === tab)?.label ?? "Board")}</CardTitle>
           {markets.data?.asOf || markets.dataUpdatedAt ? (
             <p className="text-xs tabular-nums text-muted-foreground">
               {markets.dataUpdatedAt
-                ? new Date(markets.dataUpdatedAt).toLocaleTimeString("en-PH", {
+                ? new Date(markets.dataUpdatedAt).toLocaleTimeString(deskZone().locale, {
                     hour: "numeric",
                     minute: "2-digit",
                     second: "2-digit",
-                    timeZone: "Asia/Manila",
+                    timeZone: deskZone().tz,
                   })
                 : null}
               {markets.data?.asOf ? ` · PSE ${markets.data.asOf.slice(0, 10)}` : ""}
             </p>
           ) : null}
         </CardHeader>
-        <CardContent className="px-0 pb-2 sm:px-5" aria-busy={quotesPending || undefined}>
+        <CardContent className="min-w-0 px-0 pb-2 sm:px-5" aria-busy={quotesPending || undefined}>
           <div className="flex items-center gap-1 px-2 text-xs uppercase tracking-[0.06em] text-muted-foreground sm:gap-2 sm:px-3">
             <span className="inline-block size-9 shrink-0" />
             <button type="button" className="min-h-11 min-w-0 flex-1 text-left" onClick={() => onSort("name")}>
-              Name / vol{sort === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+              <span className="sm:hidden">Name{sort === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}</span>
+              <span className="hidden sm:inline">
+                Name / vol{sort === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+              </span>
             </button>
             {marketPrefs.spark ? (
               <button
                 type="button"
-                className="min-h-11 w-14 shrink-0 text-left sm:w-16"
+                className="hidden min-h-11 w-16 shrink-0 text-left sm:block"
                 onClick={() => onSort("chg")}
               >
                 {SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"}
               </button>
             ) : null}
-            <button type="button" className="min-h-11 w-24 shrink-0 text-right" onClick={() => onSort("last")}>
+            <button type="button" className="min-h-11 shrink-0 text-right sm:w-24" onClick={() => onSort("last")}>
               Last{sort === "last" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </button>
-            <button type="button" className="min-h-11 w-16 shrink-0 text-right sm:w-20" onClick={() => onSort("chg")}>
+            <button type="button" className="min-h-11 w-14 shrink-0 text-right sm:w-20" onClick={() => onSort("chg")}>
               24h{sort === "chg" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </button>
             <span className="inline-block size-11 shrink-0" />
@@ -523,7 +802,7 @@ export function FinanceMarkets() {
               const starred = Boolean(watched(r.item)?.starred);
               const pending = quotesPending && !r.q;
               return (
-                <div key={r.key} className="flex items-center gap-1 border-t border-border px-2 sm:gap-2 sm:px-3">
+                <div key={r.key} className="flex min-w-0 items-center gap-1 border-t border-border px-2 sm:gap-2 sm:px-3">
                   <TickMark label={r.item.label} />
                   <button type="button" className={cn("min-w-0 flex-1 py-2 text-left", rowH)} onClick={() => setOpen(r)}>
                     <p className="truncate font-mono text-sm">
@@ -532,14 +811,14 @@ export function FinanceMarkets() {
                     <p className="truncate text-xs text-muted-foreground">{rowMeta(r)}</p>
                   </button>
                   {marketPrefs.spark ? (
-                    <div className="w-14 shrink-0 sm:w-16">
-                      {pending ? <Skeleton className="h-7 w-14" /> : <Spark values={r.q?.spark} up={up} />}
+                    <div className="hidden w-16 shrink-0 sm:block">
+                      {pending ? <Skeleton className="h-7 w-16" /> : <Spark values={r.q?.spark} up={up} />}
                     </div>
                   ) : null}
-                  <button type="button" className={cn("w-24 shrink-0 py-2 text-right", rowH)} onClick={() => setOpen(r)}>
+                  <button type="button" className={cn("shrink-0 py-2 text-right sm:w-24", rowH)} onClick={() => setOpen(r)}>
                     {lastBlock(r.q, pending)}
                   </button>
-                  <div className="flex w-16 shrink-0 justify-end sm:w-20">
+                  <div className="flex w-14 shrink-0 justify-end sm:w-20">
                     {pending ? <Skeleton className="h-9 w-14" /> : <ChangePill value={ch} />}
                   </div>
                   <button
@@ -556,9 +835,13 @@ export function FinanceMarkets() {
             })
           ) : (
             <p className="px-5 py-6 text-sm text-muted-foreground">
-              {tab === "watcher"
-                ? "Empty watcher — tap + to add from PSE or Crypto."
-                : "Nothing in this board."}
+              {query.trim()
+                ? `No market matches “${query.trim()}”.`
+                : tab === "watcher"
+                  ? "Empty watcher — tap + to add from PSE, Global, or Crypto."
+                  : tab === "screen"
+                    ? "No names match those filters — loosen PE, cap, volume, or yield."
+                    : "Nothing in this board."}
             </p>
           )}
           {tab === "blue" ? (
@@ -569,8 +852,11 @@ export function FinanceMarkets() {
             </p>
           ) : null}
           <p className="mt-3 px-5 text-xs text-muted-foreground">
-            Spark range is on the board — {SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use
-            Binance, FX uses Frankfurter, PSE uses this desk's tape (session curve until the tape fills). Not for trading.
+            {tab === "screen"
+              ? "Yahoo list of up to 100 names, then PE, cap, volume, and yield on this desk. Delayed, not a full-market screen, not for trading."
+              : tab === "global" || tab === "cmdty"
+                ? "Last from Yahoo Finance. Delayed, not for trading. Commodities stay in dollars unless you turn on peso convert."
+                : `Spark range is on the board — ${SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use Binance, FX uses Frankfurter, PSE uses this desk's tape. Not for trading.`}
           </p>
           {markets.isError || markets.data?.failed ? (
             <button type="button" className="mt-2 px-5 text-xs underline" onClick={() => void markets.refetch()}>
@@ -581,9 +867,13 @@ export function FinanceMarkets() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle>Currency converter</CardTitle>
+          <Chip active={fxOpen} onClick={() => setFxOpen((v) => !v)}>
+            {fxOpen ? "Hide" : "Show"}
+          </Chip>
         </CardHeader>
+        {fxOpen ? (
         <CardContent className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="fx-amt">Amount</Label>
@@ -633,13 +923,18 @@ export function FinanceMarkets() {
               <Skeleton className="inline-block h-8 w-36" />
             ) : (
               <>
-                {Number.isFinite(converted) && fx ? converted.toLocaleString("en-PH", { maximumFractionDigits: 2 }) : "—"}{" "}
+                {Number.isFinite(converted) && fx ? converted.toLocaleString(deskZone().locale, { maximumFractionDigits: 2 }) : "—"}{" "}
                 <span className="text-sm text-muted-foreground">{toUnit}</span>
               </>
             )}
           </p>
           {fx?.usdphp ? <p className="text-xs text-muted-foreground">USD/PHP {phpQuote(fx.usdphp)}</p> : null}
         </CardContent>
+        ) : (
+          <CardContent>
+            <p className="text-sm text-muted-foreground">PHP, USD, EUR, GBP, JPY from the same FX tape as On hand.</p>
+          </CardContent>
+        )}
       </Card>
 
       <Dialog open={Boolean(open)} onOpenChange={(v) => !v && setOpen(null)}>
@@ -655,7 +950,7 @@ export function FinanceMarkets() {
               starred={Boolean(watched(open.item)?.starred)}
               watching={watching(open.item)}
               cryptoUsdt={marketPrefs.cryptoUsdt}
-              dualPhp={marketPrefs.dualPhp}
+              dualPhp={open.item.kind === "cmdty" ? marketPrefs.cmdtyPhp : marketPrefs.dualPhp}
               showVol={marketPrefs.showVol}
               sparkRange={range}
               onStar={() => starRow(open.item)}
@@ -693,7 +988,7 @@ export function FinanceMarkets() {
               className="h-11 pl-9"
               value={addQuery}
               onChange={(e) => setAddQuery(e.target.value)}
-              placeholder="PSE ticker or coin…"
+              placeholder="AAPL, BDO, bitcoin…"
               aria-label="Search to add"
             />
           </div>
@@ -707,6 +1002,7 @@ export function FinanceMarkets() {
                   onClick={() => {
                     addWatch({ ...item, starred: true });
                     toast(`Watching ${item.label}`);
+                    setAddOpen(false);
                   }}
                 >
                   <span className="min-w-0">
@@ -716,8 +1012,10 @@ export function FinanceMarkets() {
                   <Plus className="size-4 shrink-0 text-muted-foreground" />
                 </button>
               ))
+            ) : addNeedle && remoteAdd.isFetching ? (
+              <p className="py-4 text-sm text-muted-foreground">Searching…</p>
             ) : (
-              <p className="py-4 text-sm text-muted-foreground">No matches.</p>
+              <p className="py-4 text-sm text-muted-foreground">No matches. Type a ticker like COST or NVDA.</p>
             )}
           </div>
         </DialogContent>
@@ -746,9 +1044,15 @@ export function FinanceMarkets() {
             ) : null}
             <PrefSwitch
               label="PHP under last"
-              hint="Peso line under USDT and FX"
+              hint="Peso line under coins, FX, and global stocks — not commodities"
               checked={marketPrefs.dualPhp}
               onCheckedChange={(v) => setMarketPrefs({ dualPhp: v })}
+            />
+            <PrefSwitch
+              label="Convert commodities"
+              hint="Peso line under gold, oil, and metals. Off by default."
+              checked={marketPrefs.cmdtyPhp}
+              onCheckedChange={(v) => setMarketPrefs({ cmdtyPhp: v })}
             />
             <PrefSwitch
               label="USDT last"
@@ -790,7 +1094,7 @@ function RelatedNews({ item }: { item: WatchItem }) {
     gcTime: 60 * 60_000,
     retry: 1,
   });
-  const items = news.data ?? [];
+  const items = mixStories(news.data ?? [], 5);
   return (
     <div>
       <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Related news</p>
@@ -894,17 +1198,77 @@ function QuoteSheet({
         {row.q?.spark && row.q.spark.length > 2 ? ` · ${row.q.spark.length} pts` : ""}
       </p>
       {showVol && volLabel(row.q) ? <p className="text-sm text-muted-foreground">{volLabel(row.q)}</p> : null}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg bg-muted p-4">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Snapshot</p>
+          <p className="mt-2 text-sm">
+            High {note.high}
+            <span className="text-muted-foreground"> · </span>
+            Low {note.low}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {note.volume}
+            {note.change !== "-" ? ` · ${note.change}` : ""}
+          </p>
+          {row.q?.pe || row.q?.marketCap || row.q?.yieldPct || row.q?.forwardPe || row.q?.pb ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[
+                peLabel(row.q?.pe),
+                row.q?.forwardPe ? `Fwd ${row.q.forwardPe >= 100 ? row.q.forwardPe.toFixed(0) : row.q.forwardPe.toFixed(1)}` : "",
+                row.q?.marketCap ? capLabel(row.q.marketCap) : "",
+                yldLabel(row.q?.yieldPct),
+                row.q?.pb ? `P/B ${row.q.pb.toFixed(1)}` : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+          {row.q?.weekLow && row.q?.weekHigh ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              52w {moneyQuote(row.q.weekLow, shown?.ccy ?? row.q.ccy)} – {moneyQuote(row.q.weekHigh, shown?.ccy ?? row.q.ccy)}
+            </p>
+          ) : null}
+        </div>
+        <div className="rounded-lg bg-muted p-4">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Levels</p>
+          <p className="mt-2 text-sm">S {note.support}</p>
+          <p className="text-sm">P {note.pivot}</p>
+          <p className="text-sm">R {note.resistance}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{note.rangePos}</p>
+        </div>
+      </div>
       <div className="rounded-lg bg-muted p-4">
         <div className="flex items-baseline justify-between gap-3">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Technical standpoint</p>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Standpoint</p>
           <p className="text-sm font-medium">{note.bias}</p>
         </div>
         <p className="mt-2 text-sm">{note.thesis[0]}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {note.index}
-          {note.support !== "-" ? ` · Support ${note.support}` : ""}
-          {note.resistance !== "-" ? ` · Resist ${note.resistance}` : ""}
-        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{note.index}</p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Suggestions</p>
+        <div className="mt-2 space-y-3">
+          {(
+            [
+              { title: "Watch", items: note.watch },
+              { title: "Risk", items: note.risk },
+              { title: "Next", items: note.next },
+            ] as const
+          )
+            .filter((g) => g.items.length)
+            .map((g) => (
+              <div key={g.title}>
+                <p className="text-xs text-muted-foreground">{g.title}</p>
+                <ul className="mt-1 space-y-1">
+                  {g.items.map((s) => (
+                    <li key={s} className="text-sm leading-snug">
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button

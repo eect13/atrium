@@ -1,16 +1,19 @@
-export type ModuleId = "calendar" | "notes" | "finance" | "news";
+import type { ScreenCap, ScreenPe, ScreenVol, ScreenYld, ScreenerId } from "./screener";
+
+export type ModuleId = "calendar" | "notes" | "finance" | "news" | "quotes";
 export type ViewId = "dashboard" | ModuleId | "options" | "quotes";
 export type CalMode = "month" | "week" | "day" | "agenda";
 export type EventCat = "work" | "personal" | "family" | "health" | "other";
 export type EventSource = "local" | "ics" | "google";
 export type WidgetKind = "weather" | "agenda" | "calendar" | "quote" | "finance" | "news";
-export type WatchKind = "crypto" | "fx" | "stock";
+export type WatchKind = "crypto" | "fx" | "stock" | "global" | "cmdty";
 export const QUOTE_CCY = ["PHP", "USD", "EUR", "GBP", "JPY"] as const;
 export type QuoteCcy = (typeof QUOTE_CCY)[number];
 
-export type BoardTab = "all" | "watcher" | "starred" | "blue" | "reit" | "div" | "crypto" | "fx";
-export type BoardSort = "name" | "chg" | "vol" | "last";
+export type BoardTab = "all" | "watcher" | "starred" | "blue" | "reit" | "div" | "crypto" | "fx" | "global" | "cmdty" | "screen";
+export type BoardSort = "name" | "chg" | "vol" | "last" | "pe" | "cap";
 export type SparkRange = "1d" | "1w" | "1m" | "3m" | "6m" | "1y";
+export type ScreenId = ScreenerId;
 
 export type MarketPrefs = {
   spark: boolean;
@@ -20,6 +23,14 @@ export type MarketPrefs = {
   compact: boolean;
   showVol: boolean;
   showTape: boolean;
+  showMarkets: boolean;
+  showBooks: boolean;
+  cmdtyPhp: boolean;
+  screen: ScreenId;
+  screenPe: ScreenPe;
+  screenCap: ScreenCap;
+  screenVol: ScreenVol;
+  screenYld: ScreenYld;
   home: "books" | "markets";
   tab: BoardTab;
   sort: BoardSort;
@@ -34,6 +45,14 @@ export const DEFAULT_MARKET_PREFS: MarketPrefs = {
   compact: false,
   showVol: true,
   showTape: true,
+  showMarkets: true,
+  showBooks: true,
+  cmdtyPhp: false,
+  screen: "day_gainers",
+  screenPe: "any",
+  screenCap: "any",
+  screenVol: "any",
+  screenYld: "any",
   home: "markets",
   tab: "watcher",
   sort: "chg",
@@ -60,6 +79,8 @@ export type CalendarEvent = {
   allDay?: boolean;
 };
 
+export type NoteStroke = { color: string; w: number; pts: number[] };
+
 export type StickyNote = {
   id: string;
   text: string;
@@ -70,6 +91,7 @@ export type StickyNote = {
   w: number;
   h: number;
   pinned: boolean;
+  ink?: NoteStroke[];
 };
 
 export type FloatWin = {
@@ -84,6 +106,7 @@ export type FloatWin = {
 
 export type AccountKind = "cash" | "bank" | "card" | "ewallet";
 export type BooksLayout = "list" | "grid";
+export type NotesLayout = "list" | "board";
 export type TxKind = "expense" | "income" | "transfer" | "deposit";
 export type TxStatus = "pending" | "cleared";
 
@@ -191,6 +214,8 @@ export type Books = {
   density: "comfortable" | "compact";
   mask?: boolean;
   currency: BookCcy;
+  walletLayout?: BooksLayout;
+  registerLayout?: BooksLayout;
 };
 
 export type WatchItem = {
@@ -243,7 +268,54 @@ export const WATCH_CATALOG: WatchItem[] = [
   { id: "eurphp", symbol: "EURPHP", label: "EUR/PHP", name: "Euro", kind: "fx" },
   { id: "jpyphp", symbol: "JPYPHP", label: "JPY/PHP", name: "Yen", kind: "fx" },
   { id: "gbpphp", symbol: "GBPPHP", label: "GBP/PHP", name: "Pound", kind: "fx" },
+  { id: "spx", symbol: "^GSPC", label: "S&P 500", name: "S&P 500", kind: "global" },
+  { id: "dji", symbol: "^DJI", label: "DJIA", name: "Dow Jones", kind: "global" },
+  { id: "ixic", symbol: "^IXIC", label: "Nasdaq", name: "Nasdaq Composite", kind: "global" },
+  { id: "n225", symbol: "^N225", label: "Nikkei", name: "Nikkei 225", kind: "global" },
+  { id: "hsi", symbol: "^HSI", label: "HSI", name: "Hang Seng", kind: "global" },
+  { id: "ftse", symbol: "^FTSE", label: "FTSE", name: "FTSE 100", kind: "global" },
+  { id: "dax", symbol: "^GDAXI", label: "DAX", name: "DAX", kind: "global" },
+  { id: "cac", symbol: "^FCHI", label: "CAC 40", name: "CAC 40", kind: "global" },
+  { id: "stoxx", symbol: "^STOXX50E", label: "SX5E", name: "Euro Stoxx 50", kind: "global" },
+  { id: "asx", symbol: "^AXJO", label: "ASX 200", name: "S&P/ASX 200", kind: "global" },
+  { id: "kospi", symbol: "^KS11", label: "KOSPI", name: "KOSPI", kind: "global" },
+  { id: "sti", symbol: "^STI", label: "STI", name: "Straits Times", kind: "global" },
+  { id: "aapl", symbol: "AAPL", label: "AAPL", name: "Apple", kind: "global" },
+  { id: "msft", symbol: "MSFT", label: "MSFT", name: "Microsoft", kind: "global" },
+  { id: "googl", symbol: "GOOGL", label: "GOOGL", name: "Alphabet", kind: "global" },
+  { id: "amzn", symbol: "AMZN", label: "AMZN", name: "Amazon", kind: "global" },
+  { id: "nvda", symbol: "NVDA", label: "NVDA", name: "NVIDIA", kind: "global" },
+  { id: "meta", symbol: "META", label: "META", name: "Meta", kind: "global" },
+  { id: "tsla", symbol: "TSLA", label: "TSLA", name: "Tesla", kind: "global" },
+  { id: "brk", symbol: "BRK-B", label: "BRK.B", name: "Berkshire Hathaway", kind: "global" },
+  { id: "jpm", symbol: "JPM", label: "JPM", name: "JPMorgan", kind: "global" },
+  { id: "v", symbol: "V", label: "V", name: "Visa", kind: "global" },
+  { id: "unh", symbol: "UNH", label: "UNH", name: "UnitedHealth", kind: "global" },
+  { id: "xom", symbol: "XOM", label: "XOM", name: "Exxon Mobil", kind: "global" },
+  { id: "lly", symbol: "LLY", label: "LLY", name: "Eli Lilly", kind: "global" },
+  { id: "avgo", symbol: "AVGO", label: "AVGO", name: "Broadcom", kind: "global" },
+  { id: "wmt", symbol: "WMT", label: "WMT", name: "Walmart", kind: "global" },
+  { id: "gold", symbol: "GC=F", label: "Gold", name: "Gold", kind: "cmdty" },
+  { id: "silver", symbol: "SI=F", label: "Silver", name: "Silver", kind: "cmdty" },
+  { id: "wti", symbol: "CL=F", label: "WTI", name: "Crude Oil WTI", kind: "cmdty" },
+  { id: "brent", symbol: "BZ=F", label: "Brent", name: "Brent Crude", kind: "cmdty" },
+  { id: "natgas", symbol: "NG=F", label: "Nat Gas", name: "Natural Gas", kind: "cmdty" },
+  { id: "copper", symbol: "HG=F", label: "Copper", name: "Copper", kind: "cmdty" },
+  { id: "platinum", symbol: "PL=F", label: "Platinum", name: "Platinum", kind: "cmdty" },
+  { id: "corn", symbol: "ZC=F", label: "Corn", name: "Corn", kind: "cmdty" },
+  { id: "wheat", symbol: "ZW=F", label: "Wheat", name: "Wheat", kind: "cmdty" },
+  { id: "coffee", symbol: "KC=F", label: "Coffee", name: "Coffee", kind: "cmdty" },
 ];
+
+/** Old PH-only factory desks pick up S&P 500 and Gold once. Custom global/cmdty lists stay as-is. */
+export function withFactoryGlobals(watch: WatchItem[]): WatchItem[] {
+  if (!watch.length) return watch;
+  if (watch.some((w) => w.kind === "global" || w.kind === "cmdty")) return watch;
+  const ph = ["bdo", "sm", "jfc"].some((id) => watch.some((w) => w.id === id));
+  if (!ph) return watch;
+  const extra = WATCH_CATALOG.filter((w) => w.id === "spx" || w.id === "gold");
+  return extra.length ? [...watch, ...extra] : watch;
+}
 
 export type Feed = {
   id: string;
@@ -265,6 +337,10 @@ export type NewsItem = {
 export type Profile = {
   name: string;
   city: string;
-  lat: number;
-  lon: number;
+  lat: number | null;
+  lon: number | null;
+  tagline: string;
+  region: string;
 };
+
+export const DEFAULT_TAGLINE = "Local-first desk";

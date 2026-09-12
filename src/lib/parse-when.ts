@@ -17,6 +17,15 @@ function applyClock(hour: number, minute: number, ap?: string) {
   return { hour: Math.min(23, Math.max(0, h)), minute: Math.min(59, Math.max(0, minute)) };
 }
 
+export function looksLikeWhen(text: string) {
+  const t = text.trim();
+  if (!t) return false;
+  if (/^(event:|cal:)/i.test(t)) return true;
+  return /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next)\b|\b\d{1,2}:\d{2}\s*(am|pm)?\b|\b\d{1,2}\s*(am|pm)\b/i.test(
+    t,
+  );
+}
+
 export function parseWhen(text: string, now = new Date()) {
   const p = manilaParts(now);
   let title = text.trim();

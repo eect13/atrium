@@ -14,12 +14,14 @@ import {
   Eye,
   EyeOff,
   LocateFixed,
+  Shuffle,
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
   CAT_COLORS,
+  deskZone,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -35,25 +37,21 @@ import {
   sameDay,
 } from "@/lib/format";
 import { useAfterPaint } from "@/lib/boot";
+import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { fetchMarkets, VS_PARAM, type MarketSnapshot } from "@/lib/prices";
 import { rememberTape, sessionSpark, tapeSpark } from "@/lib/sparks";
 import { useAtrium } from "@/lib/store";
 import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types";
+import { WATCH_CATALOG } from "@/lib/types";
+import { regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
-import { fetchWeather, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
+import { fetchWeather, hasWeatherPin, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
 import { fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
-import { tagStory } from "@/lib/headline";
+import { storyAge, tagStory } from "@/lib/headline";
 import { locateMe } from "@/lib/locate";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-
-const QUOTES: [string, string][] = [
-  ["Attention is the rarest and purest form of generosity.", "Simone Weil"],
-  ["We are what we repeatedly do.", "Aristotle"],
-  ["The calendar is a map of intention.", "Atrium"],
-  ["Make it work, make it right, make it fast.", "Kent Beck"],
-];
 
 const WMO_ICON: Record<WmoKind, typeof Sun> = {
   sun: Sun,
@@ -73,18 +71,6 @@ const DAY_END = 21;
 function hourLabel(hour: number) {
   const ap = hour >= 12 ? "pm" : "am";
   return `${hour % 12 || 12}${ap}`;
-}
-
-export function greet() {
-  const hour = hourInTZ();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
-
-export function todayQuote() {
-  const day = Number.parseInt(isoDate().slice(-2), 10);
-  return QUOTES[day % QUOTES.length];
 }
 
 const WEATHER_SNAP = "atrium.weather.snap";
@@ -111,8 +97,9 @@ function writeSnap(key: string, value: unknown) {
 
 export function useWeather() {
   const profile = useAtrium((s) => s.profile);
-  const lat = Number(profile.lat);
-  const lon = Number(profile.lon);
+  const pinned = hasWeatherPin(profile);
+  const lat = pinned ? Number(profile.lat) : Number.NaN;
+  const lon = pinned ? Number(profile.lon) : Number.NaN;
   return useQuery({
     queryKey: ["weather", lat, lon],
     queryFn: async () => {
@@ -130,7 +117,7 @@ export function useWeather() {
       if (Math.abs(snap.lat - lat) > 0.05 || Math.abs(snap.lon - lon) > 0.05) return undefined;
       return snap.data;
     },
-    enabled: Number.isFinite(lat) && Number.isFinite(lon),
+    enabled: pinned,
   });
 }
 
@@ -138,10 +125,8 @@ export function WeatherBody() {
   const profile = useAtrium((s) => s.profile);
   const setProfile = useAtrium((s) => s.setProfile);
   const [locating, setLocating] = useState(false);
-  const lat = Number(profile.lat);
-  const lon = Number(profile.lon);
   const weather = useWeather();
-  const hasPin = Number.isFinite(lat) && Number.isFinite(lon);
+  const hasPin = hasWeatherPin(profile);
 
   async function useMyLocation() {
     setLocating(true);
@@ -190,7 +175,7 @@ export function WeatherBody() {
     return (
       <div aria-busy aria-live="polite">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm text-muted-foreground">{profile.city}</p>
+          <p className="text-sm text-muted-foreground">{profile.city.trim() || "Pinned location"}</p>
           {locateBtn}
         </div>
         <div className="mt-2 flex items-center gap-3">
@@ -245,7 +230,7 @@ export function WeatherBody() {
   return (
     <div>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{profile.city}</p>
+        <p className="text-sm text-muted-foreground">{profile.city.trim() || "Pinned location"}</p>
         {locateBtn}
       </div>
       <div className="mt-2 flex items-center gap-3">
@@ -288,9 +273,9 @@ export function WeatherBody() {
           return (
             <div key={t} className="flex flex-1 flex-col items-center rounded-md bg-muted px-1 py-2 text-xs text-muted-foreground">
               <DayIcon className="mb-1 size-3.5" aria-hidden />
-              {new Date(`${t}T12:00:00+08:00`).toLocaleDateString("en-PH", {
+              {manilaAt(t, 12).toLocaleDateString(deskZone().locale, {
                 weekday: "short",
-                timeZone: "Asia/Manila",
+                timeZone: deskZone().tz,
               })}
               <strong className="mt-1 text-sm text-foreground tabular-nums">
                 {Math.round(daily.temperature_2m_max[i])}°
@@ -578,7 +563,7 @@ export function QuoteBody() {
 
   async function shuffle() {
     const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: `${Date.now()}` } });
-    const next = data.quotes[0];
+    const next = data.quotes.find((row) => row.text !== text) ?? data.quotes[0];
     if (!next) return;
     writeQuoteSession(next);
     queryClient.setQueryData(["quotes", "session"], next);
@@ -598,7 +583,7 @@ export function QuoteBody() {
   }
   return (
     <div>
-      <p className="font-display text-lg leading-snug">{text}</p>
+      <p className="font-display text-base leading-snug md:text-lg">{text}</p>
       <p className="mt-3 text-xs text-muted-foreground">— {author}</p>
       <div className="mt-3 flex items-center gap-3">
         <button
@@ -606,18 +591,11 @@ export function QuoteBody() {
           className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           onClick={() => void shuffle()}
         >
-          Another
+          <span className="inline-flex items-center gap-1">
+            <Shuffle className="size-3" />
+            Random
+          </span>
         </button>
-        {q.data?.href ? (
-          <a
-            href={q.data.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            BrainyQuote
-          </a>
-        ) : null}
       </div>
     </div>
   );
@@ -627,11 +605,59 @@ export function useMarkets() {
   const watch = useAtrium((s) => s.watch);
   const quoteCcy = useAtrium((s) => s.quoteCcy);
   const financeOn = useAtrium((s) => s.modules.finance);
+  const marketsOn = useAtrium((s) => s.marketPrefs.showMarkets !== false);
+  const tab = useAtrium((s) => s.marketPrefs.tab);
+  const screen = useAtrium((s) => s.marketPrefs.screen);
+  const region = useAtrium((s) => s.profile.region);
+  const boardQuery = useAtrium((s) => s.boardQuery);
+  const searching = boardQuery.trim().length > 0;
   const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
+  const wantYahoo =
+    marketsOn &&
+    (searching ||
+      tab === "global" ||
+      tab === "cmdty" ||
+      watch.some((w) => w.kind === "global" || w.kind === "cmdty" || w.kind === "stock"));
+  const yahoo = wantYahoo
+    ? [
+        ...new Set([
+          ...watch.filter((w) => w.kind === "global" || w.kind === "cmdty").map((w) => w.symbol),
+          ...watch.filter((w) => w.kind === "stock").map((w) => `${w.symbol.replace(/\.PS$/i, "")}.PS`),
+          ...(tab === "global" || searching
+            ? WATCH_CATALOG.filter((w) => w.kind === "global").map((w) => w.symbol)
+            : []),
+          ...(tab === "cmdty" || searching
+            ? WATCH_CATALOG.filter((w) => w.kind === "cmdty").map((w) => w.symbol)
+            : []),
+        ]),
+      ]
+    : [];
+  const screener = marketsOn && tab === "screen" ? screen : undefined;
+  const yahooRegion = regionOf(region).yahoo;
+  const wantPse =
+    marketsOn &&
+    (searching ||
+      tab === "all" ||
+      tab === "blue" ||
+      tab === "reit" ||
+      tab === "div" ||
+      tab === "watcher" ||
+      tab === "starred" ||
+      watch.some((w) => w.kind === "stock"));
+  const wantCrypto =
+    marketsOn &&
+    (searching ||
+      tab === "crypto" ||
+      tab === "watcher" ||
+      tab === "starred" ||
+      tab === "all" ||
+      watch.some((w) => w.kind === "crypto"));
   return useQuery({
-    queryKey: ["markets", ids, quoteCcy],
+    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, screener, yahooRegion],
     queryFn: async () => {
-      const data = await fetchMarkets({ data: { ids, vs: VS_PARAM[quoteCcy] } });
+      const data = await fetchMarkets({
+        data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, screener, yahooRegion },
+      });
       writeSnap(MARKET_SNAP, { ids, quoteCcy, data });
       if (data.quotes) rememberTape(data.quotes);
       return data;
@@ -654,9 +680,10 @@ export function useMarkets() {
 
 export function WarmQueries() {
   const financeOn = useAtrium((s) => s.modules.finance);
+  const marketsOn = useAtrium((s) => s.marketPrefs.showMarkets !== false);
   useWeather();
   useMarkets();
-  const pseReady = useAfterPaint(1400, financeOn);
+  const pseReady = useAfterPaint(1400, financeOn && marketsOn);
   useEffect(() => {
     if (!pseReady) return;
     void fetch("/api/pse").catch(() => undefined);
@@ -665,23 +692,39 @@ export function WarmQueries() {
 }
 
 export function FinancePeek() {
-  const { txs, accounts, watch, books, setBooks } = useAtrium(
+  const { txs, accounts, watch, books, setBooks, setView, setBoardFocus, setMarketPrefs, marketPrefs } = useAtrium(
     useShallow((s) => ({
       txs: s.txs,
       accounts: s.accounts,
       watch: s.watch,
       books: s.books,
       setBooks: s.setBooks,
+      setView: s.setView,
+      setBoardFocus: s.setBoardFocus,
+      setMarketPrefs: s.setMarketPrefs,
+      marketPrefs: s.marketPrefs,
     })),
   );
   const prefix = isoMonth();
-  const spent = txs.filter((t) => t.date.startsWith(prefix) && t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-  const liquid = accounts.reduce((s, a) => s + a.balance, 0);
   const mask = Boolean(books.mask);
   const home = books.currency ?? "PHP";
   const markets = useMarkets();
+  const fx = markets.data?.fx;
+  const spent = txs
+    .filter((t) => t.date.startsWith(prefix) && liquidEffect(t) < 0)
+    .reduce((s, t) => {
+      const acc = accounts.find((a) => a.id === t.accountId);
+      const n = toHomeCcy(Math.abs(liquidEffect(t)), acc?.currency ?? home, home, fx);
+      return s + (n ?? 0);
+    }, 0);
+  const liquid = sumToHome(
+    accounts.map((a) => ({ amount: a.balance, currency: a.currency ?? home })),
+    home,
+    fx,
+  ).total;
   const quotes = markets.data?.quotes ?? {};
   const quotesPending = markets.isPending && !markets.data;
+  const marketsOn = marketPrefs.showMarkets !== false;
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
@@ -696,8 +739,18 @@ export function FinancePeek() {
           {mask ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
       </div>
-      <p className="font-display text-3xl tabular-nums">{maskedMoney(liquid, mask, home)}</p>
-      <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
+      <button
+        type="button"
+        className="block w-full text-left"
+        onClick={() => {
+          setMarketPrefs({ home: "books", showBooks: true });
+          setView("finance");
+        }}
+      >
+        <p className="font-display text-3xl tabular-nums">{maskedMoney(liquid, mask, home)}</p>
+        <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
+      </button>
+      {marketsOn ? (
       <div className="mt-4 space-y-2" aria-busy={quotesPending || undefined}>
         {watch.slice(0, 4).map((w) => {
           const q = quotes[w.symbol] ?? quotes[w.id] ?? quotes[w.label];
@@ -709,14 +762,23 @@ export function FinancePeek() {
           const ch = q?.change;
           const up = (ch ?? 0) >= 0;
           return (
-            <div key={w.id} className="flex min-h-11 items-center justify-between gap-2">
+            <button
+              key={w.id}
+              type="button"
+              className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
+              onClick={() => {
+                setMarketPrefs({ home: "markets", showMarkets: true });
+                setBoardFocus(w.symbol);
+                setView("finance");
+              }}
+            >
               <span className="font-mono text-sm text-muted-foreground">{w.label}</span>
               {quotesPending && !q ? (
                 <Skeleton className="h-4 w-24" />
               ) : (
                 <span className="flex min-w-0 items-center gap-2">
                   {spark && spark.length >= 2 ? (
-                    <Spark values={spark} up={up} className="h-6 w-12 sm:h-6 sm:w-12" />
+                    <Spark values={spark} up={up} className="h-8 w-20 sm:h-10 sm:w-24" />
                   ) : null}
                   <span className={`tabular-nums text-sm ${ch == null ? "" : up ? "text-ok" : "text-destructive"}`}>
                     {q ? moneyQuote(q.price, q.ccy) : "—"}
@@ -724,11 +786,12 @@ export function FinancePeek() {
                   </span>
                 </span>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
-      {markets.isError || markets.data?.failed ? (
+      ) : null}
+      {marketsOn && (markets.isError || markets.data?.failed) ? (
         <button type="button" className="mt-2 text-xs underline" onClick={() => void markets.refetch()}>
           Retry prices
         </button>
@@ -790,6 +853,8 @@ export function NewsPeek({
   loading?: boolean;
   error?: boolean;
 }) {
+  const setView = useAtrium((s) => s.setView);
+  const feedOn = useAtrium((s) => s.feeds.some((f) => f.enabled));
   if (!headlines.length) {
     if (loading) {
       return (
@@ -804,21 +869,34 @@ export function NewsPeek({
         </div>
       );
     }
+    if (error) {
+      return <p className="text-sm text-muted-foreground">Headlines unavailable.</p>;
+    }
     return (
-      <p className="text-sm text-muted-foreground">
-        {error ? "Headlines unavailable." : "No headlines yet."}
-      </p>
+      <button
+        type="button"
+        className="text-left text-sm text-muted-foreground hover:text-foreground"
+        onClick={() => setView("news")}
+      >
+        {feedOn ? "No headlines yet." : "No sources on — pick feeds in News."}
+      </button>
     );
   }
   return (
     <div className="space-y-3">
-      {headlines.slice(0, 5).map((n) => (
-        <a key={`${n.src}-${n.link}-${n.title}`} href={n.link} target="_blank" rel="noopener noreferrer" className="block">
-          <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tagStory(n)}</span>
-          <span className="mt-0.5 block text-sm leading-snug">{n.title}</span>
-          <span className="text-xs text-muted-foreground">{n.src}</span>
-        </a>
-      ))}
+      {headlines.slice(0, 5).map((n) => {
+        const age = storyAge(n.date);
+        return (
+          <a key={`${n.src}-${n.link}-${n.title}`} href={n.link} target="_blank" rel="noopener noreferrer" className="block">
+            <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tagStory(n)}</span>
+            <span className="mt-0.5 block text-sm leading-snug">{n.title}</span>
+            <span className="text-xs text-muted-foreground">
+              {n.src}
+              {age ? ` · ${age}` : ""}
+            </span>
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -852,7 +930,7 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
         <button
           type="button"
           className={cn(
-            "flex size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
             on && "text-foreground",
           )}
           aria-label={label}
@@ -881,7 +959,7 @@ export function DeskMenu() {
   const items: { kind: WidgetKind; label: string }[] = [
     { kind: "weather", label: "Weather" },
     { kind: "calendar", label: "Calendar" },
-    { kind: "quote", label: "Quote" },
+    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: "Quote" }] : []),
     ...(modules.finance ? [{ kind: "finance" as const, label: "Finance" }] : []),
     ...(modules.news ? [{ kind: "news" as const, label: "News" }] : []),
   ];

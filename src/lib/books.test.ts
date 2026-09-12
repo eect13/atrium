@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   applyTx,
+  DESK_QUOTA,
   demoBooks,
   digits4,
   effectOnAccount,
+  formatBytes,
   liquidEffect,
   normalizeAccount,
   numberLabel,
@@ -14,7 +16,9 @@ import {
   registerRows,
   signedAmount,
   toBooksFile,
+  toHomeCcy,
   txKindOf,
+  withoutCvc,
 } from "./books.ts";
 
 const accounts = [
@@ -67,14 +71,16 @@ test("register running balance is true for a filtered month", () => {
     month: "2026-09",
     year: "2026",
   });
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.equal(rows[0]?.tx.payee, "Sep out");
   assert.equal(rows[0]?.balance, 1250);
   assert.equal(rows[1]?.tx.payee, "Sep in");
   assert.equal(rows[1]?.balance, 1300);
+  assert.equal(rows[2]?.opening, true);
+  assert.equal(rows[2]?.balance, 900);
 });
 
-test("all-accounts register still shows transfer as out", () => {
+test("all-accounts register nets transfers to zero", () => {
   const txs = [
     {
       id: "t",
@@ -95,17 +101,21 @@ test("all-accounts register still shows transfer as out", () => {
     month: "2026-09",
     year: "2026",
   });
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.outAmt, 800);
-  assert.equal(rows[0]?.inAmt, 0);
-  assert.equal(rows[0]?.balance, 6000);
+  const line = rows.find((r) => !r.opening);
+  assert.equal(line?.outAmt, 0);
+  assert.equal(line?.inAmt, 0);
+  assert.equal(line?.effect, 0);
+  assert.equal(line?.balance, 6000);
+  assert.equal(line?.accountLabel, "Bank → Cash");
+  const open = rows.find((r) => r.opening);
+  assert.equal(open?.balance, 6000);
 });
 
 test("parseBooksFile round-trips an Atrium snapshot", () => {
-  const demo = demoBooks("Eric");
+  const demo = demoBooks("Ada");
   const file = toBooksFile(demo, "2026-09-07T00:00:00.000Z");
   const parsed = parseBooksFile(JSON.stringify(file));
-  assert.equal(parsed.books.name, "Eric — personal books");
+  assert.equal(parsed.books.name, "Ada — personal books");
   assert.equal(parsed.accounts.length, 3);
   assert.ok(parsed.txs.length >= 4);
   assert.equal(txKindOf(parsed.txs.find((t) => t.payee === "Salary")!), "income");
@@ -160,9 +170,35 @@ test("card fields round-trip and numbers mask by default", () => {
   assert.equal(numberLabel({ ...a!, hideNumber: false }), "4111 1111 1111 1904");
 });
 
-test("normalizeBooks keeps mask", () => {
+test("normalizeBooks splits wallet and register layout", () => {
   assert.equal(normalizeBooks({ name: "X", density: "compact", mask: true }).mask, true);
   assert.equal(normalizeBooks({ name: "X" }).mask, false);
+  assert.equal(normalizeBooks({ name: "X" }).walletLayout, "grid");
+  assert.equal(normalizeBooks({ name: "X" }).registerLayout, "list");
+  assert.equal(normalizeBooks({ name: "X", layout: "list" }).walletLayout, "list");
+  assert.equal(normalizeBooks({ name: "X", layout: "list" }).registerLayout, "list");
+  assert.equal(normalizeBooks({ name: "X", registerLayout: "grid" }).registerLayout, "grid");
+  assert.equal(normalizeBooks({ name: "X", walletLayout: "list", registerLayout: "grid" }).walletLayout, "list");
+});
+
+test("toHomeCcy converts through PHP tape", () => {
+  const fx = { usdphp: 58, eurphp: 62, jpyphp: 0.4, gbpphp: 74 };
+  assert.equal(toHomeCcy(100, "PHP", "PHP", fx), 100);
+  assert.equal(toHomeCcy(1, "USD", "PHP", fx), 58);
+  assert.equal(toHomeCcy(58, "PHP", "USD", fx), 1);
+  assert.equal(toHomeCcy(100, "SGD", "PHP", fx), null);
+});
+
+test("withoutCvc strips the vault field", () => {
+  const a = withoutCvc({ id: "c", name: "Visa", balance: 1, kind: "card", cvc: "123" });
+  assert.equal(a.cvc, undefined);
+});
+
+test("desk storage is a flat 10 GB", () => {
+  assert.equal(DESK_QUOTA, 10 * 1024 * 1024 * 1024);
+  assert.equal(formatBytes(0), "0 B");
+  assert.equal(formatBytes(DESK_QUOTA), "10 GB");
+  assert.equal(formatBytes(512), "512 B");
 });
 
 test("normalizeBooks defaults currency to PHP", () => {

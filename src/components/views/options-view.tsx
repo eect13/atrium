@@ -12,20 +12,27 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
-import { WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
-import { lookupPlace, mapsPin } from "@/lib/weather";
+import { DEFAULT_TAGLINE, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { useModHint } from "@/lib/keys";
+import { lookupPlace, mapsPin, hasWeatherPin } from "@/lib/weather";
 import { locateMe } from "@/lib/locate";
+import { DeskStorage } from "./finance-options";
+import { Chip, FIELD_SELECT } from "./finance-chip";
+import { FEED_PACKS, packIsOn } from "@/lib/feeds";
+import { DESK_REGIONS, regionOf } from "@/lib/region";
+import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
-  { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows." },
-  { id: "finance" as const, label: "Finance watcher", blurb: "Cash books, Quotes board, backup, market watch." },
+  { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
+  { id: "finance" as const, label: "Finance watcher", blurb: "Cash books, market board, backup." },
+  { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
   { id: "news" as const, label: "News briefing", blurb: "RSS mosaic in the MSN style." },
 ];
 
-const DESK: { kind: WidgetKind; need?: "finance" | "news" }[] = [
+const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" }[] = [
   { kind: "weather" },
   { kind: "calendar" },
-  { kind: "quote" },
+  { kind: "quote", need: "quotes" },
   { kind: "finance", need: "finance" },
   { kind: "news", need: "news" },
 ];
@@ -34,27 +41,39 @@ const JUMP = [
   { id: "opt-appearance", label: "Appearance" },
   { id: "opt-desk", label: "Desk" },
   { id: "opt-modules", label: "Modules" },
+  { id: "opt-news", label: "News" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
+  { id: "opt-storage", label: "Storage" },
   { id: "opt-data", label: "Data" },
 ];
 
 function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: (p: Partial<Profile>) => void }) {
   const [name, setName] = useState(profile.name);
   const [city, setCity] = useState(profile.city);
-  const [lat, setLat] = useState(String(profile.lat));
-  const [lon, setLon] = useState(String(profile.lon));
+  const [tagline, setTagline] = useState(profile.tagline);
+  const [lat, setLat] = useState(profile.lat == null ? "" : String(profile.lat));
+  const [lon, setLon] = useState(profile.lon == null ? "" : String(profile.lon));
   const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     setName(profile.name);
     setCity(profile.city);
-    setLat(String(profile.lat));
-    setLon(String(profile.lon));
-  }, [profile.name, profile.city, profile.lat, profile.lon]);
+    setTagline(profile.tagline);
+    setLat(profile.lat == null ? "" : String(profile.lat));
+    setLon(profile.lon == null ? "" : String(profile.lon));
+  }, [profile.name, profile.city, profile.tagline, profile.lat, profile.lon]);
 
   async function pinCity(raw: string) {
-    const q = raw.trim() || "Las Piñas";
+    const q = raw.trim();
+    if (!q) {
+      setCity("");
+      setLat("");
+      setLon("");
+      setProfile({ city: "", lat: null, lon: null });
+      toast("Weather pin cleared");
+      return;
+    }
     setCity(q);
     const hit = await lookupPlace({ data: { name: q } });
     if (!hit) {
@@ -94,10 +113,13 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
     }
   }
 
-  const pin = mapsPin(profile.lat, profile.lon);
-  const ns = profile.lat >= 0 ? "N" : "S";
-  const ew = profile.lon >= 0 ? "E" : "W";
-  const coord = `${Math.abs(profile.lat).toFixed(4)}° ${ns}  ${Math.abs(profile.lon).toFixed(4)}° ${ew}`;
+  const pinned = hasWeatherPin(profile);
+  const pin = pinned ? mapsPin(profile.lat!, profile.lon!) : null;
+  const ns = (profile.lat ?? 0) >= 0 ? "N" : "S";
+  const ew = (profile.lon ?? 0) >= 0 ? "E" : "W";
+  const coord = pinned
+    ? `${Math.abs(profile.lat!).toFixed(4)}° ${ns}  ${Math.abs(profile.lon!).toFixed(4)}° ${ew}`
+    : "No pin yet";
 
   return (
     <CardContent className="grid gap-3 sm:grid-cols-2">
@@ -107,8 +129,48 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
           id="opt-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onBlur={(e) => setProfile({ name: e.target.value.trim() || "Eric" })}
+          onBlur={(e) => setProfile({ name: e.target.value.trim() })}
+          placeholder="Your name"
         />
+      </div>
+      <div className="space-y-1 sm:col-span-2">
+        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">Desk region</p>
+        <select
+          aria-label="Desk region"
+          className={cn(FIELD_SELECT, "mt-2 sm:hidden")}
+          value={profile.region || "PH"}
+          onChange={(e) => {
+            const r = regionOf(e.target.value);
+            setProfile({ region: r.id });
+            toast(r.factory ? "Philippines — factory desk" : `Desk region: ${r.name}`);
+          }}
+        >
+          {DESK_REGIONS.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+              {r.factory ? " · default" : ""}
+            </option>
+          ))}
+        </select>
+        <div className="mt-2 hidden flex-wrap gap-2 sm:flex">
+          {DESK_REGIONS.map((r) => (
+            <Chip
+              key={r.id}
+              active={(profile.region || "PH") === r.id}
+              onClick={() => {
+                setProfile({ region: r.id });
+                toast(r.factory ? "Philippines — factory desk" : `Desk region: ${r.name}`);
+              }}
+            >
+              {r.name}
+              {r.factory ? " · default" : ""}
+            </Chip>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Clock, calendar, and weather follow this country. Philippines is the factory default. Books currency stays
+          what you set on Cash.
+        </p>
       </div>
       <div className="space-y-1">
         <Label htmlFor="opt-city">City</Label>
@@ -116,6 +178,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
           id="opt-city"
           value={city}
           onChange={(e) => setCity(e.target.value)}
+          placeholder={regionOf(profile.region).cityHint}
           onBlur={(e) => void pinCity(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -125,9 +188,27 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
           }}
         />
       </div>
+      <div className="space-y-1 sm:col-span-2">
+        <Label htmlFor="opt-tagline">Sidebar tagline</Label>
+        <Input
+          id="opt-tagline"
+          value={tagline}
+          maxLength={48}
+          placeholder={DEFAULT_TAGLINE}
+          onChange={(e) => setTagline(e.target.value)}
+          onBlur={(e) => setProfile({ tagline: e.target.value.trim() || DEFAULT_TAGLINE })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              setProfile({ tagline: e.currentTarget.value.trim() || DEFAULT_TAGLINE });
+            }
+          }}
+        />
+        <p className="text-xs text-muted-foreground">Shown at the foot of the sidebar. Stays on this device.</p>
+      </div>
       <div className="sm:col-span-2 rounded-xl bg-muted p-5">
         <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Weather pin</p>
-        <p className="mt-1 font-display text-2xl tracking-tight">{profile.city}</p>
+        <p className="mt-1 font-display text-2xl tracking-tight">{profile.city.trim() || "No city pinned"}</p>
         <Tooltip>
           <TooltipTrigger asChild>
             <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{coord}</p>
@@ -144,14 +225,16 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
             </TooltipTrigger>
             <TooltipContent>GPS first, then network if the browser blocks it</TooltipContent>
           </Tooltip>
-          <a
-            href={pin.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground"
-          >
-            Open pin in Maps
-          </a>
+          {pin ? (
+            <a
+              href={pin.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center text-xs text-muted-foreground hover:text-foreground"
+            >
+              Open pin in Maps
+            </a>
+          ) : null}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
           Type a city and press Enter to recast the pin. Lat / lon stay on this device.
@@ -164,9 +247,15 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
               value={lat}
               onChange={(e) => setLat(e.target.value)}
               onBlur={(e) => {
-                const n = Number(e.target.value);
-                setProfile({ lat: Number.isFinite(n) ? n : 14.4508 });
-                if (!Number.isFinite(n)) setLat("14.4508");
+                const raw = e.target.value.trim();
+                if (!raw) {
+                  setProfile({ lat: null });
+                  setLat("");
+                  return;
+                }
+                const n = Number(raw);
+                if (Number.isFinite(n)) setProfile({ lat: n });
+                else setLat(profile.lat == null ? "" : String(profile.lat));
               }}
             />
           </div>
@@ -177,9 +266,15 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
               value={lon}
               onChange={(e) => setLon(e.target.value)}
               onBlur={(e) => {
-                const n = Number(e.target.value);
-                setProfile({ lon: Number.isFinite(n) ? n : 120.9828 });
-                if (!Number.isFinite(n)) setLon("120.9828");
+                const raw = e.target.value.trim();
+                if (!raw) {
+                  setProfile({ lon: null });
+                  setLon("");
+                  return;
+                }
+                const n = Number(raw);
+                if (Number.isFinite(n)) setProfile({ lon: n });
+                else setLon(profile.lon == null ? "" : String(profile.lon));
               }}
             />
           </div>
@@ -202,6 +297,8 @@ export function OptionsView() {
     closeWindow,
     closeAllWindows,
     notes,
+    feeds,
+    setFeedPack,
   } = useAtrium(
     useShallow((s) => ({
       modules: s.modules,
@@ -215,9 +312,12 @@ export function OptionsView() {
       closeWindow: s.closeWindow,
       closeAllWindows: s.closeAllWindows,
       notes: s.notes,
+      feeds: s.feeds,
+      setFeedPack: s.setFeedPack,
     })),
   );
   const pinned = notes.filter((n) => n.pinned).length;
+  const modHint = useModHint();
 
   function jump(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -227,7 +327,7 @@ export function OptionsView() {
     <div className="max-w-2xl space-y-4">
       <h2 className="font-display text-2xl font-medium tracking-tight">Options</h2>
       <nav className="flex flex-wrap gap-2" aria-label="Jump to section">
-        {JUMP.map((s) => (
+        {JUMP.filter((s) => s.id !== "opt-news" || modules.news).map((s) => (
           <button
             key={s.id}
             type="button"
@@ -309,6 +409,35 @@ export function OptionsView() {
         </CardContent>
       </Card>
 
+      {modules.news ? (
+        <Card id="opt-news" className="scroll-mt-4">
+          <CardHeader>
+            <CardTitle>News packs</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Sources stay off until you pick them. A pack turns a slice on — not the whole catalog.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {FEED_PACKS.map((p) => {
+                const on = packIsOn(feeds, p.id);
+                return (
+                  <Chip key={p.id} active={on} onClick={() => setFeedPack(p.id, !on)}>
+                    {p.label}
+                  </Chip>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {FEED_PACKS.map((p) => `${p.label}: ${p.hint}`).join(" · ")}
+            </p>
+            <Button variant="outline" onClick={() => setView("news")}>
+              Open briefing
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card id="opt-profile" className="scroll-mt-4">
         <CardHeader>
           <CardTitle>Profile</CardTitle>
@@ -323,7 +452,7 @@ export function OptionsView() {
         <CardContent className="space-y-2 text-sm">
           <div className="flex justify-between gap-4 border-b border-border py-2">
             <span className="text-muted-foreground">Command bar</span>
-            <kbd className="rounded-sm bg-muted px-2 py-0.5 font-mono text-xs">Ctrl+K</kbd>
+            <kbd className="rounded-sm bg-muted px-2 py-0.5 font-mono text-xs">{modHint}</kbd>
           </div>
           <div className="flex justify-between gap-4 border-b border-border py-2">
             <span className="text-muted-foreground">Add a sticky</span>
@@ -343,6 +472,8 @@ export function OptionsView() {
           </div>
         </CardContent>
       </Card>
+
+      <DeskStorage />
 
       <Card id="opt-data" className="scroll-mt-4">
         <CardHeader>

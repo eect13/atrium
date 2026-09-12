@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  booksTitle,
+  DESK_QUOTA,
   downloadText,
   formatBytes,
   parseBooksFile,
@@ -20,17 +22,17 @@ import {
   storageInfo,
   toBooksFile,
 } from "@/lib/books";
-import { isoDate } from "@/lib/format";
-import { BOARD_TABS } from "@/lib/market-board";
+import { deskZone, isoDate } from "@/lib/format";
+import { PRIMARY_TABS } from "@/lib/market-board";
 import { useAtrium } from "@/lib/store";
 import { Chip } from "./finance-chip";
 
 function stampLabel(iso: string) {
   try {
-    return new Date(iso).toLocaleString("en-PH", {
+    return new Date(iso).toLocaleString(deskZone().locale, {
       dateStyle: "medium",
       timeStyle: "short",
-      timeZone: "Asia/Manila",
+      timeZone: deskZone().tz,
     });
   } catch {
     return iso;
@@ -56,6 +58,63 @@ function PrefSwitch({
       </div>
       <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
     </div>
+  );
+}
+
+export function DeskStorage() {
+  const [store, setStore] = useState<{ used: number; quota: number; persisted: boolean | null }>({
+    used: 0,
+    quota: DESK_QUOTA,
+    persisted: null,
+  });
+
+  useEffect(() => {
+    void storageInfo().then(setStore);
+  }, []);
+
+  const quota = DESK_QUOTA;
+  const pct = Math.min(100, Math.round((store.used / quota) * 100));
+
+  return (
+    <Card id="opt-storage" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle>Storage</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          This desk keeps a flat 10 GB on the device — same idea as Finance Manager. Used is Atrium’s
+          own data here. There is no cloud.
+        </p>
+        <p className="text-sm font-medium">
+          {formatBytes(store.used)} used of 10 GB
+        </p>
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-xs tabular-nums text-muted-foreground">
+          {pct}% · {formatBytes(Math.max(0, quota - store.used))} free
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {store.persisted === true
+            ? "This browser agreed to keep the desk."
+            : store.persisted === false
+              ? "Not persistent yet — the browser may evict data if storage is tight."
+              : "Persistence unknown on this browser."}
+        </p>
+        {store.persisted !== true ? (
+          <Button
+            variant="outline"
+            onClick={async () => {
+              const ok = await requestPersistentStorage();
+              toast(ok ? "Browser will try to keep this desk" : "Browser declined persistence");
+              void storageInfo().then(setStore);
+            }}
+          >
+            Keep data on this device
+          </Button>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -94,11 +153,9 @@ export function FinanceOptions() {
   const [owner, setOwner] = useState(profile.name);
   const [confirm, setConfirm] = useState<"restore" | "remove" | "reload" | null>(null);
   const [snapAt, setSnapAt] = useState<string | null>(null);
-  const [store, setStore] = useState<{ used: number; quota: number; persisted: boolean | null }>({
-    used: 0,
-    quota: 0,
-    persisted: null,
-  });
+
+  const marketsOn = marketPrefs.showMarkets !== false;
+  const booksOn = marketPrefs.showBooks !== false;
 
   useEffect(() => {
     setName(books.name);
@@ -108,7 +165,6 @@ export function FinanceOptions() {
   }, [profile.name]);
   useEffect(() => {
     setSnapAt(readBooksSnap()?.savedAt ?? null);
-    void storageInfo().then(setStore);
   }, [books, accounts, txs]);
 
   function currentFile() {
@@ -160,10 +216,65 @@ export function FinanceOptions() {
     toast("Register CSV downloaded");
   }
 
-  const pct = store.quota > 0 ? Math.min(100, Math.round((store.used / store.quota) * 100)) : 0;
+  function togglePane(key: "showMarkets" | "showBooks", next: boolean) {
+    if (!next && (key === "showMarkets" ? !booksOn : !marketsOn)) {
+      toast("Keep Markets or Books on");
+      return;
+    }
+    if (key === "showMarkets") {
+      setMarketPrefs({
+        showMarkets: next,
+        home: next ? marketPrefs.home : "books",
+      });
+      return;
+    }
+    setMarketPrefs({
+      showBooks: next,
+      home: next ? marketPrefs.home : "markets",
+    });
+  }
 
   return (
     <div className="max-w-2xl space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Cash tabs</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Turn Markets or Books off to hide that tab. Keep at least one on. Options stays.
+          </p>
+          <PrefSwitch
+            label="Markets"
+            hint="Watcher, tape, converter"
+            checked={marketsOn}
+            onCheckedChange={(v) => togglePane("showMarkets", v)}
+          />
+          <PrefSwitch
+            label="Books"
+            hint="Wallet, register, budgets"
+            checked={booksOn}
+            onCheckedChange={(v) => togglePane("showBooks", v)}
+          />
+          <div>
+            <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Open Cash on</p>
+            <div className="flex flex-wrap gap-2">
+              {booksOn ? (
+                <Chip active={marketPrefs.home === "books"} onClick={() => setMarketPrefs({ home: "books" })}>
+                  Books
+                </Chip>
+              ) : null}
+              {marketsOn ? (
+                <Chip active={marketPrefs.home === "markets"} onClick={() => setMarketPrefs({ home: "markets" })}>
+                  Markets
+                </Chip>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {booksOn ? (
       <Card>
         <CardHeader>
           <CardTitle>Local profile</CardTitle>
@@ -175,7 +286,7 @@ export function FinanceOptions() {
               id="books-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onBlur={(e) => setBooks({ name: e.target.value.trim() || `${profile.name} — personal books` })}
+              onBlur={(e) => setBooks({ name: e.target.value.trim() || booksTitle(profile.name) })}
             />
             <p className="text-xs text-muted-foreground">Printed on the register and on a downloaded books file.</p>
           </div>
@@ -185,18 +296,43 @@ export function FinanceOptions() {
               id="books-owner"
               value={owner}
               onChange={(e) => setOwner(e.target.value)}
-              onBlur={(e) => setProfile({ name: e.target.value.trim() || "Eric" })}
+              onBlur={(e) => setProfile({ name: e.target.value.trim() })}
+              placeholder="Owner of these books"
             />
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
+      {booksOn ? (
       <Card>
         <CardHeader>
           <CardTitle>Display</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">List density on the register. Compact still keeps a full tap target.</p>
+          <p className="text-sm text-muted-foreground">Wallet and register each have their own list or grid. Compact still keeps a full tap target.</p>
+          <div>
+            <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Accounts</p>
+            <div className="flex flex-wrap gap-2">
+              <Chip active={books.walletLayout !== "list"} onClick={() => setBooks({ walletLayout: "grid" })}>
+                Grid
+              </Chip>
+              <Chip active={books.walletLayout === "list"} onClick={() => setBooks({ walletLayout: "list" })}>
+                List
+              </Chip>
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Register</p>
+            <div className="flex flex-wrap gap-2">
+              <Chip active={books.registerLayout === "grid"} onClick={() => setBooks({ registerLayout: "grid" })}>
+                Grid
+              </Chip>
+              <Chip active={books.registerLayout !== "grid"} onClick={() => setBooks({ registerLayout: "list" })}>
+                List
+              </Chip>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Chip active={books.density === "comfortable"} onClick={() => setBooks({ density: "comfortable" })}>
               Comfortable
@@ -207,7 +343,9 @@ export function FinanceOptions() {
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
+      {marketsOn ? (
       <Card>
         <CardHeader>
           <CardTitle>Market board</CardTitle>
@@ -215,23 +353,13 @@ export function FinanceOptions() {
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Watcher layout. USDT last shows coins in dollars with PHP on the line below. Spark range is 1D–1Y — coins
-            from Binance, FX from Frankfurter, PSE from this desk's tape.
+            from Binance, FX from Frankfurter, PSE from this desk's tape, global names and commodities from Yahoo
+            (delayed).
           </p>
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Open Cash on</p>
-            <div className="flex flex-wrap gap-2">
-              <Chip active={marketPrefs.home === "books"} onClick={() => setMarketPrefs({ home: "books" })}>
-                Books
-              </Chip>
-              <Chip active={marketPrefs.home === "markets"} onClick={() => setMarketPrefs({ home: "markets" })}>
-                Markets
-              </Chip>
-            </div>
-          </div>
           <div>
             <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Default board</p>
             <div className="flex flex-wrap gap-2">
-              {BOARD_TABS.map((t) => (
+              {PRIMARY_TABS.map((t) => (
                 <Chip key={t.id} active={marketPrefs.tab === t.id} onClick={() => setMarketPrefs({ tab: t.id })}>
                   {t.label}
                 </Chip>
@@ -246,9 +374,15 @@ export function FinanceOptions() {
           />
           <PrefSwitch
             label="PHP under last"
-            hint="Peso line under USDT and FX"
+            hint="Peso line under coins, FX, and global stocks — not commodities"
             checked={marketPrefs.dualPhp}
             onCheckedChange={(v) => setMarketPrefs({ dualPhp: v })}
+          />
+          <PrefSwitch
+            label="Convert commodities"
+            hint="Show gold, oil, and metals in PHP under last. Off by default — those quotes stay in dollars."
+            checked={marketPrefs.cmdtyPhp}
+            onCheckedChange={(v) => setMarketPrefs({ cmdtyPhp: v })}
           />
           <PrefSwitch
             label="USDT last"
@@ -276,7 +410,10 @@ export function FinanceOptions() {
           />
         </CardContent>
       </Card>
+      ) : null}
 
+      {booksOn ? (
+      <>
       <Card>
         <CardHeader>
           <CardTitle>Backup and restore</CardTitle>
@@ -322,7 +459,7 @@ export function FinanceOptions() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Demo cash, BDO, GCash, and a few register lines ship with Atrium. Remove sample clears the register. Restore last local copy brings the last automatic snapshot back without reload. Reload sample puts the demo back.
+            Demo cash, checking, wallet, and a few register lines ship with Atrium. Remove sample clears the register. Restore last local copy brings the last automatic snapshot back without reload. Reload sample puts the demo back.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setConfirm("remove")}>
@@ -334,51 +471,10 @@ export function FinanceOptions() {
           </div>
         </CardContent>
       </Card>
+      </>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Storage</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Books live in this browser as local storage. Ask it to keep them when disk is tight. There is no cloud sync — download a backup to move them.
-          </p>
-          <p className="text-sm font-medium">
-            {store.quota > 0
-              ? `${formatBytes(store.used)} used of ${formatBytes(store.quota)} granted`
-              : formatBytes(store.used)}
-          </p>
-          {store.quota > 0 ? (
-            <>
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-              </div>
-              <p className="text-xs tabular-nums text-muted-foreground">
-                {pct}% · {formatBytes(Math.max(0, store.quota - store.used))} free
-              </p>
-            </>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            {store.persisted === true
-              ? "This browser agreed to keep the books."
-              : store.persisted === false
-                ? "Not persistent yet — the browser may evict data if storage is tight."
-                : "Persistence unknown on this browser."}
-          </p>
-          {store.persisted !== true ? (
-            <Button
-              variant="outline"
-              onClick={async () => {
-                const ok = await requestPersistentStorage();
-                toast(ok ? "Browser will try to keep these books" : "Browser declined persistence");
-                void storageInfo().then(setStore);
-              }}
-            >
-              Keep books on this device
-            </Button>
-          ) : null}
-        </CardContent>
-      </Card>
+      <DeskStorage />
 
       <Dialog open={confirm !== null} onOpenChange={(v) => !v && setConfirm(null)}>
         <DialogContent>

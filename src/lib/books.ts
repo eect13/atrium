@@ -29,7 +29,11 @@ export type RegisterRow = {
   outAmt: number;
   balance: number | null;
   effect: number;
+  opening?: boolean;
+  accountLabel?: string;
 };
+
+export type BookFx = { usdphp: number; eurphp: number; jpyphp: number; gbpphp: number };
 
 export function digits4(raw: string | undefined): string | undefined {
   const d = digitsOnly(raw).slice(-4);
@@ -104,6 +108,67 @@ export function effectOnAccount(t: Tx, accountId: string): number {
   return (t.accountId ?? "") === accountId ? t.amount : 0;
 }
 
+export function withoutCvc(account: Account): Account {
+  if (account.cvc == null) return account;
+  const next = { ...account };
+  delete next.cvc;
+  return next;
+}
+
+export function phpPerUnit(ccy: string, fx: BookFx | null | undefined): number | null {
+  const c = ccy.toUpperCase();
+  if (c === "PHP") return 1;
+  if (!fx) return null;
+  if (c === "USD") return fx.usdphp || null;
+  if (c === "EUR") return fx.eurphp || null;
+  if (c === "JPY") return fx.jpyphp || null;
+  if (c === "GBP") return fx.gbpphp || null;
+  return null;
+}
+
+export function toHomeCcy(
+  amount: number,
+  from: string,
+  home: string,
+  fx: BookFx | null | undefined,
+): number | null {
+  if (!Number.isFinite(amount)) return null;
+  const src = from.toUpperCase();
+  const dst = home.toUpperCase();
+  if (src === dst) return amount;
+  const fromPhp = phpPerUnit(src, fx);
+  const homePhp = phpPerUnit(dst, fx);
+  if (!fromPhp || !homePhp) return null;
+  return (amount * fromPhp) / homePhp;
+}
+
+export function sumToHome(
+  items: { amount: number; currency: string }[],
+  home: string,
+  fx: BookFx | null | undefined,
+): { total: number; skipped: string[] } {
+  const skipped = new Set<string>();
+  let total = 0;
+  for (const it of items) {
+    const n = toHomeCcy(it.amount, it.currency, home, fx);
+    if (n == null) {
+      skipped.add(it.currency.toUpperCase());
+      continue;
+    }
+    total += n;
+  }
+  return { total, skipped: [...skipped] };
+}
+
+export function txAccountLabel(tx: Tx, names: Record<string, string>): string {
+  if (txKindOf(tx) === "transfer" && tx.transferToId) {
+    const from = tx.accountId ? (names[tx.accountId] ?? tx.accountId) : "";
+    const to = names[tx.transferToId] ?? tx.transferToId;
+    return from ? `${from} → ${to}` : to;
+  }
+  return tx.accountId ? (names[tx.accountId] ?? tx.accountId) : "";
+}
+
 export function applyTx(accounts: Account[], t: Tx, sign: 1 | -1): Account[] {
   return accounts.map((a) => {
     const d = effectOnAccount(t, a.id);
@@ -165,7 +230,21 @@ export function normalizeBooks(raw: unknown, fallbackName = "Personal books"): B
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const name = typeof o.name === "string" && o.name.trim() ? o.name.trim() : fallbackName;
   const density: Books["density"] = o.density === "compact" ? "compact" : "comfortable";
-  return { name, density, mask: o.mask === true, currency: normalizeCcy(o.currency) };
+  const walletLayout: Books["walletLayout"] =
+    o.walletLayout === "list" || o.walletLayout === "grid"
+      ? o.walletLayout
+      : o.layout === "list"
+        ? "list"
+        : "grid";
+  const registerLayout: Books["registerLayout"] = o.registerLayout === "grid" ? "grid" : "list";
+  return {
+    name,
+    density,
+    mask: o.mask === true,
+    currency: normalizeCcy(o.currency),
+    walletLayout,
+    registerLayout,
+  };
 }
 
 export function normalizeBudget(raw: unknown, fallbackIndex = 0): Budget | null {
@@ -179,15 +258,20 @@ export function normalizeBudget(raw: unknown, fallbackIndex = 0): Budget | null 
   };
 }
 
-export function demoBooks(profileName = "Eric"): Pick<BooksFile, "books" | "accounts" | "budgets" | "txs"> {
+export function booksTitle(profileName = ""): string {
+  const n = profileName.trim();
+  return n ? `${n} — personal books` : "Personal books";
+}
+
+export function demoBooks(profileName = ""): Pick<BooksFile, "books" | "accounts" | "budgets" | "txs"> {
   const now = new Date();
   const today = isoDate(now);
   return {
-    books: { name: `${profileName} — personal books`, density: "comfortable", currency: "PHP" },
+    books: { name: booksTitle(profileName), density: "comfortable", currency: "PHP", walletLayout: "grid", registerLayout: "list" },
     accounts: [
       { id: "cash", name: "Cash", balance: 8500, kind: "cash", currency: "PHP" },
-      { id: "bank", name: "BDO checking", balance: 126400, kind: "bank", last4: "1904", currency: "PHP" },
-      { id: "gcash", name: "GCash", balance: 4320, kind: "ewallet", last4: "8832", currency: "PHP" },
+      { id: "bank", name: "Checking", balance: 126400, kind: "bank", last4: "1904", currency: "PHP" },
+      { id: "wallet", name: "Wallet", balance: 4320, kind: "ewallet", last4: "8832", currency: "PHP" },
     ],
     budgets: [
       { id: "food", name: "Food", limit: 15000 },
@@ -199,7 +283,7 @@ export function demoBooks(profileName = "Eric"): Pick<BooksFile, "books" | "acco
       {
         id: uid(),
         date: today,
-        payee: "Grocery — S&R",
+        payee: "Grocery",
         amount: -2850,
         cat: "food",
         accountId: "cash",
@@ -220,18 +304,18 @@ export function demoBooks(profileName = "Eric"): Pick<BooksFile, "books" | "acco
       {
         id: uid(),
         date: isoDate(addDays(now, -1)),
-        payee: "Grab",
+        payee: "Ride",
         amount: -248,
         cat: "trans",
-        accountId: "gcash",
+        accountId: "wallet",
         kind: "expense",
         status: "pending",
-        memo: "Home from BGC",
+        memo: "Commute",
       },
       {
         id: uid(),
         date: isoDate(addDays(now, -2)),
-        payee: "Meralco",
+        payee: "Utilities",
         amount: -4200,
         cat: "bills",
         accountId: "bank",
@@ -241,11 +325,11 @@ export function demoBooks(profileName = "Eric"): Pick<BooksFile, "books" | "acco
       {
         id: uid(),
         date: isoDate(addDays(now, -3)),
-        payee: "Transfer to GCash",
+        payee: "Transfer to wallet",
         amount: -2000,
         cat: "other",
         accountId: "bank",
-        transferToId: "gcash",
+        transferToId: "wallet",
         kind: "transfer",
         status: "cleared",
         memo: "Wallet top-up",
@@ -256,7 +340,7 @@ export function demoBooks(profileName = "Eric"): Pick<BooksFile, "books" | "acco
 
 export function emptyBooks(name: string): Pick<BooksFile, "books" | "accounts" | "budgets" | "txs"> {
   return {
-    books: { name, density: "comfortable", currency: "PHP" },
+    books: { name, density: "comfortable", currency: "PHP", walletLayout: "grid", registerLayout: "list" },
     accounts: [{ id: "cash", name: "Cash", balance: 0, kind: "cash", currency: "PHP" }],
     budgets: [
       { id: "food", name: "Food", limit: 15000 },
@@ -272,7 +356,15 @@ export function toBooksFile(
   slice: Pick<BooksFile, "books" | "accounts" | "budgets" | "txs">,
   savedAt = new Date().toISOString(),
 ): BooksFile {
-  return { kind: BOOKS_KIND, version: 1, savedAt, ...slice };
+  return {
+    kind: BOOKS_KIND,
+    version: 1,
+    savedAt,
+    books: slice.books,
+    accounts: slice.accounts.map(withoutCvc),
+    budgets: slice.budgets,
+    txs: slice.txs,
+  };
 }
 
 function looksLikeFinanceManager(o: Record<string, unknown>) {
@@ -373,22 +465,56 @@ export function registerRows(
   for (const tx of relevant) {
     const run = effectOf(tx);
     running += run;
-    const shown =
-      filter.accountId === "all" && txKindOf(tx) === "transfer" ? -Math.abs(tx.amount) : run;
-    const hay = `${tx.payee} ${tx.memo ?? ""} ${tx.cat} ${tx.accountId ? names[tx.accountId] ?? "" : ""}`.toLowerCase();
+    const hay =
+      `${tx.payee} ${tx.memo ?? ""} ${tx.cat} ${txAccountLabel(tx, names)}`.toLowerCase();
     if (q && !hay.includes(q)) continue;
     if (!inRange(tx.date, filter)) continue;
-    if (filter.flow === "in" && shown <= 0) continue;
-    if (filter.flow === "out" && shown >= 0) continue;
+    if (filter.flow === "in" && run <= 0) continue;
+    if (filter.flow === "out" && run >= 0) continue;
     rows.push({
       tx,
-      effect: shown,
-      inAmt: shown > 0 ? shown : 0,
-      outAmt: shown < 0 ? Math.abs(shown) : 0,
+      effect: run,
+      inAmt: run > 0 ? run : 0,
+      outAmt: run < 0 ? Math.abs(run) : 0,
       balance: running,
+      accountLabel: txAccountLabel(tx, names),
     });
   }
-  return rows.toReversed();
+  const newestFirst = rows.toReversed();
+  const showOpening = !q && filter.flow === "all";
+  if (showOpening) {
+    const start =
+      filter.range === "month"
+        ? `${filter.month}-01`
+        : filter.range === "year"
+          ? `${filter.year}-01-01`
+          : "";
+    let openBal = opening;
+    if (start) {
+      let r = opening;
+      for (const tx of relevant) {
+        if (tx.date >= start) break;
+        r += effectOf(tx);
+      }
+      openBal = r;
+    }
+    newestFirst.push({
+      tx: {
+        id: "__opening",
+        date: start,
+        payee: "Opening",
+        amount: 0,
+        cat: "other",
+      },
+      inAmt: 0,
+      outAmt: 0,
+      effect: 0,
+      balance: openBal,
+      opening: true,
+      accountLabel: "",
+    });
+  }
+  return newestFirst;
 }
 
 export function registerCsv(rows: RegisterRow[], accounts: Account[]) {
@@ -396,13 +522,15 @@ export function registerCsv(rows: RegisterRow[], accounts: Account[]) {
   const esc = (v: string) => `"${v.replaceAll('"', '""')}"`;
   const lines = [
     "Date,Payee,Memo,Type,Account,In,Out,Balance,Status,Category",
-    ...rows.map((r) =>
+    ...rows
+      .filter((r) => !r.opening)
+      .map((r) =>
       [
         r.tx.date,
         esc(r.tx.payee),
         esc(r.tx.memo ?? ""),
         txKindOf(r.tx),
-        esc(r.tx.accountId ? (names[r.tx.accountId] ?? r.tx.accountId) : ""),
+        esc(r.accountLabel || (r.tx.accountId ? (names[r.tx.accountId] ?? r.tx.accountId) : "")),
         r.inAmt || "",
         r.outAmt || "",
         r.balance ?? "",
@@ -426,11 +554,16 @@ export function downloadText(filename: string, text: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+export const DESK_QUOTA = 10 * 1024 * 1024 * 1024;
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   if (bytes < 1024) return `${Math.round(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 0.995 && Math.abs(gb - Math.round(gb)) < 0.01) return `${Math.round(gb)} GB`;
+  return `${gb.toFixed(2)} GB`;
 }
 
 export function localBytes(): number {
@@ -459,20 +592,12 @@ export async function storageInfo(): Promise<{
   quota: number;
   persisted: boolean | null;
 }> {
-  let used = localBytes();
-  let quota = 0;
+  const used = localBytes();
   let persisted: boolean | null = null;
-  try {
-    const estimate = await navigator.storage?.estimate?.();
-    if (estimate?.usage) used = estimate.usage;
-    quota = estimate?.quota ?? 0;
-  } catch {
-    /* ignore */
-  }
   try {
     persisted = (await navigator.storage?.persisted?.()) ?? null;
   } catch {
     persisted = null;
   }
-  return { used, quota, persisted };
+  return { used, quota: DESK_QUOTA, persisted };
 }

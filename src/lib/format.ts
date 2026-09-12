@@ -2,6 +2,21 @@ import type { BookCcy } from "./types.ts";
 import { BOOK_CCY } from "./types.ts";
 
 export const TZ = "Asia/Manila";
+export const LOCALE = "en-PH";
+
+type DeskZone = { tz: string; locale: string };
+let zone: DeskZone = { tz: TZ, locale: LOCALE };
+
+export function deskZone() {
+  return zone;
+}
+
+export function setDeskZone(next: Partial<DeskZone>) {
+  zone = {
+    tz: next.tz?.trim() || zone.tz,
+    locale: next.locale?.trim() || zone.locale,
+  };
+}
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -18,7 +33,7 @@ export type ManilaParts = {
 export function manilaParts(d: Date = new Date()): ManilaParts {
   const map: Record<string, string> = {};
   for (const part of new Intl.DateTimeFormat("en-GB", {
-    timeZone: TZ,
+    timeZone: zone.tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -42,7 +57,7 @@ export function manilaParts(d: Date = new Date()): ManilaParts {
   };
 }
 
-/** Manila is UTC+8 year-round (no DST). Month is 1-based. */
+/** Wall time in the desk region. Month is 1-based. */
 export function fromManila(
   year: number,
   month: number,
@@ -50,7 +65,31 @@ export function fromManila(
   hour = 0,
   minute = 0,
 ) {
-  return new Date(Date.UTC(year, month - 1, day, hour - 8, minute));
+  const tz = zone.tz;
+  let utc = Date.UTC(year, month - 1, day, hour, minute);
+  for (let i = 0; i < 3; i += 1) {
+    const map: Record<string, string> = {};
+    for (const part of new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(utc))) {
+      if (part.type !== "literal") map[part.type] = part.value;
+    }
+    const got = Date.UTC(
+      Number(map.year),
+      Number(map.month) - 1,
+      Number(map.day),
+      Number(map.hour),
+      Number(map.minute),
+    );
+    utc += Date.UTC(year, month - 1, day, hour, minute) - got;
+  }
+  return new Date(utc);
 }
 
 export function manilaAt(date: string, hour = 0, minute = 0) {
@@ -60,13 +99,13 @@ export function manilaAt(date: string, hour = 0, minute = 0) {
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/** `datetime-local` value in Asia/Manila, not the host zone. */
+/** `datetime-local` value in the desk region, not the host zone. */
 export function toManilaInput(d: Date | string = new Date()) {
   const p = manilaParts(new Date(d));
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}T${pad2(p.hour)}:${pad2(p.minute)}`;
 }
 
-/** Parse a `datetime-local` string as Manila wall time. */
+/** Parse a `datetime-local` string as desk-region wall time. */
 export function fromManilaInput(value: string) {
   const [date, time = "00:00"] = value.split("T");
   if (!date) return null;
@@ -79,18 +118,18 @@ export function weekRangeLabel(cursor: Date) {
   const p = manilaParts(cursor);
   const start = fromManila(p.year, p.month, p.day - p.weekdayIndex, 12);
   const end = fromManila(p.year, p.month, p.day - p.weekdayIndex + 6, 12);
-  return new Intl.DateTimeFormat("en-PH", {
+  return new Intl.DateTimeFormat(zone.locale, {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: TZ,
+    timeZone: zone.tz,
   }).formatRange(start, end);
 }
 
-/** Calendar date in Asia/Manila, not the host timezone. */
+/** Calendar date in the desk region, not the host timezone. */
 export function isoDate(d: Date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
+    timeZone: zone.tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -114,19 +153,19 @@ export function sameDay(a: string | Date, b: string | Date) {
 }
 
 export function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-PH", {
+  return new Date(iso).toLocaleTimeString(zone.locale, {
     hour: "numeric",
     minute: "2-digit",
-    timeZone: TZ,
+    timeZone: zone.tz,
   });
 }
 
 export function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-PH", {
+  return new Date(iso).toLocaleDateString(zone.locale, {
     weekday: "short",
     month: "short",
     day: "numeric",
-    timeZone: TZ,
+    timeZone: zone.tz,
   });
 }
 
@@ -275,7 +314,7 @@ export function ccySymbol(ccy: string | undefined): string {
 }
 
 export function monthName(d: Date) {
-  return d.toLocaleDateString("en-PH", { month: "long", year: "numeric", timeZone: TZ });
+  return d.toLocaleDateString(zone.locale, { month: "long", year: "numeric", timeZone: zone.tz });
 }
 
 export function peso(n: number) {
@@ -302,17 +341,27 @@ const QUOTE_SYM: Record<string, string> = {
   EUR: "€",
   GBP: "£",
   JPY: "¥",
+  HKD: "HK$",
+  KRW: "₩",
+  SGD: "S$",
+  AUD: "A$",
+  CAD: "C$",
+  CHF: "CHF ",
+  CNY: "CN¥",
+  INR: "₹",
 };
 
 /** Market quote that keeps cents for FX and drops them for large notionals. */
 export function moneyQuote(n: number, ccy = "PHP") {
-  const unit = QUOTE_SYM[ccy] ? ccy : "PHP";
   const abs = Math.abs(Number(n));
-  const digits = unit === "JPY" ? 0 : abs >= 100_000 ? 0 : abs >= 1 ? 2 : 4;
-  return `${QUOTE_SYM[unit]}${Number(n).toLocaleString("en-PH", {
+  const digits = ccy === "JPY" || ccy === "KRW" ? 0 : abs >= 100_000 ? 0 : abs >= 1 ? 2 : 4;
+  const num = Number(n).toLocaleString("en-US", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
-  })}`;
+  });
+  const sym = QUOTE_SYM[ccy];
+  if (!sym) return `${ccy} ${num}`;
+  return `${sym}${num}`;
 }
 
 /** PHP quote that keeps cents for FX and drops them for large crypto. */
@@ -332,7 +381,7 @@ export function vol(n: number) {
   const abs = Math.abs(n);
   if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString("en-PH");
+  return n.toLocaleString(zone.locale);
 }
 
 export function uid() {
@@ -354,3 +403,27 @@ export const NOTE_COLORS = [
   "#d6dde8",
   "#e2dce8",
 ];
+
+/** Normalize a CSS color to `#rrggbb` for `<input type="color">`. */
+export function hexColor(raw: string): string {
+  const s = (raw ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    const r = s[1]!;
+    const g = s[2]!;
+    const b = s[3]!;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return NOTE_COLORS[0]!;
+}
+
+/** Body ink that holds contrast on a sticky-note paper color. */
+export function inkOnPaper(raw: string): string {
+  const h = hexColor(raw).slice(1);
+  const r = Number.parseInt(h.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(h.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(h.slice(4, 6), 16) / 255;
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const y = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return y > 0.45 ? "#1c1b16" : "#f6f3ea";
+}

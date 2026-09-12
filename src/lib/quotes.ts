@@ -140,7 +140,7 @@ export function parseBrainyRss(xml: string): DeskQuote[] {
       author = dashed[2]!.trim();
     } else if (desc.length >= 12) {
       text = desc.replace(/^["“]+|["”]+$/g, "").trim();
-      author = title || "BrainyQuote";
+      author = title.trim();
     }
     if (text.length < 12 || !author) continue;
     out.push({ text, author, href, source: "brainyquote" });
@@ -306,6 +306,13 @@ function unique(list: DeskQuote[]) {
   });
 }
 
+/** Prefer the public feed. Desk copies only when the live set is empty. */
+export function liveQuotePool(daily: DeskQuote[], local: DeskQuote[]) {
+  const live = unique(daily.filter((q) => q.source !== "local" && q.text.length >= 12));
+  if (live.length) return live;
+  return unique(local);
+}
+
 function matchAuthor(q: DeskQuote, name: string, slug: string) {
   const a = authorSlug(q.author);
   if (!a) return false;
@@ -351,11 +358,11 @@ export const fetchQuotes = createServerFn({ method: "POST" })
     }
 
     if (data.mode === "popular") {
-      const quotes = unique([...daily, ...LOCAL_QUOTES]).slice(0, limit);
-      return { quotes, from: daily.length ? "brainyquote" : "local" };
+      const quotes = liveQuotePool(daily, LOCAL_QUOTES).slice(0, limit);
+      return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local" };
     }
 
-    const pool = unique([...daily, ...LOCAL_QUOTES]);
+    const pool = liveQuotePool(daily, LOCAL_QUOTES);
     const quotes = shuffle(pool, seed).slice(0, limit);
-    return { quotes, from: daily.length ? "brainyquote" : "local" };
+    return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local" };
   });

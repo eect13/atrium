@@ -19,7 +19,8 @@ const SheetContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed z-50 bg-card text-card-foreground shadow-[var(--shadow-border)] focus:outline-none",
-        side === "left" && "inset-y-0 left-0 h-full w-72 overflow-y-auto p-4 scroll-auto",
+        side === "left" &&
+          "inset-y-0 left-0 h-full w-72 overflow-y-auto p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] scroll-auto",
         side === "right" && "inset-y-0 right-0 h-full w-[min(24rem,100%)] overflow-y-auto p-5 scroll-auto",
         side === "bottom" && "inset-x-0 bottom-0 rounded-t-xl p-4",
         className,

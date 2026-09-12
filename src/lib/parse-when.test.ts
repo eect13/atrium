@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fromManila } from "./format.ts";
-import { parseWhen } from "./parse-when.ts";
+import { looksLikeWhen, parseWhen } from "./parse-when.ts";
 
 const fridayNoon = fromManila(2026, 9, 4, 12);
 
@@ -22,4 +22,10 @@ test("Friday on Friday stays today unless next", () => {
   assert.equal(new Date(same.start).toISOString(), fromManila(2026, 9, 4, 9).toISOString());
   const next = parseWhen("Standup next Friday 9am", fridayNoon);
   assert.equal(new Date(next.start).toISOString(), fromManila(2026, 9, 11, 9).toISOString());
+});
+
+test("looksLikeWhen does not treat a ticker as an event", () => {
+  assert.equal(looksLikeWhen("BDO"), false);
+  assert.equal(looksLikeWhen("Lunch Friday 1pm"), true);
+  assert.equal(looksLikeWhen("event: dentist"), true);
 });

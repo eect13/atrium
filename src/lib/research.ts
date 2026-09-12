@@ -1,4 +1,4 @@
-import { moneyQuote, phpQuote, vol } from "./format.ts";
+import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 
 export type ResearchNote = {
@@ -19,6 +19,10 @@ export type ResearchNote = {
   thesis: string[];
   levels: string[];
   technical: string[];
+  watch: string[];
+  risk: string[];
+  next: string[];
+  suggestions: string[];
 };
 
 function ascii(s: string) {
@@ -81,6 +85,8 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   if (inSleeve(DIVIDENDS, code, ticker)) tags.push("DivY");
   if (q?.kind === "crypto") tags.push("Crypto");
   if (q?.kind === "fx") tags.push("FX");
+  if (q?.kind === "global") tags.push("Global");
+  if (q?.kind === "cmdty") tags.push("Commodity");
   if (!tags.length) tags.push(q?.kind === "stock" ? "PSE" : "Market");
 
   const thesis: string[] = [];
@@ -91,7 +97,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   } else if (bias === "Bearish") {
     thesis.push(`Tape is ${ch.toFixed(2)}% on the session. Sellers have the last print.`);
   } else {
-    thesis.push(`Tape is ${ch.toFixed(2)}% - a range day. Wait for a close outside the box.`);
+    thesis.push(`Tape is ${ch.toFixed(2)}% — a range day. Wait for a close outside the box.`);
   }
   if (q?.kind === "stock") {
     thesis.push(
@@ -99,6 +105,10 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
         ? "PSEi name as of the 3 Aug 2026 review (PSE CN-2026-0035). Liquidity is the point of the index."
         : "Not a PSEi constituent. Size and float are not the same as a blue chip.",
     );
+  }
+  if (q?.pe && q.pe > 0) {
+    const fwd = q.forwardPe && q.forwardPe > 0 ? `, forward ${q.forwardPe >= 100 ? q.forwardPe.toFixed(0) : q.forwardPe.toFixed(1)}` : "";
+    thesis.push(`Trailing PE ${q.pe >= 100 ? q.pe.toFixed(0) : q.pe.toFixed(1)}${fwd}. Multiple only — not a valuation call.`);
   }
 
   const technical: string[] = [];
@@ -120,6 +130,59 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   }
   technical.push("Desk note only. No broker, no target, no stop.");
 
+  const watch: string[] = [];
+  const risk: string[] = [];
+  const next: string[] = [];
+  if (ch == null) {
+    watch.push("Wait for a live print before taking a view.");
+  } else if (bias === "Bullish") {
+    watch.push(`Buyers have the tape (${ch.toFixed(2)}%). Keep the idea only while last holds the pivot.`);
+  } else if (bias === "Bearish") {
+    watch.push(`Sellers have the tape (${ch.toFixed(2)}%). First repair is a reclaim of resistance.`);
+  } else {
+    watch.push("Range day. Fade the box until a session close outside support or resistance.");
+  }
+  if (last != null && support != null && resistance != null && resistance > support) {
+    const pos = (last - support) / (resistance - support);
+    if (pos >= 0.85) watch.push("Last is hugging the top of the spark box — a failed break is a fade.");
+    else if (pos <= 0.15) watch.push("Last is hugging the floor of the spark box — a failed breakdown is a bounce.");
+  }
+
+  if (bias === "Bullish") {
+    risk.push(
+      pivot != null
+        ? `Invalidation: last loses the pivot (${moneyShown(pivot, ccy)}).`
+        : "Invalidation: a slip under support.",
+    );
+  } else if (bias === "Bearish") {
+    risk.push(
+      resistance != null
+        ? `Invalidation: last reclaims resistance (${moneyShown(resistance, ccy)}).`
+        : "Invalidation: a reclaim of the session high.",
+    );
+  } else if (ch != null) {
+    risk.push("Invalidation: a close outside the spark box.");
+  }
+
+  if (q?.kind === "stock") {
+    next.push(
+      inSleeve(BLUECHIPS, code, ticker)
+        ? "PSEi name. Liquidity is usually the story, not a thin float."
+        : "Off the PSEi. Treat size and float as unknown until you check the tape.",
+    );
+  } else if (q?.kind === "crypto") {
+    next.push("Use the 24h high/low as the box. This desk does not invent a 3-month OHLC.");
+  } else if (q?.kind === "fx") {
+    next.push("Peso cross. Session change is the whole signal.");
+  } else if (q?.kind === "global") {
+    next.push("Yahoo last, delayed. Index levels are native units, not a peso conversion.");
+  } else if (q?.kind === "cmdty") {
+    next.push("Yahoo futures last, delayed. Treat the session box as the only tape this desk has.");
+  }
+  next.push("Read the related headlines before you size anything.");
+
+  const suggestions = [...watch, ...risk, ...next];
+
   const levels: string[] = [];
   if (support != null) levels.push(`Support  ${moneyShown(support, ccy)}`);
   if (pivot != null) levels.push(`Pivot    ${moneyShown(pivot, ccy)}`);
@@ -129,8 +192,9 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   }
   if (!levels.length) levels.push("No high/low on this quote.");
 
-  const manila = asOf.toLocaleString("en-GB", {
-    timeZone: "Asia/Manila",
+  const z = deskZone();
+  const stamped = asOf.toLocaleString("en-GB", {
+    timeZone: z.tz,
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -142,7 +206,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   return {
     ticker,
     name: row.item.name ?? ticker,
-    asOf: `${manila} Asia/Manila`,
+    asOf: `${stamped} ${z.tz.replace(/_/g, " ")}`,
     last: last != null ? moneyShown(last, ccy) : "-",
     change: ch == null ? "-" : `${ch >= 0 ? "+" : ""}${ch.toFixed(2)}%`,
     volume: q ? (q.kind === "crypto" ? `Vol ${vol(q.volume ?? 0)}` : phpQuote(turnover(q))) : "-",
@@ -157,6 +221,10 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     thesis,
     levels,
     technical,
+    watch,
+    risk,
+    next,
+    suggestions,
   };
 }
 
@@ -195,12 +263,27 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     { text: "SNAPSHOT", size: 9, bold: true, gap: 12 },
     { text: `High ${note.high}    Low ${note.low}`, size: 10, gap: 12 },
     { text: `Support ${note.support}    Pivot ${note.pivot}    Resistance ${note.resistance}`, size: 10, gap: 18 },
-    { text: "LEVELS", size: 9, bold: true, gap: 12 },
-    ...note.levels.flatMap((t) => wrap(t, 86).map((text) => ({ text, size: 10, gap: 12 }))),
-    { text: "TECHNICAL STANDPOINT", size: 9, bold: true, gap: 14 },
-    ...note.technical.flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
-    { text: "NOTE", size: 9, bold: true, gap: 14 },
-    ...note.thesis.flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+    { text: "STANDPOINT", size: 9, bold: true, gap: 14 },
+    ...note.thesis.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+    ...note.technical.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+    ...((note.watch ?? []).length
+      ? [
+          { text: "WATCH", size: 9, bold: true, gap: 14 } as PdfLine,
+          ...(note.watch ?? []).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+        ]
+      : []),
+    ...((note.risk ?? []).length
+      ? [
+          { text: "RISK", size: 9, bold: true, gap: 14 } as PdfLine,
+          ...(note.risk ?? []).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+        ]
+      : []),
+    ...((note.next ?? []).length
+      ? [
+          { text: "NEXT", size: 9, bold: true, gap: 14 } as PdfLine,
+          ...(note.next ?? []).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+        ]
+      : []),
     {
       text: "Not an offer to buy or sell. Built on the live print in Atrium - not a broker research desk.",
       size: 8,
@@ -270,10 +353,13 @@ export function relatedNewsQuery(item: { label: string; symbol: string; name?: s
   const name = item.name ?? item.label;
   if (item.kind === "crypto") return `${item.label} ${name} crypto`;
   if (item.kind === "fx") return `${item.label} peso forex`;
+  if (item.kind === "cmdty") return `${item.label} ${name} commodity`;
+  if (item.kind === "global") return `${item.symbol.replace(/^\^/, "")} ${name}`;
   return `${item.symbol} ${name}`;
 }
 
 export function relatedNewsUrl(item: { label: string; symbol: string; name?: string; kind: string }) {
   const q = relatedNewsQuery(item);
-  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-PH&gl=PH&ceid=PH:en`;
+  const locale = item.kind === "stock" ? "hl=en-PH&gl=PH&ceid=PH:en" : "hl=en&gl=US&ceid=US:en";
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
 }

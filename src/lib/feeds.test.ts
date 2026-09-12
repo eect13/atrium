@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanHeadline, keepStory, mixStories, tagStory } from "./headline.ts";
-import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss } from "./feeds.ts";
+import { asNewsTag, cleanHeadline, keepStory, mixStories, storyAge, storyFingerprint, tagStory } from "./headline.ts";
+import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss, NEWS_CATALOG, FEED_PACKS, packIsOn } from "./feeds.ts";
 
 test("drops emoji-only X titles", () => {
   assert.equal(keepStory({ title: "🤍🔥 - x.com", src: "X", category: "X" }), false);
@@ -68,6 +68,7 @@ test("cleanHeadline strips the Google News x.com suffix", () => {
 });
 
 test("mixStories round-robins sources", () => {
+  const now = Date.parse("2026-09-08T12:00:00Z");
   const mixed = mixStories(
     [
       { title: "x1", src: "X", date: "2026-09-07T03:00:00Z" },
@@ -76,11 +77,97 @@ test("mixStories round-robins sources", () => {
       { title: "r1", src: "Rappler", date: "2026-09-06T20:00:00Z" },
     ],
     4,
+    now,
   );
   assert.deepEqual(
     mixed.map((s) => s.title),
     ["x1", "b1", "r1", "x2"],
   );
+});
+
+test("keepStory drops NGO ads and call-for-applications", () => {
+  assert.equal(
+    keepStory({
+      title: "Experience AI Cohort for African NGOs",
+      src: "Google AI",
+      link: "https://www.fundsforngos.org/latest-funds-for-ngos/experience-ai/",
+    }),
+    false,
+  );
+  assert.equal(
+    keepStory({
+      title: "Call for Applications: Climate Fund 2026",
+      src: "Google AI",
+    }),
+    false,
+  );
+});
+
+test("mixStories collapses near-duplicate headlines", () => {
+  const now = Date.parse("2026-09-08T12:00:00Z");
+  const mixed = mixStories(
+    [
+      {
+        title: "Senate passes the budget bill after a long debate",
+        src: "Inquirer",
+        date: "2026-09-08T10:00:00Z",
+        link: "https://www.inquirer.net/senate-budget-1",
+      },
+      {
+        title: "Senate passes budget bill after long debate",
+        src: "Philstar",
+        date: "2026-09-08T09:00:00Z",
+        link: "https://www.philstar.com/senate-budget-1",
+      },
+    ],
+    5,
+    now,
+  );
+  assert.equal(mixed.length, 1);
+  assert.equal(mixed[0]?.src, "Inquirer");
+});
+
+test("mixStories prefers a fresh story over an older one from the same source", () => {
+  const now = Date.parse("2026-09-08T12:00:00Z");
+  const mixed = mixStories(
+    [
+      {
+        title: "Central bank holds rates as inflation cools in the region",
+        src: "BBC World",
+        date: "2026-09-06T08:00:00Z",
+        category: "World",
+      },
+      {
+        title: "Storm system closes ports across the north Atlantic",
+        src: "The Guardian",
+        date: "2026-09-08T11:00:00Z",
+        category: "World",
+      },
+    ],
+    2,
+    now,
+  );
+  assert.equal(mixed[0]?.src, "The Guardian");
+});
+
+test("storyFingerprint ignores filler words", () => {
+  assert.equal(
+    storyFingerprint("The Senate passes the budget bill"),
+    storyFingerprint("Senate passes budget bill"),
+  );
+});
+
+test("storyAge hides missing dates", () => {
+  const now = Date.parse("2026-09-08T12:00:00Z");
+  assert.equal(storyAge("2026-09-08T10:00:00Z", now), "2h");
+  assert.equal(storyAge(undefined, now), undefined);
+});
+
+test("asNewsTag normalizes short labels", () => {
+  assert.equal(asNewsTag("PH"), "Philippines");
+  assert.equal(asNewsTag("Top"), "World");
+  assert.equal(asNewsTag("X"), "World");
+  assert.equal(asNewsTag("ai"), "AI");
 });
 
 test("tagStory labels sports business entertainment and PH", () => {
@@ -91,6 +178,14 @@ test("tagStory labels sports business entertainment and PH", () => {
   assert.equal(tagStory({ title: "A quiet diplomatic note", category: "World" }), "World");
   assert.equal(tagStory({ title: "Chip foundry expands in Taiwan", category: "Tech" }), "Tech");
   assert.equal(tagStory({ title: "A quiet diplomatic note", category: "Philippines" }), "Philippines");
+  assert.equal(
+    tagStory({
+      title: "Palestinian parents fear for children's lives at school",
+      desc: "A headteacher in the occupied West Bank has installed new fencing.",
+      category: "World",
+    }),
+    "World",
+  );
 });
 
 test("normalizeFeedUrl adds https and rejects junk", () => {
@@ -117,5 +212,30 @@ test("parseRss reads channel items", () => {
   const items = parseRss(xml);
   assert.equal(items[0]?.title, "Hello");
   assert.equal(items[0]?.link, "https://ex.com/1");
+});
+
+test("AI headlines tag as AI", () => {
+  assert.equal(tagStory({ title: "OpenAI releases a new GPT model", category: "Tech" }), "AI");
+});
+
+test("NEWS_CATALOG has 50+ unique sources", () => {
+  assert.ok(NEWS_CATALOG.length >= 50);
+  const ids = NEWS_CATALOG.map((f) => f.id);
+  const urls = NEWS_CATALOG.map((f) => f.url);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(new Set(urls).size, urls.length);
+  assert.ok(NEWS_CATALOG.some((f) => f.category === "Philippines"));
+  assert.ok(NEWS_CATALOG.some((f) => f.category === "World"));
+});
+
+test("feed packs toggle a slice not the whole catalog", () => {
+  const feeds = NEWS_CATALOG.map((f) => ({ id: f.id, enabled: false }));
+  assert.equal(packIsOn(feeds, "philippines"), false);
+  const ph = FEED_PACKS.find((p) => p.id === "philippines");
+  assert.ok(ph);
+  const on = feeds.map((f) => ({ ...f, enabled: ph!.ids.includes(f.id) }));
+  assert.equal(packIsOn(on, "philippines"), true);
+  assert.equal(packIsOn(on, "world"), false);
+  assert.ok(on.filter((f) => f.enabled).length < NEWS_CATALOG.length);
 });
 

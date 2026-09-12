@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorSlug, parseBrainyHtml, parseBrainyRss } from "./quotes.ts";
+import { authorSlug, liveQuotePool, parseBrainyHtml, parseBrainyRss } from "./quotes.ts";
 
 const SNIP = `
 <a href="/quotes/albert_einstein_121993" class="b-qt qt_121993 oncl_q" title="view quote">We cannot solve our problems with the same thinking we used when we created them.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_121993 oncl_a" title="view author">Albert Einstein</a>
@@ -40,4 +40,60 @@ test("parseBrainyRss still reads title — author items", () => {
   assert.equal(quotes.length, 1);
   assert.equal(quotes[0]?.author, "Steve Jobs");
   assert.match(quotes[0]?.text ?? "", /Stay hungry/);
+});
+
+test("liveQuotePool skips desk copies when the public feed is full", () => {
+  const daily = Array.from({ length: 5 }, (_, i) => ({
+    text: `Public line number ${i} is long enough.`,
+    author: "Someone",
+    href: "https://example.com",
+    source: "brainyquote" as const,
+  }));
+  const local = [
+    {
+      text: "Desk copy that should stay out of Random.",
+      author: "Local",
+      href: "https://example.com",
+      source: "local" as const,
+    },
+  ];
+  const pool = liveQuotePool(daily, local);
+  assert.equal(pool.length, 5);
+  assert.ok(pool.every((q) => q.source === "brainyquote"));
+});
+
+test("liveQuotePool skips desk copies when any public line is live", () => {
+  const daily = [
+    {
+      text: "Only one public line here is long enough.",
+      author: "Someone",
+      href: "https://example.com",
+      source: "brainyquote" as const,
+    },
+  ];
+  const local = [
+    {
+      text: "Desk copy that should stay out of Random.",
+      author: "Local",
+      href: "https://example.com",
+      source: "local" as const,
+    },
+  ];
+  const pool = liveQuotePool(daily, local);
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0]?.source, "brainyquote");
+});
+
+test("liveQuotePool uses desk copies only when the public feed is empty", () => {
+  const local = [
+    {
+      text: "Desk copy fills the quiet session.",
+      author: "Local",
+      href: "https://example.com",
+      source: "local" as const,
+    },
+  ];
+  const pool = liveQuotePool([], local);
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0]?.source, "local");
 });

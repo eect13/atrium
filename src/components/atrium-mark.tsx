@@ -1,21 +1,23 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Planet with an A cut out — Saturn as a world, the letter as the void.
- * Disk sits in a 32 viewBox (~2.5 units of pad) so a rounded tile never clips it.
+ * Chevron in a ring — a command mark, not a planet.
+ * Ring is a thin evenodd torus so it still reads at 16px; chevron sits through it.
  */
-export const SATURN_PATH =
-  "M16 2.5c7.456 0 13.5 6.044 13.5 13.5S23.456 29.5 16 29.5 2.5 23.456 2.5 16 8.544 2.5 16 2.5Zm0 4.99 7.69 13.29H8.31L16 7.49Zm0 3.53 4.57 7.89h-9.14L16 11.02Z";
+export const MARK_CHEVRON = "M16 4.4 26.8 27.6h-5.3L16 12.4 10.5 27.6H5.2Z";
+export const MARK_RING =
+  "M16 11.35a13.5 4.7 0 1 1 0 9.4 13.5 4.7 0 1 1 0-9.4Zm0 2.45a11 2.25 0 1 0 0 4.5 11 2.25 0 1 0 0-4.5Z";
 
-export function SaturnMark({ className }: { className?: string }) {
+export function AtriumMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <path fill="currentColor" fillRule="evenodd" d={SATURN_PATH} />
+      <path fill="currentColor" fillRule="evenodd" d={MARK_RING} />
+      <path fill="currentColor" d={MARK_CHEVRON} />
     </svg>
   );
 }
 
-/** Sidebar / sheet badge: 40px tile, 36px mark — a little air, not a floating speck. */
+/** Sidebar / sheet badge: 40px tile, 32px mark — air around the ring. */
 export function AtriumBadge({ className }: { className?: string }) {
   return (
     <div
@@ -24,7 +26,7 @@ export function AtriumBadge({ className }: { className?: string }) {
         className,
       )}
     >
-      <SaturnMark className="size-9" />
+      <AtriumMark className="size-8" />
     </div>
   );
 }

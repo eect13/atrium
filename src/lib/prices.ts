@@ -1,8 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import type { QuoteCcy } from "./types";
+import type { QuoteCcy, WatchItem, WatchKind } from "./types";
 import { BINANCE_PAIRS, DEFAULT_GECKO_IDS } from "./market-board";
 import { sessionSpark } from "./sparks";
+import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast } from "./yahoo";
+import { WATCH_CATALOG } from "./types";
+import { SCREEN_FETCH } from "./screener";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
 export type PriceResult = { failed?: boolean; quotes: PriceMap };
@@ -33,16 +36,23 @@ export type MarketQuote = {
   label: string;
   price: number;
   change?: number;
-  kind: "crypto" | "fx" | "stock";
+  kind: WatchKind;
   name?: string;
   volume?: number;
-  ccy: QuoteCcy;
+  ccy: string;
   php?: number;
   usd?: number;
   spark?: number[];
   pair?: string;
   high?: number;
   low?: number;
+  pe?: number;
+  marketCap?: number;
+  yieldPct?: number;
+  forwardPe?: number;
+  pb?: number;
+  weekHigh?: number;
+  weekLow?: number;
 };
 
 export type MarketSnapshot = {
@@ -50,6 +60,7 @@ export type MarketSnapshot = {
   fx: { usdphp: number; eurphp: number; jpyphp: number; gbpphp: number };
   movers: { gainers: MarketQuote[]; losers: MarketQuote[]; active: MarketQuote[] };
   quotes: Record<string, MarketQuote>;
+  screen?: MarketQuote[];
   asOf?: string;
   vs: QuoteCcy;
 };
@@ -294,6 +305,63 @@ function sparkFromChange(price: number, change?: number, seed = "tape"): number[
   return pts.length >= 2 ? pts : undefined;
 }
 
+function yahooKind(symbol: string): WatchKind {
+  const hit = WATCH_CATALOG.find((w) => w.symbol === symbol && (w.kind === "global" || w.kind === "cmdty"));
+  if (hit?.kind === "cmdty") return "cmdty";
+  return "global";
+}
+
+function asYahooQuote(row: YahooLast, fx: MarketSnapshot["fx"] | null): MarketQuote {
+  const catalog = WATCH_CATALOG.find((w) => w.symbol === row.symbol && (w.kind === "global" || w.kind === "cmdty"));
+  const kind = yahooKind(row.symbol);
+  const ccy = row.currency || "USD";
+  const index = row.symbol.startsWith("^");
+  let usd: number | undefined;
+  let php: number | undefined;
+  if (ccy === "USD") {
+    usd = row.price;
+    php = fx?.usdphp ? row.price * fx.usdphp : undefined;
+  } else if (ccy === "PHP") {
+    php = row.price;
+    usd = fx?.usdphp ? row.price / fx.usdphp : undefined;
+  } else if (ccy === "EUR" && fx?.eurphp) {
+    php = row.price * fx.eurphp;
+    usd = fx.usdphp ? php / fx.usdphp : undefined;
+  } else if (ccy === "GBP" && fx?.gbpphp) {
+    php = row.price * fx.gbpphp;
+    usd = fx.usdphp ? php / fx.usdphp : undefined;
+  } else if (ccy === "JPY" && fx?.jpyphp) {
+    php = row.price * fx.jpyphp;
+    usd = fx.usdphp ? php / fx.usdphp : undefined;
+  }
+  if (index) {
+    php = undefined;
+    usd = ccy === "USD" ? row.price : usd;
+  }
+  return {
+    id: row.symbol,
+    label: catalog?.label ?? row.symbol,
+    name: catalog?.name ?? row.name,
+    price: row.price,
+    change: row.change,
+    kind,
+    ccy,
+    php,
+    usd,
+    volume: row.volume,
+    high: row.high,
+    low: row.low,
+    pe: row.pe,
+    marketCap: row.marketCap,
+    yieldPct: row.yieldPct,
+    forwardPe: row.forwardPe,
+    pb: row.pb,
+    weekHigh: row.weekHigh,
+    weekLow: row.weekLow,
+    spark: row.spark?.length ? row.spark : sparkFromChange(row.price, row.change, row.symbol),
+  };
+}
+
 function parsePse(json: { stocks?: PseRow[]; stock?: PseRow[]; as_of?: string }): {
   rows: MarketQuote[];
   asOf?: string;
@@ -370,12 +438,27 @@ export async function getPseTape(): Promise<{ rows: MarketQuote[]; asOf?: string
   }
 }
 
+function overlayFund(target: MarketQuote, src: Partial<MarketQuote> | YahooLast): MarketQuote {
+  return {
+    ...target,
+    pe: target.pe ?? src.pe,
+    marketCap: target.marketCap ?? src.marketCap,
+    yieldPct: target.yieldPct ?? src.yieldPct,
+    forwardPe: target.forwardPe ?? src.forwardPe,
+    pb: target.pb ?? src.pb,
+    weekHigh: target.weekHigh ?? src.weekHigh,
+    weekLow: target.weekLow ?? src.weekLow,
+  };
+}
+
 function assemble(
   vs: Vs,
   fx: MarketSnapshot["fx"] | null,
   gecko: GeckoRow[],
   pse: { rows: MarketQuote[]; asOf?: string },
   binance: MarketQuote[],
+  yahoo: MarketQuote[],
+  screen: MarketQuote[] = [],
 ): MarketSnapshot {
   const quotes: Record<string, MarketQuote> = {};
   if (fx) {
@@ -431,12 +514,34 @@ function assemble(
     quotes[row.id] = q;
     return q;
   });
+  for (const y of yahoo) {
+    const pseSym = y.id.replace(/\.PS$/i, "");
+    if (/\.PS$/i.test(y.id) && quotes[pseSym]?.kind === "stock") {
+      quotes[pseSym] = overlayFund(quotes[pseSym]!, y);
+      continue;
+    }
+    if (quotes[y.id]?.kind === "stock") {
+      quotes[y.id] = overlayFund(quotes[y.id]!, y);
+      continue;
+    }
+    quotes[y.id] = y;
+    const hit = WATCH_CATALOG.find((w) => w.symbol === y.id && (w.kind === "global" || w.kind === "cmdty"));
+    if (hit && hit.id !== y.id) quotes[hit.id] = y;
+  }
+  for (const s of screen) {
+    if (quotes[s.id]?.kind === "stock") {
+      quotes[s.id] = overlayFund(quotes[s.id]!, s);
+      continue;
+    }
+    const existing = quotes[s.id];
+    quotes[s.id] = existing && existing.kind === s.kind ? overlayFund(existing, s) : s;
+  }
   const withChg = stocks.filter((r) => r.change != null && r.change !== 0);
   const ranked = (withChg.length ? withChg : coins).toSorted((a, b) => (b.change ?? 0) - (a.change ?? 0));
   const active = stocks
     .toSorted((a, b) => b.price * (b.volume ?? 0) - a.price * (a.volume ?? 0))
     .slice(0, 8);
-  const failed = !fx && !coins.length && !stocks.length;
+  const failed = !fx && !coins.length && !stocks.length && !yahoo.length && !screen.length;
   return {
     failed: failed || undefined,
     fx: fx ?? { usdphp: 0, eurphp: 0, jpyphp: 0, gbpphp: 0 },
@@ -446,31 +551,60 @@ function assemble(
       active,
     },
     quotes,
+    screen,
     asOf: pse.asOf,
     vs: ccy,
   };
 }
 
 export const fetchMarkets = createServerFn({ method: "POST" })
-  .validator(z.object({ ids: z.array(z.string()).optional(), vs: VS.optional() }))
+  .validator(
+    z.object({
+      ids: z.array(z.string()).optional(),
+      vs: VS.optional(),
+      yahoo: z.array(z.string()).optional(),
+      wantPse: z.boolean().optional(),
+      wantCrypto: z.boolean().optional(),
+      screener: z.string().optional(),
+      yahooRegion: z.string().optional(),
+    }),
+  )
   .handler(async ({ data }): Promise<MarketSnapshot> => {
     const vs = data.vs ?? "php";
-    const geckoIds = [
-      ...new Set([
-        ...DEFAULT_GECKO_IDS,
-        ...(data.ids ?? []).filter((id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z]{1,6}$/.test(id)),
-      ]),
-    ];
-    const key = `${vs}|${geckoIds.toSorted().join(",")}`;
+    const wantPse = data.wantPse !== false;
+    const wantCrypto = data.wantCrypto !== false;
+    const yahooSyms = [...new Set((data.yahoo ?? []).filter(Boolean))];
+    const screener = data.screener?.trim() || "";
+    const yahooRegion = data.yahooRegion?.trim() || "US";
+    const extraGecko = (data.ids ?? []).filter(
+      (id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z^=]{1,12}$/.test(id) && !id.includes("="),
+    );
+    const geckoIds = [...new Set(extraGecko)];
+    const key = `${vs}|g:${geckoIds.toSorted().join(",")}|y:${yahooSyms.toSorted().join(",")}|p:${wantPse ? 1 : 0}|c:${wantCrypto ? 1 : 0}|s:${screener}|r:${yahooRegion}`;
     const snap = g.__atriumMarkets;
     if (snap && snap.key === key && snap.exp > Date.now()) return snap.data;
-    const [fx, gecko, pse, binance] = await Promise.all([
+    const [fx, binance, pse, yahooRaw, screenRaw, activeRaw] = await Promise.all([
       loadFx(),
-      loadGecko(geckoIds, vs),
-      getPseTape(),
-      loadBinance(),
+      wantCrypto ? loadBinance() : Promise.resolve([] as MarketQuote[]),
+      wantPse ? getPseTape() : Promise.resolve({ rows: [] as MarketQuote[] }),
+      yahooSyms.length ? fetchYahooLast(yahooSyms) : Promise.resolve([]),
+      screener ? fetchYahooScreener(screener, yahooRegion, SCREEN_FETCH) : Promise.resolve([]),
+      yahooSyms.length && screener !== "most_actives"
+        ? fetchYahooScreener("most_actives", "US", SCREEN_FETCH)
+        : Promise.resolve([]),
     ]);
-    const snapshot = assemble(vs, fx, gecko, pse, binance);
+    let gecko: GeckoRow[] = [];
+    if (geckoIds.length) gecko = await loadGecko(geckoIds, vs);
+    else if (wantCrypto && !binance.length) gecko = await loadGecko(DEFAULT_GECKO_IDS, vs);
+    const fundBySym = new Map<string, YahooLast>();
+    for (const row of [...activeRaw, ...screenRaw]) fundBySym.set(row.symbol, row);
+    const yahoo = yahooRaw.map((row) => {
+      const q = asYahooQuote(row, fx);
+      const fund = fundBySym.get(row.symbol);
+      return fund ? overlayFund(q, asYahooQuote(fund, fx)) : q;
+    });
+    const screen = screenRaw.map((row) => asYahooQuote(row, fx));
+    const snapshot = assemble(vs, fx, gecko, pse, binance, yahoo, screen);
     if (!snapshot.failed) {
       g.__atriumMarkets = {
         key,
@@ -482,4 +616,35 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     }
     if (snap && snap.key === key && snap.staleExp > Date.now()) return snap.data;
     return snapshot;
+  });
+
+export function asWatchFromSearch(hit: { symbol: string; name: string; type: string; exch: string }): WatchItem {
+  const ps = /\.PS$/i.test(hit.symbol);
+  const symbol = ps ? hit.symbol.replace(/\.PS$/i, "").toUpperCase() : hit.symbol;
+  const exch = hit.exch.toUpperCase();
+  const type = hit.type.toUpperCase();
+  const kind: WatchKind =
+    ps || exch.includes("PSE") || exch.includes("PHILIPPINE")
+      ? "stock"
+      : type === "CRYPTOCURRENCY"
+        ? "crypto"
+        : type === "CURRENCY"
+          ? "fx"
+          : type === "FUTURE" || type === "COMMODITY"
+            ? "cmdty"
+            : "global";
+  return {
+    id: kind === "stock" ? `pse-${symbol}` : `yh-${hit.symbol}`,
+    symbol: kind === "crypto" ? hit.symbol.toLowerCase() : symbol,
+    label: kind === "stock" ? symbol : hit.symbol,
+    name: hit.name,
+    kind,
+  };
+}
+
+export const searchTickers = createServerFn({ method: "POST" })
+  .validator(z.object({ q: z.string().trim().min(1).max(32) }))
+  .handler(async ({ data }): Promise<WatchItem[]> => {
+    const hits = await searchYahooTickers(data.q);
+    return hits.map(asWatchFromSearch);
   });
