@@ -168,10 +168,72 @@ export async function fetchYahooLast(symbols: string[]): Promise<YahooLast[]> {
       }),
     );
   }
+  const needFund = uniq.filter((s) => {
+    const row = found.get(s);
+    return !row || row.pe == null || row.marketCap == null;
+  });
+  if (needFund.length) {
+    const extra = await fetchYahooQuote(needFund);
+    for (const row of extra) {
+      const prev = found.get(row.symbol);
+      found.set(row.symbol, prev ? overlayYahoo(prev, row) : row);
+    }
+  }
   return uniq.flatMap((s) => {
     const row = found.get(s);
     return row ? [row] : [];
   });
+}
+
+export function parseYahooQuote(json: unknown): YahooLast[] {
+  const quotes =
+    (json as { quoteResponse?: { result?: Array<Record<string, unknown>> } })?.quoteResponse?.result ?? [];
+  if (!Array.isArray(quotes)) return [];
+  const out: YahooLast[] = [];
+  for (const q of quotes) {
+    const symbol = String(q.symbol ?? "");
+    if (!symbol) continue;
+    const hit = fromMeta(symbol, q);
+    if (hit) out.push(hit);
+  }
+  return out;
+}
+
+export async function fetchYahooQuote(symbols: string[]): Promise<YahooLast[]> {
+  const uniq = [...new Set(symbols.map((s) => s.trim()).filter(Boolean))];
+  if (!uniq.length) return [];
+  const found = new Map<string, YahooLast>();
+  for (const group of chunk(uniq, 20)) {
+    const qs = group.map(encodeURIComponent).join(",");
+    for (const host of HOSTS) {
+      try {
+        const json = await pull(`${host}/v7/finance/quote?symbols=${qs}&lang=en-US`);
+        for (const row of parseYahooQuote(json)) found.set(row.symbol, row);
+        break;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return uniq.flatMap((s) => {
+    const row = found.get(s);
+    return row ? [row] : [];
+  });
+}
+
+export function overlayYahoo(prev: YahooLast, extra: YahooLast): YahooLast {
+  return {
+    ...prev,
+    pe: prev.pe ?? extra.pe,
+    marketCap: prev.marketCap ?? extra.marketCap,
+    yieldPct: prev.yieldPct ?? extra.yieldPct,
+    forwardPe: prev.forwardPe ?? extra.forwardPe,
+    pb: prev.pb ?? extra.pb,
+    weekHigh: prev.weekHigh ?? extra.weekHigh,
+    weekLow: prev.weekLow ?? extra.weekLow,
+    volume: prev.volume ?? extra.volume,
+    name: prev.name ?? extra.name,
+  };
 }
 
 export async function fetchYahooChart(symbol: string, range: SparkRange): Promise<YahooLast | null> {

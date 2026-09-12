@@ -12,15 +12,24 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fetchQuotes, nextQuoteSeed, POPULAR_AUTHORS, QUOTE_TOPICS, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
-export function useDeskQuotes(mode: "random" | "popular" | "author", author = "", seed = "desk", topic = "all") {
+export function useDeskQuotes(
+  mode: "random" | "popular" | "author",
+  author = "",
+  seed = "desk",
+  topic = "all",
+  q = "",
+  exact = false,
+) {
   return useQuery({
-    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic],
+    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic, q.trim().toLowerCase(), exact],
     queryFn: () =>
       fetchQuotes({
         data: {
           mode,
           author: author.trim() || undefined,
           topic: topic === "all" ? undefined : topic,
+          q: q.trim() || undefined,
+          exact: exact || undefined,
           limit: mode === "author" ? 24 : 16,
           seed,
         },
@@ -74,8 +83,16 @@ export function QuotesView() {
   const [person, setPerson] = useState("");
   const [search, setSearch] = useState("");
   const [topic, setTopic] = useState("all");
+  const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
-  const quotes = useDeskQuotes(mode, mode === "author" ? search : "", seed, mode === "author" ? "all" : topic);
+  const quotes = useDeskQuotes(
+    mode === "author" && search.trim() ? "author" : mode === "popular" ? "popular" : "random",
+    mode === "author" ? search : "",
+    seed,
+    mode === "author" && search.trim() ? "all" : topic,
+    search.trim() ? "" : person,
+    exact,
+  );
   const list = quotes.data?.quotes ?? [];
   const hero = list[0];
   const rest = list.slice(1);
@@ -99,7 +116,7 @@ export function QuotesView() {
   function goAuthor(name: string) {
     const n = name.trim();
     if (n.length < 2) {
-      toast("Type a name — Einstein, Aurelius, Jobs");
+      toast("Type a name or a word — Einstein, courage, bicycle");
       return;
     }
     setSearch(n);
@@ -150,22 +167,37 @@ export function QuotesView() {
       ) : null}
 
       <form
-        className="mb-6 flex gap-2"
+        className="mb-6 flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          goAuthor(person);
+          const n = person.trim();
+          if (n.length < 2) return;
+          if (exact) goAuthor(n);
         }}
       >
         <Input
           value={person}
-          onChange={(e) => setPerson(e.target.value)}
-          placeholder="Search a person — Einstein, Marcus Aurelius, Maya Angelou"
+          onChange={(e) => {
+            setPerson(e.target.value);
+            if (mode === "author") setSearch("");
+          }}
+          placeholder="A line, a person, or a word"
           className="h-11 min-w-0 flex-1"
-          aria-label="Search quotes by person"
+          aria-label="Search quotes"
         />
         <Button type="submit" className="h-11 shrink-0">
           Search
         </Button>
+        <Chip
+          active={exact}
+          onClick={() => {
+            const next = !exact;
+            setExact(next);
+            if (next && person.trim().length >= 2) goAuthor(person);
+          }}
+        >
+          Exact
+        </Chip>
       </form>
 
       <div className="mb-6 hidden flex-wrap gap-2 sm:flex">
@@ -202,7 +234,7 @@ export function QuotesView() {
         <p className="text-sm text-muted-foreground">
           {mode === "author"
             ? "No quotes for that name. Try Einstein or Aurelius."
-            : "No quotes for that topic yet. Try All or Random."}
+            : "No quotes for that yet. Try All, Random, or another word."}
         </p>
       ) : (
         <div className="space-y-4">

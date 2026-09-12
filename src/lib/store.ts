@@ -15,7 +15,7 @@ import {
   writeBooksSnap,
 } from "./books";
 import { fitBox, placeWindow } from "./desk";
-import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, uid } from "./format";
+import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, staleTagline, uid } from "./format";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
   Account,
@@ -37,8 +37,8 @@ import type {
 } from "./types";
 import { applyDeskRegion, DEFAULT_REGION, regionOf } from "./region";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
-import { DEFAULT_DASH, normalizeDash, type DashCard } from "./dash";
-import { asNewsTag } from "./headline";
+import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
+import { asNewsFilter, asNewsTag } from "./headline";
 import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 
@@ -133,6 +133,11 @@ type Data = {
   quoteCcy: QuoteCcy;
   marketPrefs: MarketPrefs;
   dashOrder: DashCard[];
+  dashLocked: boolean;
+  dashSpan: Partial<Record<DashCard, number>>;
+  calPeek: "month" | "week";
+  newsQuery: string;
+  newsTag: string;
   railCollapsed: boolean;
   boardQuery: string;
   boardFocus: string | null;
@@ -179,7 +184,12 @@ type State = Data & {
   setQuoteCcy: (ccy: QuoteCcy) => void;
   setMarketPrefs: (p: Partial<MarketPrefs>) => void;
   setDashOrder: (order: DashCard[]) => void;
+  setDashLocked: (v: boolean) => void;
+  setDashSpan: (id: DashCard, n: number) => void;
   resetDash: () => void;
+  setCalPeek: (v: "month" | "week") => void;
+  setNewsQuery: (q: string) => void;
+  setNewsTag: (t: string) => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
   addFeed: (f: Feed) => void;
@@ -203,7 +213,7 @@ function asProfile(raw?: Partial<Profile> | null, fallback?: Profile): Profile {
   const city = typeof raw?.city === "string" ? raw.city : (fallback?.city ?? "");
   const demo = name === "Eric" && (city === "Las Piñas" || city === "Las Pinas");
   const line = typeof raw?.tagline === "string" ? raw.tagline.trim() : (fallback?.tagline ?? "");
-  const tagline = !line || line === "Local-first · Asia/Manila" ? DEFAULT_TAGLINE : line.slice(0, 48);
+  const tagline = staleTagline(line) || (fallback?.tagline ? staleTagline(fallback.tagline) : "");
   if (demo) return { name: "", city: "", lat: null, lon: null, tagline, region: DEFAULT_REGION };
   return {
     name,
@@ -278,6 +288,11 @@ function initial(): Data {
     quoteCcy: "PHP",
     marketPrefs: { ...DEFAULT_MARKET_PREFS },
     dashOrder: [...DEFAULT_DASH],
+    dashLocked: true,
+    dashSpan: {},
+    calPeek: "week",
+    newsQuery: "",
+    newsTag: "All",
     railCollapsed: false,
     boardQuery: "",
     boardFocus: null,
@@ -581,7 +596,18 @@ export const useAtrium = create<State>()(
       setQuoteCcy: (quoteCcy) => set({ quoteCcy }),
       setMarketPrefs: (p) => set((s) => ({ marketPrefs: { ...s.marketPrefs, ...p } })),
       setDashOrder: (order) => set({ dashOrder: normalizeDash(order) }),
-      resetDash: () => set({ dashOrder: [...DEFAULT_DASH] }),
+      setDashLocked: (dashLocked) => set({ dashLocked }),
+      setDashSpan: (id, n) =>
+        set((s) => {
+          const next = { ...s.dashSpan };
+          if (n === DASH_SPAN_N[id]) delete next[id];
+          else next[id] = n;
+          return { dashSpan: next };
+        }),
+      resetDash: () => set({ dashOrder: [...DEFAULT_DASH], dashSpan: {} }),
+      setCalPeek: (calPeek) => set({ calPeek }),
+      setNewsQuery: (newsQuery) => set({ newsQuery }),
+      setNewsTag: (newsTag) => set({ newsTag }),
       toggleFeed: (id) =>
         set((s) => ({
           feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
@@ -610,7 +636,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 23,
+      version: 24,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -771,6 +797,20 @@ export const useAtrium = create<State>()(
             },
           };
         }
+        if (version < 24) {
+          const prev = p.profile;
+          p = {
+            ...p,
+            dashLocked: p.dashLocked !== false,
+            dashSpan: normalizeDashSpan(p.dashSpan),
+            calPeek: p.calPeek === "month" ? "month" : "week",
+            newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : "",
+            newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : "All"),
+            profile: prev
+              ? { ...prev, tagline: staleTagline(prev.tagline) }
+              : prev,
+          };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -791,6 +831,11 @@ export const useAtrium = create<State>()(
         quoteCcy: s.quoteCcy,
         marketPrefs: s.marketPrefs,
         dashOrder: s.dashOrder,
+        dashLocked: s.dashLocked,
+        dashSpan: s.dashSpan,
+        calPeek: s.calPeek,
+        newsQuery: s.newsQuery,
+        newsTag: s.newsTag,
         railCollapsed: s.railCollapsed,
       }),
       merge: (persisted, current) => {
@@ -847,6 +892,11 @@ export const useAtrium = create<State>()(
             : current.quoteCcy,
           railCollapsed: Boolean(p.railCollapsed ?? current.railCollapsed),
           dashOrder: normalizeDash(p.dashOrder ?? current.dashOrder),
+          dashLocked: (p.dashLocked ?? current.dashLocked) !== false,
+          dashSpan: normalizeDashSpan(p.dashSpan ?? current.dashSpan),
+          calPeek: (p.calPeek ?? current.calPeek) === "month" ? "month" : "week",
+          newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
+          newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
           modules: {
             calendar: true,
             notes: (p.modules?.notes ?? current.modules.notes) !== false,

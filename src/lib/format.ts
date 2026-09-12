@@ -369,6 +369,18 @@ export function phpQuote(n: number) {
   return moneyQuote(n, "PHP");
 }
 
+/** Compact last for tight columns — ₱4.85M instead of ₱4,850,048. */
+export function moneyShort(n: number, ccy = "PHP") {
+  const abs = Math.abs(Number(n));
+  const sym = QUOTE_SYM[ccy] ?? (ccy ? `${ccy} ` : "");
+  if (abs >= 1_000_000) {
+    const v = n / 1_000_000;
+    return `${sym}${v.toFixed(abs >= 10_000_000 ? 1 : 2)}M`;
+  }
+  if (abs >= 100_000) return `${sym}${(n / 1_000).toFixed(0)}K`;
+  return moneyQuote(n, ccy);
+}
+
 export function pct(n: number) {
   return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
@@ -397,11 +409,12 @@ export const CAT_COLORS: Record<string, string> = {
 };
 
 export const NOTE_COLORS = [
-  "#e8e4d4",
-  "#ead9d4",
-  "#d7e4dc",
-  "#d6dde8",
-  "#e2dce8",
+  "#ffffff",
+  "#f3f3f3",
+  "#e7e7e7",
+  "#cfd2d6",
+  "#9aa0a6",
+  "#2c2d30",
 ];
 
 /** Normalize a CSS color to `#rrggbb` for `<input type="color">`. */
@@ -426,4 +439,45 @@ export function inkOnPaper(raw: string): string {
   const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   const y = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   return y > 0.45 ? "#1c1b16" : "#f6f3ea";
+}
+
+/** Month grid for the calendar and the floating month peek. */
+export function monthCells(cursor: Date) {
+  const { year: y, month: m } = manilaParts(cursor);
+  const first = fromManila(y, m, 1, 12);
+  const startDow = manilaParts(first).weekdayIndex;
+  const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const out: { day: number; out: boolean; date: Date }[] = [];
+  for (let i = 0; i < startDow; i++) {
+    const date = fromManila(y, m, i - startDow + 1, 12);
+    out.push({ day: manilaParts(date).day, out: true, date });
+  }
+  for (let d = 1; d <= daysIn; d++) out.push({ day: d, out: false, date: fromManila(y, m, d, 12) });
+  while (out.length % 7) {
+    const n = out.length - (startDow + daysIn) + 1;
+    out.push({ day: n, out: true, date: fromManila(y, m + 1, n, 12) });
+  }
+  return out;
+}
+
+export function notePlain(html?: string, text = "") {
+  const raw = html?.trim() ? html : text;
+  return raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+export function staleTagline(raw?: string) {
+  const line = (raw ?? "").trim();
+  if (!line || line === "Local-first desk" || line === "Local-first · Asia/Manila") return "";
+  return line.slice(0, 48);
 }

@@ -21,7 +21,7 @@ export function NoteInk({
   className?: string;
 }) {
   const svg = useRef<SVGSVGElement>(null);
-  const cur = useRef<number[] | null>(null);
+  const cur = useRef<{ pts: number[]; w: number } | null>(null);
 
   function local(e: React.PointerEvent) {
     const r = svg.current?.getBoundingClientRect();
@@ -36,25 +36,30 @@ export function NoteInk({
     e.preventDefault();
     e.stopPropagation();
     (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
-    cur.current = [...p];
+    const w = Math.max(0.8, Math.min(3.4, 0.7 + (e.pressure > 0 ? e.pressure : 0.45) * 2.6));
+    cur.current = { pts: [...p], w };
   }
 
   function move(e: React.PointerEvent) {
     if (!cur.current) return;
     const p = local(e);
     if (!p) return;
-    if (cur.current.length < MAX_PTS * 2) cur.current.push(p[0]!, p[1]!);
+    if (e.pressure > 0) cur.current.w = Math.max(cur.current.w, 0.7 + e.pressure * 2.6);
+    if (cur.current.pts.length < MAX_PTS * 2) cur.current.pts.push(p[0]!, p[1]!);
     const node = e.currentTarget.querySelector("[data-live]");
-    if (node) node.setAttribute("points", toPoints(cur.current));
+    if (node) {
+      node.setAttribute("points", toPoints(cur.current.pts));
+      node.setAttribute("stroke-width", String(cur.current.w));
+    }
   }
 
   function end() {
-    const pts = cur.current;
+    const stroke = cur.current;
     cur.current = null;
     const node = svg.current?.querySelector("[data-live]");
     if (node) node.setAttribute("points", "");
-    if (!pts || pts.length < 4) return;
-    onChange([...strokes, { color, w: 1.6, pts }].slice(-MAX_STROKES));
+    if (!stroke || stroke.pts.length < 4) return;
+    onChange([...strokes, { color, w: stroke.w, pts: stroke.pts }].slice(-MAX_STROKES));
   }
 
   return (
@@ -85,7 +90,17 @@ export function NoteInk({
           vectorEffect="non-scaling-stroke"
         />
       ))}
-      {active ? <polyline data-live fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" points="" vectorEffect="non-scaling-stroke" /> : null}
+      {active ? (
+        <polyline
+          data-live
+          fill="none"
+          stroke={color}
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          points=""
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
     </svg>
   );
 }

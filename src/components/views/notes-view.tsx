@@ -1,17 +1,25 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Eraser, GripHorizontal, LayoutGrid, LayoutList, Pencil, Pin, PinOff } from "lucide-react";
+import { LayoutGrid, LayoutList, PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { AddColorWheel, NoteColor } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
+import {
+  MenuRow,
+  NoteEditor,
+  NoteFormat,
+  NoteMore,
+  NotePhotos,
+  Pin,
+  addNotePhotos,
+} from "@/components/note-pad";
 import { ResizeHandles } from "@/components/float-window";
 import { Button } from "@/components/ui/button";
 import { resizeFrom, type ResizeCorner } from "@/lib/desk";
-import { inkOnPaper, NOTE_COLORS, uid } from "@/lib/format";
+import { inkOnPaper, NOTE_COLORS, notePlain, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
-import { cn } from "@/lib/utils";
 import { Chip } from "./finance-chip";
 
 export function NotesView() {
@@ -42,8 +50,8 @@ export function NotesView() {
       x: 32 + Math.random() * 80,
       y: 32 + Math.random() * 60,
       z: notes.reduce((m, n) => Math.max(m, n.z), 1) + 1,
-      w: 220,
-      h: 200,
+      w: 240,
+      h: 220,
       pinned: false,
     });
   }
@@ -54,7 +62,7 @@ export function NotesView() {
         <h2 className="font-display text-2xl font-medium tracking-tight">Sticky notes</h2>
         <p className="text-sm text-muted-foreground">
           <span className="lg:hidden">Board or list. Pin is for the desktop desk.</span>
-          <span className="hidden lg:inline">Drag the bar at the top. Corners resize. Pencil for freehand.</span>
+          <span className="hidden lg:inline">Drag the top bar. Type, format, add a picture. Corners resize.</span>
         </p>
         <div className="grow" />
         <Chip active={layout === "list"} onClick={() => setNotesLayout("list")}>
@@ -84,17 +92,21 @@ export function NotesView() {
             return (
               <article
                 key={n.id}
-                className="overflow-hidden rounded-lg p-3 shadow-[var(--shadow-border)]"
+                className="overflow-hidden rounded-lg shadow-[var(--shadow-border)]"
                 style={{ backgroundColor: n.color, color: ink }}
               >
-                <textarea
-                  className="min-h-24 w-full resize-none bg-inherit text-sm leading-snug outline-none"
-                  style={{ color: ink }}
-                  value={n.text}
-                  placeholder="Write…"
-                  onChange={(e) => updateNote(n.id, { text: e.target.value })}
+                <NoteFormat
+                  ink={ink}
+                  drawing={false}
+                  canUndo={Boolean(n.ink?.length)}
+                  onDraw={() => undefined}
+                  onUndo={() => updateNote(n.id, { ink: (n.ink ?? []).slice(0, -1) })}
+                  onClear={() => updateNote(n.id, { ink: [] })}
+                  onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
                 />
-                <div className="flex items-center justify-between text-xs" style={{ color: ink, opacity: 0.7 }}>
+                <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />
+                <NoteEditor note={n} ink={ink} drawing={false} onUpdate={(patch) => updateNote(n.id, patch)} />
+                <div className="flex items-center justify-between px-1 pb-1 text-xs" style={{ color: ink, opacity: 0.7 }}>
                   <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
                   <div className="flex">
                     <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={() => pinNote(n.id)}>
@@ -113,7 +125,7 @@ export function NotesView() {
             <p className="p-8 text-sm text-muted-foreground">
               {notes.length
                 ? "Pinned notes are floating on the desktop. Pick a color for a new one."
-                : "Pick a color to add a note — swatches or the color wheel."}
+                : "Pick a paper color — white and gray first, or the wheel."}
             </p>
           )}
         </div>
@@ -141,7 +153,7 @@ export function NotesView() {
             <p className="p-8 text-sm text-muted-foreground">
               {notes.length
                 ? "Pinned notes are floating on the desktop. Pick a color for a new one."
-                : "Pick a color to add a note — swatches or the color wheel."}
+                : "Pick a paper color — white and gray first, or the wheel."}
             </p>
           )}
         </div>
@@ -155,7 +167,7 @@ export function NotesView() {
           {pinned.map((n) => (
             <div key={n.id} className="flex items-center gap-2 border-b border-border py-2">
               <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} />
-              <span className="min-w-0 grow truncate text-sm">{n.text.split("\n")[0] || "Untitled"}</span>
+              <span className="min-w-0 grow truncate text-sm">{notePlain(n.html, n.text).split("\n")[0] || "Untitled"}</span>
               <Button variant="ghost" size="sm" onClick={() => unpinNote(n.id)}>
                 Unpin
               </Button>
@@ -222,9 +234,9 @@ function BoardNote({
         el.style.left = `${nx}px`;
         el.style.top = `${ny}px`;
       } else {
-        const next = resizeFrom(kind, start, ev.clientX - ox, ev.clientY - oy, 160, 140);
-        nw = Math.min(Math.max(160, next.w), r.width);
-        nh = Math.min(Math.max(140, next.h), r.height);
+        const next = resizeFrom(kind, start, ev.clientX - ox, ev.clientY - oy, 180, 160);
+        nw = Math.min(Math.max(180, next.w), r.width);
+        nh = Math.min(Math.max(160, next.h), r.height);
         nx = Math.min(Math.max(0, next.x), Math.max(0, r.width - nw));
         ny = Math.min(Math.max(0, next.y), Math.max(0, r.height - nh));
         el.style.left = `${nx}px`;
@@ -249,7 +261,7 @@ function BoardNote({
   return (
     <article
       ref={article}
-      className="group absolute overflow-hidden rounded-sm shadow-[var(--shadow-border)]"
+      className="group absolute flex flex-col overflow-hidden rounded-sm shadow-[var(--shadow-border)]"
       style={{
         left: note.x,
         top: note.y,
@@ -261,69 +273,49 @@ function BoardNote({
       }}
     >
       <header
-        className="relative z-[2] flex h-9 shrink-0 cursor-grab touch-none items-center justify-center border-b border-current/15 active:cursor-grabbing"
+        className="relative z-[2] flex h-8 shrink-0 cursor-grab touch-none items-center px-1 active:cursor-grabbing"
         onPointerDown={(e) => {
           if (drawing) return;
           if ((e.target as HTMLElement).closest("button,input,label")) return;
           drag(e, "move");
         }}
       >
-        <GripHorizontal className="size-4 opacity-45" aria-hidden />
         <span className="sr-only">Drag note</span>
+        <div className="grow" />
+        <NoteMore ink={ink}>
+          <div className="px-1 py-1">
+            <NoteColor color={note.color} onChange={(color) => onUpdate({ color })} ink={ink} />
+          </div>
+          <MenuRow onClick={onPin}>
+            <Pin className="size-3.5" />
+            Float
+          </MenuRow>
+          <MenuRow onClick={onDelete}>Delete</MenuRow>
+        </NoteMore>
       </header>
-      <div className="absolute inset-x-0 bottom-11 top-9">
+      <div className="max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        <NoteFormat
+          ink={ink}
+          drawing={drawing}
+          canUndo={Boolean(note.ink?.length)}
+          onDraw={onDraw}
+          onUndo={() => onUpdate({ ink: (note.ink ?? []).slice(0, -1) })}
+          onClear={() => onUpdate({ ink: [] })}
+          onPhoto={(files) => void addNotePhotos(note.photos, files).then((photos) => onUpdate({ photos }))}
+        />
+      </div>
+      <div className="relative min-h-0 flex-1">
         <NoteInk
           strokes={note.ink ?? []}
           color={ink}
           active={drawing}
           onChange={(inkStrokes) => onUpdate({ ink: inkStrokes })}
         />
-      </div>
-      <textarea
-        className={cn(
-          "relative z-[1] h-[calc(100%-4.75rem)] w-full resize-none bg-transparent px-3 pt-2 text-sm leading-snug outline-none",
-          drawing && "pointer-events-none",
-        )}
-        style={{ color: ink }}
-        value={note.text}
-        placeholder="Write…"
-        onChange={(e) => onUpdate({ text: e.target.value })}
-      />
-      <div
-        className="relative z-[4] flex items-center justify-between gap-1 px-1 pb-1 text-xs"
-        style={{ color: ink, opacity: 0.8 }}
-      >
-        <div className="flex items-center">
-          <NoteColor color={note.color} onChange={(color) => onUpdate({ color })} ink={ink} />
-          <button
-            type="button"
-            aria-label={drawing ? "Stop drawing" : "Draw"}
-            aria-pressed={drawing}
-            className={cn("flex size-9 items-center justify-center rounded-sm hover:bg-black/10", drawing && "bg-black/10")}
-            onClick={onDraw}
-          >
-            <Pencil className="size-3.5" />
-          </button>
-          {(note.ink?.length ?? 0) > 0 ? (
-            <button
-              type="button"
-              aria-label="Clear drawing"
-              className="flex size-9 items-center justify-center rounded-sm hover:bg-black/10"
-              onClick={() => onUpdate({ ink: [] })}
-            >
-              <Eraser className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-        <div className="flex">
-          <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={onPin}>
-            <Pin className="size-3.5" />
-            Float
-          </Button>
-          <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={onDelete}>
-            Delete
-          </Button>
-        </div>
+        <NotePhotos
+          photos={note.photos ?? []}
+          onRemove={(id) => onUpdate({ photos: (note.photos ?? []).filter((p) => p.id !== id) })}
+        />
+        <NoteEditor note={note} ink={ink} drawing={drawing} onUpdate={onUpdate} />
       </div>
       <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>

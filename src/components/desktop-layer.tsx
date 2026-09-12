@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Eraser, Pencil, PinOff } from "lucide-react";
+import { PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { FloatWindow } from "@/components/float-window";
 import { NoteColor } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
+import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { fitBox } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean }) {
   if (kind === "finance") return modules.finance;
@@ -130,18 +130,18 @@ export function DesktopLayer({
               h={n.h}
               title="Note"
               paper={n.color}
-              minW={180}
-              minH={120}
+              minW={200}
+              minH={160}
               extra={
-                <button
-                  type="button"
-                  className="relative z-[4] flex size-9 items-center justify-center rounded-sm opacity-70 hover:bg-black/10 hover:opacity-100"
-                  aria-label="Send back to board"
-                  title="Send back to board"
-                  onClick={() => unpinNote(n.id)}
-                >
-                  <PinOff className="size-3.5" />
-                </button>
+                <NoteMore ink={ink}>
+                  <div className="px-1 py-1">
+                    <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
+                  </div>
+                  <MenuRow onClick={() => unpinNote(n.id)}>
+                    <PinOff className="size-3.5" />
+                    Board
+                  </MenuRow>
+                </NoteMore>
               }
               onMove={(x, y) => updateNote(n.id, { x, y })}
               onResize={(w, h) => updateNote(n.id, { w, h })}
@@ -149,6 +149,17 @@ export function DesktopLayer({
               onClose={() => unpinNote(n.id)}
             >
               <div className="flex h-full min-h-0 flex-col">
+                <div className="max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                  <NoteFormat
+                    ink={ink}
+                    drawing={drawing}
+                    canUndo={Boolean(n.ink?.length)}
+                    onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
+                    onUndo={() => updateNote(n.id, { ink: (n.ink ?? []).slice(0, -1) })}
+                    onClear={() => updateNote(n.id, { ink: [] })}
+                    onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
+                  />
+                </div>
                 <div className="relative min-h-0 flex-1">
                   <NoteInk
                     strokes={n.ink ?? []}
@@ -156,46 +167,11 @@ export function DesktopLayer({
                     active={drawing}
                     onChange={(inkStrokes) => updateNote(n.id, { ink: inkStrokes })}
                   />
-                  <textarea
-                    className={cn(
-                      "relative z-[1] h-full w-full resize-none bg-transparent text-sm leading-snug text-ink outline-none",
-                      drawing && "pointer-events-none",
-                    )}
-                    value={n.text}
-                    placeholder="Write…"
-                    onChange={(e) => updateNote(n.id, { text: e.target.value })}
+                  <NotePhotos
+                    photos={n.photos ?? []}
+                    onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })}
                   />
-                </div>
-                <div
-                  className="relative z-[1] flex items-center gap-0.5 pt-1"
-                  style={{ color: ink, opacity: 0.8 }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex size-9 items-center justify-center rounded-sm hover:bg-black/10",
-                      drawing && "bg-black/10",
-                    )}
-                    aria-label={drawing ? "Stop drawing" : "Draw"}
-                    aria-pressed={drawing}
-                    title="Draw"
-                    onClick={() => setInkId((id) => (id === n.id ? null : n.id))}
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  {(n.ink?.length ?? 0) > 0 ? (
-                    <button
-                      type="button"
-                      className="flex size-9 items-center justify-center rounded-sm hover:bg-black/10"
-                      aria-label="Clear drawing"
-                      title="Clear drawing"
-                      onClick={() => updateNote(n.id, { ink: [] })}
-                    >
-                      <Eraser className="size-3.5" />
-                    </button>
-                  ) : null}
+                  <NoteEditor note={n} ink={ink} drawing={drawing} onUpdate={(patch) => updateNote(n.id, patch)} />
                 </div>
               </div>
             </FloatWindow>

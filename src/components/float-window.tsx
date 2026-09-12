@@ -28,7 +28,7 @@ export function ResizeHandles({
           type="button"
           aria-label={`Resize ${c.id}`}
           className={cn(
-            "absolute z-[3] flex size-11 touch-none p-2 opacity-40 md:size-7 md:p-1 md:opacity-0 md:group-hover:opacity-50 md:group-focus-within:opacity-50",
+            "absolute z-[3] flex size-8 touch-none p-1.5 opacity-30 md:size-5 md:p-0.5 md:opacity-0 md:group-hover:opacity-50 md:group-focus-within:opacity-50",
             c.box,
             c.cursor,
           )}
@@ -179,7 +179,7 @@ export function FloatWindow({
           {title}
         </span>
         <span className="flex min-w-0 grow justify-center" aria-hidden>
-          <GripHorizontal className={cn("size-4 opacity-40", paper ? "" : "text-muted-foreground")} />
+          <GripHorizontal className={cn("size-4 opacity-0 group-hover:opacity-40", paper ? "" : "text-muted-foreground")} />
         </span>
         {extra ? <span className="relative z-[4] flex items-center">{extra}</span> : null}
         <button

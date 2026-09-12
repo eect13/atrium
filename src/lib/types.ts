@@ -21,12 +21,6 @@ export const STOCK_TAPES = [
   { id: "yahoo" as const, label: "Yahoo", blurb: "Last, sparks, and PE from Yahoo — including .PS names." },
 ] as const;
 
-export const STOCK_TAPE_OFF = [
-  { id: "google", label: "Google Finance", blurb: "No public quote API." },
-  { id: "msn", label: "MSN Money", blurb: "No public quote API." },
-  { id: "investa", label: "Investa", blurb: "Broker tape — not a public feed." },
-] as const;
-
 export function normalizeStockTape(raw?: string): StockTape {
   return raw === "yahoo" ? "yahoo" : "auto";
 }
@@ -98,6 +92,7 @@ export type CalendarEvent = {
 };
 
 export type NoteStroke = { color: string; w: number; pts: number[] };
+export type NotePhoto = { id: string; src: string };
 
 export type StickyNote = {
   id: string;
@@ -110,6 +105,8 @@ export type StickyNote = {
   h: number;
   pinned: boolean;
   ink?: NoteStroke[];
+  html?: string;
+  photos?: NotePhoto[];
 };
 
 export type FloatWin = {
@@ -361,4 +358,4 @@ export type Profile = {
   region: string;
 };
 
-export const DEFAULT_TAGLINE = "Local-first desk";
+export const DEFAULT_TAGLINE = "";

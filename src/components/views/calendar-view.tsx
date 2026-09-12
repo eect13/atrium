@@ -23,6 +23,7 @@ import {
   manilaAt,
   manilaParts,
   monthName,
+  monthCells,
   sameDay,
   toManilaInput,
   uid,
@@ -34,24 +35,6 @@ import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent, EventCat } from "@/lib/types";
-
-function cells(cursor: Date) {
-  const { year: y, month: m } = manilaParts(cursor);
-  const first = fromManila(y, m, 1, 12);
-  const startDow = manilaParts(first).weekdayIndex;
-  const daysIn = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const out: { day: number; out: boolean; date: Date }[] = [];
-  for (let i = 0; i < startDow; i++) {
-    const date = fromManila(y, m, i - startDow + 1, 12);
-    out.push({ day: manilaParts(date).day, out: true, date });
-  }
-  for (let d = 1; d <= daysIn; d++) out.push({ day: d, out: false, date: fromManila(y, m, d, 12) });
-  while (out.length % 7) {
-    const n = out.length - (startDow + daysIn) + 1;
-    out.push({ day: n, out: true, date: fromManila(y, m + 1, n, 12) });
-  }
-  return out;
-}
 
 function shiftCursor(cursor: Date, mode: CalMode, dir: -1 | 1) {
   const p = manilaParts(cursor);
@@ -168,7 +151,7 @@ export function CalendarView() {
   }
 
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const grid = useMemo(() => cells(cursor), [cursor]);
+  const grid = useMemo(() => monthCells(cursor), [cursor]);
   const onDate = (d: Date) =>
     events.filter((e) => sameDay(e.start, d)).toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
 

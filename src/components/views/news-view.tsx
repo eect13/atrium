@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
 import { FEED_PACKS, FEED_PRESETS, packIsOn, probeFeed } from "@/lib/feeds";
-import { NEWS_TAGS, asNewsTag, storyAge, tagStory, type NewsTag } from "@/lib/headline";
+import { NEWS_TAGS, asNewsFilter, asNewsTag, storyAge, tagStory, type NewsTag } from "@/lib/headline";
 import { DEFAULT_FEEDS, useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
 import { Chip, FIELD_SELECT } from "./finance-chip";
@@ -46,23 +46,26 @@ export function NewsView({
   loading: boolean;
   error?: boolean;
 }) {
-  const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack } = useAtrium(
+  const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack, newsQuery, newsTag, setNewsQuery, setNewsTag } = useAtrium(
     useShallow((s) => ({
       feeds: s.feeds,
       toggleFeed: s.toggleFeed,
       addFeed: s.addFeed,
       removeFeed: s.removeFeed,
       setFeedPack: s.setFeedPack,
+      newsQuery: s.newsQuery,
+      newsTag: s.newsTag,
+      setNewsQuery: s.setNewsQuery,
+      setNewsTag: s.setNewsTag,
     })),
   );
-  const [filter, setFilter] = useState<NewsTag | "All">("All");
+  const filter = asNewsFilter(newsTag);
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [cat, setCat] = useState<string>("World");
   const [probing, setProbing] = useState(false);
-  const [query, setQuery] = useState("");
   const [catalogQ, setCatalogQ] = useState("");
-  const q = query.trim().toLowerCase();
+  const q = newsQuery.trim().toLowerCase();
   const onCount = feeds.filter((f) => f.enabled).length;
   const shown = items.filter((i) => {
     if (filter !== "All" && tagStory(i) !== filter) return false;
@@ -145,7 +148,7 @@ export function NewsView({
     : error
       ? "Couldn’t reach those feeds."
       : q
-        ? `No stories matching “${query.trim()}”.`
+        ? `No stories matching “${newsQuery.trim()}”.`
         : filter !== "All"
           ? "No stories in this tag. Pick All or another source."
           : "No stories from the sources on. Try another feed or Refresh.";
@@ -172,8 +175,8 @@ export function NewsView({
           >
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={newsQuery}
+              onChange={(e) => setNewsQuery(e.target.value)}
               placeholder="Search this briefing"
               className="h-11 pl-9"
               aria-label="Search briefing"
@@ -181,11 +184,11 @@ export function NewsView({
             />
           </form>
           <div className="scroll-auto mb-4 flex flex-nowrap gap-2 overflow-x-auto pb-1">
-            <Chip active={filter === "All"} onClick={() => setFilter("All")}>
+            <Chip active={filter === "All"} onClick={() => setNewsTag("All")}>
               All
             </Chip>
             {NEWS_TAGS.map((c) => (
-              <Chip key={c} active={filter === c} onClick={() => setFilter(c)}>
+              <Chip key={c} active={filter === c} onClick={() => setNewsTag(c)}>
                 {c}
               </Chip>
             ))}

@@ -25,7 +25,7 @@ import {
 import { deskZone, isoDate } from "@/lib/format";
 import { PRIMARY_TABS } from "@/lib/market-board";
 import { useAtrium } from "@/lib/store";
-import { STOCK_TAPE_OFF, STOCK_TAPES } from "@/lib/types";
+import { STOCK_TAPES } from "@/lib/types";
 import { Chip } from "./finance-chip";
 
 function stampLabel(iso: string) {
@@ -370,8 +370,7 @@ export function FinanceOptions() {
               ))}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {(STOCK_TAPES.find((t) => t.id === (marketPrefs.stockTape ?? "auto")) ?? STOCK_TAPES[0]).blurb}{" "}
-              {STOCK_TAPE_OFF.map((t) => t.label).join(", ")} are not public feeds.
+              {(STOCK_TAPES.find((t) => t.id === (marketPrefs.stockTape ?? "auto")) ?? STOCK_TAPES[0]).blurb}
             </p>
           </div>
           <div>

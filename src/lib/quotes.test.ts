@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorSlug, liveQuotePool, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss } from "./quotes.ts";
+import { authorSlug, exactAuthor, liveQuotePool, matchQuoteQuery, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss, topicLocals } from "./quotes.ts";
 
 const SNIP = `
 <a href="/quotes/albert_einstein_121993" class="b-qt qt_121993 oncl_q" title="view quote">We cannot solve our problems with the same thinking we used when we created them.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_121993 oncl_a" title="view author">Albert Einstein</a>
@@ -102,4 +102,27 @@ test("normalizeQuoteTopic keeps known topics", () => {
   assert.equal(normalizeQuoteTopic("funny"), "funny");
   assert.equal(normalizeQuoteTopic("motivational"), "motivational");
   assert.equal(normalizeQuoteTopic("nope"), "all");
+});
+
+test("topicLocals pads a quiet topic from desk copies", () => {
+  const funny = topicLocals("funny");
+  assert.ok(funny.length > 0);
+  assert.ok(funny.some((q) => /gutter|stars|taken/i.test(`${q.text} ${q.author}`)));
+  const empty = topicLocals("life", []);
+  assert.deepEqual(empty, []);
+});
+
+test("exactAuthor matches BrainyQuote slug, not a substring", () => {
+  const q = { text: "Imagination is more important than knowledge.", author: "Albert Einstein", href: "https://example.com", source: "local" as const };
+  assert.equal(exactAuthor(q, "Albert Einstein"), true);
+  assert.equal(exactAuthor(q, "Einstein"), false);
+  assert.equal(exactAuthor(q, "albert-einstein"), true);
+});
+
+test("matchQuoteQuery looks in line and person", () => {
+  const q = { text: "Stay hungry. Stay foolish.", author: "Steve Jobs", href: "https://example.com", source: "local" as const };
+  assert.equal(matchQuoteQuery(q, "hungry"), true);
+  assert.equal(matchQuoteQuery(q, "jobs"), true);
+  assert.equal(matchQuoteQuery(q, "aurelius"), false);
+  assert.equal(matchQuoteQuery(q, "  "), true);
 });

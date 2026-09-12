@@ -32,7 +32,11 @@ import {
   manilaAt,
   manilaParts,
   maskedMoney,
+  moneyShort,
+  monthCells,
+  monthName,
   moneyQuote,
+  notePlain,
   pct,
   sameDay,
 } from "@/lib/format";
@@ -376,7 +380,10 @@ export function CalendarPeek({
 }) {
   const events = useAtrium((s) => s.events);
   const setView = useAtrium((s) => s.setView);
+  const calPeek = useAtrium((s) => s.calPeek);
+  const setCalPeek = useAtrium((s) => s.setCalPeek);
   const [day, setDay] = useState(() => isoDate(date ?? new Date()));
+  const [cursor, setCursor] = useState(() => date ?? new Date());
   const [now, setNow] = useState(() => new Date());
   const scroller = useRef<HTMLDivElement>(null);
   const todayKey = isoDate(now);
@@ -427,16 +434,121 @@ export function CalendarPeek({
     if (onSelect) onSelect(e);
     else setView("calendar");
   };
+  const grid = useMemo(() => monthCells(cursor), [cursor]);
+  const peekMonth = calPeek === "month";
 
   useLayoutEffect(() => {
+    if (peekMonth) return;
     const node = scroller.current;
     if (!node) return;
     const target = showNow ? nowTop - 72 : (blocks[0]?.top ?? 0) - 8;
     node.scrollTop = Math.max(0, target);
-  }, [day, showNow, nowTop, blocks]);
+  }, [day, showNow, nowTop, blocks, peekMonth]);
+
+  const modeBar = (
+    <div className="mb-2 flex flex-wrap items-center gap-1">
+      <button
+        type="button"
+        aria-pressed={peekMonth}
+        className={cn(
+          "min-h-8 rounded-md px-2 text-xs",
+          peekMonth ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+        )}
+        onClick={() => setCalPeek("month")}
+      >
+        Month
+      </button>
+      <button
+        type="button"
+        aria-pressed={!peekMonth}
+        className={cn(
+          "min-h-8 rounded-md px-2 text-xs",
+          !peekMonth ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+        )}
+        onClick={() => setCalPeek("week")}
+      >
+        Day
+      </button>
+      {peekMonth ? (
+        <>
+          <button
+            type="button"
+            className="min-h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              const p = manilaParts(cursor);
+              setCursor(fromManila(p.year, p.month - 1, 1, 12));
+            }}
+          >
+            Prev
+          </button>
+          <span className="px-1 text-xs text-muted-foreground">{monthName(cursor)}</span>
+          <button
+            type="button"
+            className="min-h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              const p = manilaParts(cursor);
+              setCursor(fromManila(p.year, p.month + 1, 1, 12));
+            }}
+          >
+            Next
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+
+  if (peekMonth) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {modeBar}
+        <div className="grid grid-cols-7 gap-0.5">
+          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+            <div key={`${d}-${i}`} className="pb-1 text-center text-[0.65rem] text-muted-foreground">
+              {d}
+            </div>
+          ))}
+          {grid.map((c) => {
+            const key = isoDate(c.date);
+            const count = byDay[key]?.length ?? 0;
+            const isToday = sameDay(c.date, now);
+            const on = key === day;
+            return (
+              <button
+                key={key + (c.out ? "-out" : "")}
+                type="button"
+                onClick={() => {
+                  setDay(key);
+                  setCalPeek("week");
+                }}
+                className={cn(
+                  "flex min-h-9 flex-col items-center justify-center rounded-sm text-xs tabular-nums",
+                  c.out && "opacity-40",
+                  on ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                  isToday && !on && "ring-1 ring-ring",
+                )}
+              >
+                {c.day}
+                {count ? <span className={cn("mt-0.5 size-1 rounded-full", on ? "bg-primary-foreground" : "bg-ring")} /> : null}
+              </button>
+            );
+          })}
+        </div>
+        {embedded ? null : (
+          <button
+            type="button"
+            className="mt-3 text-left text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={() => setView("calendar")}
+          >
+            Full calendar
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {modeBar}
       <div className="grid grid-cols-7 gap-1">
         {days.map((d) => {
           const key = isoDate(d);
@@ -787,7 +899,7 @@ export function FinancePeek() {
                   <span
                     className={`whitespace-nowrap text-right tabular-nums text-sm ${ch == null ? "text-muted-foreground" : up ? "text-ok" : "text-destructive"}`}
                   >
-                    {q ? moneyQuote(q.price, q.ccy) : "—"}
+                    {q ? moneyShort(q.price, q.ccy) : "—"}
                     {q && ch != null ? ` ${pct(ch)}` : ""}
                   </span>
                 </>
@@ -842,7 +954,7 @@ export function NotesPeek() {
           onClick={() => setView("notes")}
         >
           <span className="size-2 rounded-full" style={{ background: n.color }} />
-          <span className="truncate">{n.text.split("\n")[0] || "Untitled"}</span>
+          <span className="truncate">{notePlain(n.html, n.text).split("\n")[0] || "Untitled"}</span>
         </button>
       ))}
       {!notes.length && <p className="text-sm text-muted-foreground">No stickies yet.</p>}

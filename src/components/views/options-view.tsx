@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
-import { DEFAULT_TAGLINE, STOCK_TAPE_OFF, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { DEFAULT_TAGLINE, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
 import { lookupPlace, mapsPin, hasWeatherPin } from "@/lib/weather";
@@ -197,7 +197,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
           id="opt-tagline"
           value={tagline}
           maxLength={48}
-          placeholder={DEFAULT_TAGLINE}
+          placeholder="Tagline (optional)"
           onChange={(e) => setTagline(e.target.value)}
           onBlur={(e) => setProfile({ tagline: e.target.value.trim() || DEFAULT_TAGLINE })}
           onKeyDown={(e) => {
@@ -404,7 +404,7 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Drag the grip on each card, or step them here. Reset restores the factory order.
+            Unlock the dashboard lock to drag cards, or step them here. Reset restores the factory order and widths.
           </p>
           {dashOrder.map((id, i) => (
             <div key={id} className="flex items-center justify-between gap-2 border-b border-border py-1 last:border-0">
@@ -488,18 +488,6 @@ export function OptionsView() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-muted-foreground">Not available without a paid feed:</p>
-            <div className="flex flex-wrap gap-2">
-              {STOCK_TAPE_OFF.map((t) => (
-                <span
-                  key={t.id}
-                  title={t.blurb}
-                  className="inline-flex min-h-11 items-center rounded-full border border-border px-3 text-xs text-muted-foreground opacity-60"
-                >
-                  {t.label}
-                </span>
-              ))}
-            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -576,7 +564,7 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Atrium is local-first. Hook Fantastical, Google, Outlook, or Apple by exporting an .ics or
+            Atrium stays on this device. Hook Fantastical, Google, Outlook, or Apple by exporting an .ics or
             pasting a public iCal URL on the Calendar screen. Google Calendar can also be pulled when this
             app is opened through a connected Grok session.
           </p>

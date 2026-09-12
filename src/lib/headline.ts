@@ -76,6 +76,12 @@ export function asNewsTag(raw: string | undefined): NewsTag {
   return NEWS_TAGS.find((t) => t.toLowerCase() === k) ?? "World";
 }
 
+export function asNewsFilter(raw: string | undefined): NewsTag | "All" {
+  const k = (raw ?? "").trim();
+  if (!k || /^all$/i.test(k)) return "All";
+  return NEWS_TAGS.find((t) => t.toLowerCase() === k.toLowerCase()) ?? "All";
+}
+
 export function tagStory(s: { title: string; desc?: string; src?: string; category?: string }): NewsTag {
   const hay = `${s.title} ${s.desc ?? ""}`;
   for (const rule of TAG_RULES) {

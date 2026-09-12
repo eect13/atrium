@@ -212,6 +212,7 @@ function RailFoot({
           }}
           maxLength={48}
           aria-label="Sidebar tagline"
+          placeholder="Tagline"
           className="mt-1 w-full bg-transparent px-3 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus:text-foreground"
         />
       )}

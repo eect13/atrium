@@ -12,6 +12,46 @@ export const DASH_SPAN: Record<DashCard, string> = {
   news: "lg:col-span-4",
 };
 
+export const DASH_SPAN_N: Record<DashCard, number> = {
+  weather: 5,
+  agenda: 4,
+  quote: 3,
+  finance: 4,
+  notes: 4,
+  news: 4,
+};
+
+export const SPAN_CLASS: Record<number, string> = {
+  3: "lg:col-span-3",
+  4: "lg:col-span-4",
+  5: "lg:col-span-5",
+  6: "lg:col-span-6",
+  8: "lg:col-span-8",
+  12: "lg:col-span-12",
+};
+
+const SPAN_CYCLE = [3, 4, 5, 6, 8, 12] as const;
+
+export function dashSpanClass(id: DashCard, override?: number) {
+  const n = override && SPAN_CLASS[override] ? override : DASH_SPAN_N[id];
+  return SPAN_CLASS[n] ?? DASH_SPAN[id];
+}
+
+export function cycleDashSpan(current?: number): number {
+  const i = SPAN_CYCLE.indexOf((current as (typeof SPAN_CYCLE)[number]) ?? -1);
+  return SPAN_CYCLE[(i + 1) % SPAN_CYCLE.length]!;
+}
+
+export function normalizeDashSpan(raw?: unknown): Partial<Record<DashCard, number>> {
+  const out: Partial<Record<DashCard, number>> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const id of DASH_CARDS) {
+    const n = Number((raw as Record<string, unknown>)[id]);
+    if (SPAN_CLASS[n]) out[id] = n;
+  }
+  return out;
+}
+
 export const DASH_LABEL: Record<DashCard, string> = {
   weather: "Today",
   agenda: "Up next",

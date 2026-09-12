@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { GripVertical } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { GripVertical, Lock, LockOpen, RotateCcw } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgendaBody, FinancePeek, FloatBtn, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
-import { DASH_LABEL, DASH_SPAN, DEFAULT_DASH, moveDash, type DashCard } from "@/lib/dash";
+import { DASH_LABEL, DASH_SPAN_N, DEFAULT_DASH, cycleDashSpan, dashSpanClass, moveDash, type DashCard } from "@/lib/dash";
 import { deskZone } from "@/lib/format";
 import { regionOf } from "@/lib/region";
 import { useAtrium } from "@/lib/store";
@@ -21,17 +22,23 @@ export function DashboardView({
   newsLoading?: boolean;
   newsError?: boolean;
 }) {
-  const { profile, notes, modules, dashOrder, setDashOrder, resetDash } = useAtrium(
-    useShallow((s) => ({
-      profile: s.profile,
-      notes: s.notes,
-      modules: s.modules,
-      dashOrder: s.dashOrder,
-      setDashOrder: s.setDashOrder,
-      resetDash: s.resetDash,
-    })),
-  );
+  const { profile, notes, modules, dashOrder, dashLocked, dashSpan, setDashOrder, setDashLocked, setDashSpan, resetDash } =
+    useAtrium(
+      useShallow((s) => ({
+        profile: s.profile,
+        notes: s.notes,
+        modules: s.modules,
+        dashOrder: s.dashOrder,
+        dashLocked: s.dashLocked,
+        dashSpan: s.dashSpan,
+        setDashOrder: s.setDashOrder,
+        setDashLocked: s.setDashLocked,
+        setDashSpan: s.setDashSpan,
+        resetDash: s.resetDash,
+      })),
+    );
   const [drag, setDrag] = useState<DashCard | null>(null);
+  const from = useRef<DashCard | null>(null);
 
   const visible = dashOrder.filter((id) => {
     if (id === "quote") return modules.quotes !== false;
@@ -91,61 +98,114 @@ export function DashboardView({
     return null;
   }
 
-  const dirty = dashOrder.some((id, i) => id !== DEFAULT_DASH[i]);
+  function grab(e: React.PointerEvent, id: DashCard) {
+    if (dashLocked || e.button !== 0) return;
+    e.preventDefault();
+    from.current = id;
+    setDrag(id);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function over(e: React.PointerEvent) {
+    if (!from.current) return;
+    const node = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-dash]");
+    const to = node?.getAttribute("data-dash") as DashCard | null;
+    if (to && to !== drag) setDrag(to);
+  }
+
+  function drop() {
+    if (from.current && drag && from.current !== drag) setDashOrder(moveDash(dashOrder, from.current, drag));
+    from.current = null;
+    setDrag(null);
+  }
+
+  const dirty =
+    dashOrder.some((id, i) => id !== DEFAULT_DASH[i]) || Object.keys(dashSpan).length > 0;
 
   return (
     <div>
-      {dirty ? (
-        <div className="mb-2 flex items-center justify-end">
-          <button
-            type="button"
-            className="min-h-11 px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => resetDash()}
-          >
-            Reset layout
-          </button>
-        </div>
-      ) : (
-        <p className="mb-2 hidden text-right text-xs text-muted-foreground lg:block">Drag a card grip to rearrange</p>
-      )}
-    <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-12">
-      {visible.map((id) => {
-        const kind = floatKind(id);
-        return (
-          <Card
-            key={id}
-            className={cn(DASH_SPAN[id], drag === id && "ring-1 ring-ring")}
-            onDragOver={(e) => {
-              e.preventDefault();
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (drag) setDashOrder(moveDash(dashOrder, drag, id));
-              setDrag(null);
-            }}
-          >
-            <CardHeader className="flex-row items-start justify-between space-y-0">
-              <div className="flex min-w-0 items-center gap-1">
-                <button
-                  type="button"
-                  draggable
-                  aria-label={`Move ${DASH_LABEL[id]}`}
-                  title="Drag to rearrange"
-                  className="flex size-9 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground hover:text-foreground active:cursor-grabbing"
-                  onDragStart={() => setDrag(id)}
-                  onDragEnd={() => setDrag(null)}
-                >
-                  <GripVertical className="size-4" />
-                </button>
-                <CardTitle>{DASH_LABEL[id]}</CardTitle>
-              </div>
-              {kind ? <FloatBtn kind={kind} /> : null}
-            </CardHeader>
-            <CardContent>{body(id)}</CardContent>
-          </Card>
-        );
-      })}
-    </div>
+      <div className="mb-2 flex items-center justify-end gap-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+              aria-label={dashLocked ? "Unlock layout" : "Lock layout"}
+              aria-pressed={!dashLocked}
+              onClick={() => setDashLocked(!dashLocked)}
+            >
+              {dashLocked ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{dashLocked ? "Unlock to rearrange" : "Lock layout"}</TooltipContent>
+        </Tooltip>
+        {dirty ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                aria-label="Reset layout"
+                onClick={() => resetDash()}
+              >
+                <RotateCcw className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Reset layout</TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-12">
+        {visible.map((id) => {
+          const kind = floatKind(id);
+          return (
+            <Card
+              key={id}
+              data-dash={id}
+              className={cn(dashSpanClass(id, dashSpan[id]), drag === id && "ring-1 ring-ring")}
+              onPointerMove={over}
+              onPointerUp={drop}
+              onPointerCancel={drop}
+            >
+              <CardHeader className="flex-row items-start justify-between space-y-0">
+                <div className="flex min-w-0 items-center gap-1">
+                  {dashLocked ? null : (
+                    <button
+                      type="button"
+                      aria-label={`Move ${DASH_LABEL[id]}`}
+                      title="Drag to rearrange"
+                      className="flex size-9 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                      onPointerDown={(e) => grab(e, id)}
+                    >
+                      <GripVertical className="size-4" />
+                    </button>
+                  )}
+                  <CardTitle>{DASH_LABEL[id]}</CardTitle>
+                </div>
+                <div className="flex items-center">
+                  {dashLocked ? null : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                          aria-label={`Resize ${DASH_LABEL[id]}`}
+                          onClick={() => setDashSpan(id, cycleDashSpan(dashSpan[id] ?? DASH_SPAN_N[id]))}
+                        >
+                          <span className="block size-2.5 border-b-2 border-r-2 border-current" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Wider / narrower</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {kind ? <FloatBtn kind={kind} /> : null}
+                </div>
+              </CardHeader>
+              <CardContent>{body(id)}</CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

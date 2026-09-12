@@ -347,6 +347,38 @@ export function liveQuotePool(daily: DeskQuote[], local: DeskQuote[]) {
   return unique(local);
 }
 
+const TOPIC_WORDS: Record<string, string[]> = {
+  life: ["life", "live", "living", "balance"],
+  funny: ["fool", "laugh", "funny", "joke", "gutter", "stars", "taken"],
+  love: ["love", "heart", "tenderness"],
+  wisdom: ["wisdom", "wise", "know", "understood", "mind"],
+  success: ["success", "succeed", "excellence", "leader", "ahead"],
+  motivational: ["courage", "change", "keep", "impossible", "hungry", "moving", "fear"],
+  nature: ["nature", "world", "earth", "bicycle"],
+};
+
+export function topicLocals(id: QuoteTopicId, local: DeskQuote[] = LOCAL_QUOTES): DeskQuote[] {
+  if (id === "all") return local;
+  const words = TOPIC_WORDS[id] ?? [];
+  const hit = local.filter((q) => {
+    const blob = `${q.text} ${q.author}`.toLowerCase();
+    return words.some((w) => blob.includes(w));
+  });
+  return hit.length ? hit : local;
+}
+
+export function matchQuoteQuery(q: DeskQuote, query: string) {
+  const n = query.trim().toLowerCase();
+  if (!n) return true;
+  return q.text.toLowerCase().includes(n) || q.author.toLowerCase().includes(n);
+}
+
+export function exactAuthor(q: DeskQuote, name: string) {
+  const slug = authorSlug(name);
+  if (slug.length < 2) return false;
+  return authorSlug(q.author) === slug || q.author.toLowerCase() === name.trim().toLowerCase();
+}
+
 function matchAuthor(q: DeskQuote, name: string, slug: string) {
   const a = authorSlug(q.author);
   if (!a) return false;
@@ -359,6 +391,8 @@ export const fetchQuotes = createServerFn({ method: "POST" })
       mode: z.enum(["random", "popular", "author"]),
       author: z.string().trim().max(80).optional(),
       topic: z.string().trim().max(24).optional(),
+      q: z.string().trim().max(80).optional(),
+      exact: z.boolean().optional(),
       limit: z.number().int().min(1).max(40).optional(),
       seed: z.string().max(40).optional(),
     }),
@@ -367,38 +401,43 @@ export const fetchQuotes = createServerFn({ method: "POST" })
     const limit = data.limit ?? 12;
     const seed = data.seed ?? `${Date.now()}`;
     const topic = normalizeQuoteTopic(data.topic);
+    const query = (data.q ?? "").trim();
     const daily = topic === "all" ? await fromRss() : await fromTopic(topic);
+    const locals = topicLocals(topic);
 
     if (data.mode === "author") {
-      const name = (data.author ?? "").trim();
+      const name = (data.author ?? query).trim();
       const slug = authorSlug(name);
       if (slug.length < 2) return { quotes: [], from: "local" };
       const known = POPULAR_AUTHORS.find(
         (a) => a.slug === slug || authorSlug(a.name) === slug || a.name.toLowerCase() === name.toLowerCase(),
       );
       const slugs = [...new Set([known?.slug, slug, slug.replace(/-\d+$/, "")].filter(Boolean))] as string[];
+      const pick = (list: DeskQuote[]) =>
+        data.exact ? list.filter((q) => exactAuthor(q, name)) : list.filter((q) => slugs.some((s) => matchAuthor(q, name, s)));
       for (const s of slugs) {
-        const quotes = await fromAuthor(s);
+        const quotes = pick(await fromAuthor(s));
         if (quotes.length) {
           return { quotes: quotes.slice(0, limit), author: quotes[0]?.author ?? name, from: "brainyquote" };
         }
       }
-      const pool = unique([...daily, ...LOCAL_QUOTES]).filter((q) =>
-        slugs.some((s) => matchAuthor(q, name, s)),
-      );
+      const pool = pick(unique([...daily, ...LOCAL_QUOTES]));
       return {
         quotes: pool.slice(0, limit),
         author: pool[0]?.author ?? name,
-        from: pool.some((q) => q.source === "brainyquote") ? "brainyquote" : pool.length ? "local" : "local",
+        from: pool.some((q) => q.source === "brainyquote") ? "brainyquote" : "local",
       };
     }
 
+    const pool = (topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : liveQuotePool(daily, locals)).filter((q) =>
+      matchQuoteQuery(q, query),
+    );
+
     if (data.mode === "popular") {
-      const quotes = (topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : unique(daily)).slice(0, limit);
+      const quotes = pool.slice(0, limit);
       return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
     }
 
-    const pool = topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : unique(daily);
     const quotes = shuffle(pool, seed).slice(0, limit);
     return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
   });
