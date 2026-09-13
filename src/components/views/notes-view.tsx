@@ -13,6 +13,7 @@ import {
   NotePhotos,
   Pin,
   addNotePhotos,
+  useInkRedo,
 } from "@/components/note-pad";
 import { ResizeHandles } from "@/components/float-window";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export function NotesView() {
   );
   const board = useRef<HTMLDivElement>(null);
   const [inkId, setInkId] = useState<string | null>(null);
+  const inkRedo = useInkRedo();
   const boardNotes = notes.filter((n) => !n.pinned);
   const pinned = notes.filter((n) => n.pinned);
   const layout = notesLayout === "list" ? "list" : "board";
@@ -99,9 +101,14 @@ export function NotesView() {
                   ink={ink}
                   drawing={false}
                   canUndo={Boolean(n.ink?.length)}
+                  canRedo={inkRedo.canRedoFor(n.id)}
                   onDraw={() => undefined}
-                  onUndo={() => updateNote(n.id, { ink: (n.ink ?? []).slice(0, -1) })}
-                  onClear={() => updateNote(n.id, { ink: [] })}
+                  onUndo={() => inkRedo.pushUndo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
+                  onRedo={() => inkRedo.popRedo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
+                  onClear={() => {
+                    inkRedo.forget(n.id);
+                    updateNote(n.id, { ink: [] });
+                  }}
                   onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
                 />
                 <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />
@@ -132,7 +139,7 @@ export function NotesView() {
       ) : (
         <div
           ref={board}
-          className="scroll-auto relative min-h-[24rem] rounded-xl border border-dashed border-border bg-card sm:min-h-[32rem]"
+          className="scroll-auto relative min-h-[24rem] rounded-xl border border-dashed border-border bg-muted/40 sm:min-h-[32rem]"
         >
           {boardNotes.map((n) => (
             <BoardNote
@@ -210,6 +217,7 @@ function BoardNote({
 }) {
   const ink = inkOnPaper(note.color);
   const article = useRef<HTMLElement>(null);
+  const boardRedo = useInkRedo();
 
   function drag(e: React.PointerEvent, kind: "move" | ResizeHandle) {
     if (e.button !== 0) return;
@@ -292,17 +300,6 @@ function BoardNote({
           <MenuRow onClick={onDelete}>Delete</MenuRow>
         </NoteMore>
       </header>
-      <div className="max-md:opacity-100 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100">
-        <NoteFormat
-          ink={ink}
-          drawing={drawing}
-          canUndo={Boolean(note.ink?.length)}
-          onDraw={onDraw}
-          onUndo={() => onUpdate({ ink: (note.ink ?? []).slice(0, -1) })}
-          onClear={() => onUpdate({ ink: [] })}
-          onPhoto={(files) => void addNotePhotos(note.photos, files).then((photos) => onUpdate({ photos }))}
-        />
-      </div>
       <div className="relative min-h-0 flex-1">
         <NoteInk
           strokes={note.ink ?? []}
@@ -316,6 +313,20 @@ function BoardNote({
         />
         <NoteEditor note={note} ink={ink} drawing={drawing} onUpdate={onUpdate} />
       </div>
+      <NoteFormat
+        ink={ink}
+        drawing={drawing}
+        canUndo={Boolean(note.ink?.length)}
+        canRedo={boardRedo.canRedoFor(note.id)}
+        onDraw={onDraw}
+        onUndo={() => boardRedo.pushUndo(note.id, note.ink, (ink) => onUpdate({ ink }))}
+        onRedo={() => boardRedo.popRedo(note.id, note.ink, (ink) => onUpdate({ ink }))}
+        onClear={() => {
+          boardRedo.forget(note.id);
+          onUpdate({ ink: [] });
+        }}
+        onPhoto={(files) => void addNotePhotos(note.photos, files).then((photos) => onUpdate({ photos }))}
+      />
       <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>
   );

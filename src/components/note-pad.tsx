@@ -13,6 +13,7 @@ import {
   Strikethrough,
   Underline,
   Undo2,
+  Redo2,
 } from "lucide-react";
 import { Tip } from "@/components/ui/tooltip";
 import { inkOnPaper, notePlain, uid } from "@/lib/format";
@@ -110,22 +111,26 @@ export function NoteFormat({
   ink,
   drawing,
   canUndo,
+  canRedo = false,
   onDraw,
   onUndo,
+  onRedo,
   onClear,
   onPhoto,
 }: {
   ink: string;
   drawing: boolean;
   canUndo: boolean;
+  canRedo?: boolean;
   onDraw: () => void;
   onUndo: () => void;
+  onRedo?: () => void;
   onClear: () => void;
   onPhoto: (files: FileList | null) => void;
 }) {
   return (
     <div
-      className="relative z-[4] flex flex-wrap items-center gap-0.5 border-b border-current/10 px-1 pb-0.5"
+      className="relative z-[4] flex flex-wrap items-center gap-0.5 border-t border-current/10 px-1 pt-0.5"
       style={{ color: ink }}
       onPointerDown={(e) => e.stopPropagation()}
       data-no-drag
@@ -181,6 +186,13 @@ export function NoteFormat({
         <Tip label="Undo stroke">
           <button type="button" aria-label="Undo stroke" className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10" onClick={onUndo}>
             <Undo2 className="size-3.5" />
+          </button>
+        </Tip>
+      ) : null}
+      {canRedo ? (
+        <Tip label="Redo stroke">
+          <button type="button" aria-label="Redo stroke" className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10" onClick={() => onRedo?.()}>
+            <Redo2 className="size-3.5" />
           </button>
         </Tip>
       ) : null}
@@ -290,3 +302,34 @@ export function MenuRow({
 }
 
 export { Pin };
+
+
+export function useInkRedo() {
+  const [redo, setRedo] = useState<Record<string, NonNullable<StickyNote["ink"]>>>({});
+  function pushUndo(id: string, ink: StickyNote["ink"], apply: (next: StickyNote["ink"]) => void) {
+    const strokes = ink ?? [];
+    const last = strokes.at(-1);
+    if (!last) return;
+    setRedo((r) => ({ ...r, [id]: [...(r[id] ?? []), last] }));
+    apply(strokes.slice(0, -1));
+  }
+  function popRedo(id: string, ink: StickyNote["ink"], apply: (next: StickyNote["ink"]) => void) {
+    const stack = redo[id] ?? [];
+    const stroke = stack.at(-1);
+    if (!stroke) return;
+    setRedo((r) => ({ ...r, [id]: stack.slice(0, -1) }));
+    apply([...(ink ?? []), stroke]);
+  }
+  function forget(id: string) {
+    setRedo((r) => {
+      if (!r[id]?.length) return r;
+      const next = { ...r };
+      delete next[id];
+      return next;
+    });
+  }
+  function canRedoFor(id: string) {
+    return Boolean(redo[id]?.length);
+  }
+  return { pushUndo, popRedo, forget, canRedoFor };
+}

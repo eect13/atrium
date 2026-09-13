@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { APP_LABEL } from "@/lib/version";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, LocateFixed } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { AppearancePicker } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
+import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
 import { DEFAULT_TAGLINE, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
@@ -294,6 +297,7 @@ export function OptionsView() {
     profile,
     setProfile,
     reset,
+    wipeProfile,
     setView,
     windows,
     openWindow,
@@ -314,6 +318,7 @@ export function OptionsView() {
       profile: s.profile,
       setProfile: s.setProfile,
       reset: s.reset,
+      wipeProfile: s.wipeProfile,
       setView: s.setView,
       windows: s.windows,
       openWindow: s.openWindow,
@@ -331,6 +336,31 @@ export function OptionsView() {
   );
   const pinned = notes.filter((n) => n.pinned).length;
   const modHint = useModHint();
+  const profileFile = useRef<HTMLInputElement>(null);
+  const [wipeOpen, setWipeOpen] = useState(false);
+
+  function backupProfile() {
+    downloadProfileBackup();
+    toast("Profile file downloaded");
+  }
+
+  async function openProfileFile(file: File) {
+    try {
+      restoreProfileBackup(parseProfileBackup(await file.text()));
+      toast("Profile restored — reloading");
+      window.setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not open that file.");
+    }
+  }
+
+  function confirmWipe() {
+    wipeAtriumStorage();
+    wipeProfile();
+    setWipeOpen(false);
+    toast("Desk wiped — start fresh");
+    window.setTimeout(() => window.location.reload(), 400);
+  }
 
   function jump(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -338,7 +368,10 @@ export function OptionsView() {
 
   return (
     <div className="max-w-2xl space-y-4">
-      <h2 className="font-display text-2xl font-medium tracking-tight">Options</h2>
+      <div>
+        <h2 className="font-display text-2xl font-medium tracking-tight">Options</h2>
+        <p className="text-xs text-muted-foreground">{APP_LABEL}</p>
+      </div>
       <nav className="flex flex-wrap gap-2" aria-label="Jump to section">
         {JUMP.filter((s) => (s.id !== "opt-news" || modules.news) && (s.id !== "opt-markets" || modules.finance)).map((s) => (
           <button
@@ -526,7 +559,54 @@ export function OptionsView() {
           <CardTitle>Profile</CardTitle>
         </CardHeader>
         <ProfileFields profile={profile} setProfile={setProfile} />
+        <CardContent className="space-y-3 border-t border-border pt-4">
+          <p className="text-sm text-muted-foreground">
+            Backup is the whole desk — profile, notes, calendar, books, and feeds. Delete wipes this
+            device so you can start with a blank desk and add everything yourself.
+          </p>
+          <input
+            ref={profileFile}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void openProfileFile(file);
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={backupProfile}>
+              Backup profile
+            </Button>
+            <Button variant="outline" onClick={() => profileFile.current?.click()}>
+              Restore profile
+            </Button>
+            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setWipeOpen(true)}>
+              Delete profile
+            </Button>
+          </div>
+        </CardContent>
       </Card>
+      <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this profile?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Clears name, notes, calendar, books, watchlist, and feeds on this device. Backup first if
+            you want it back. This cannot be undone.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmWipe}>
+              Wipe and start fresh
+            </Button>
+            <Button variant="outline" onClick={() => setWipeOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card id="opt-keys" className="scroll-mt-4">
         <CardHeader>
@@ -569,8 +649,8 @@ export function OptionsView() {
             app is opened through a connected Grok session.
           </p>
           <p>
-            Cash books have their own backup: save a JSON file, open it on another device, or restore the
-            last local copy. That lives on the Cash tab under Options — same idea as Finance Manager.
+            Cash books still have their own JSON on the Cash tab. The profile backup above is the
+            whole desk.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setView("finance")}>
@@ -580,10 +660,10 @@ export function OptionsView() {
               variant="outline"
               onClick={() => {
                 reset();
-                toast("Demo data restored");
+                toast("Sample desk loaded");
               }}
             >
-              Reset demo data
+              Load sample desk
             </Button>
           </div>
         </CardContent>

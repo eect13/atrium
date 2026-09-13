@@ -9,7 +9,7 @@ import { FloatBtn } from "@/components/widgets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchQuotes, nextQuoteSeed, POPULAR_AUTHORS, QUOTE_TOPICS, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
+import { fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
 export function useDeskQuotes(
@@ -82,7 +82,7 @@ export function QuotesView() {
   const [mode, setMode] = useState<"random" | "popular" | "author">("random");
   const [person, setPerson] = useState("");
   const [search, setSearch] = useState("");
-  const [topic, setTopic] = useState("all");
+  const [topic] = useState("all");
   const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
   const quotes = useDeskQuotes(
@@ -131,9 +131,7 @@ export function QuotesView() {
           <p className="text-xs text-muted-foreground">
             {mode === "author" && search
               ? `By ${search}`
-              : topic !== "all"
-                ? QUOTE_TOPICS.find((t) => t.id === topic)?.label ?? "Topic"
-                : mode === "popular"
+              : mode === "popular"
                   ? "Popular voices"
                   : "A new roll each session"}
           </p>
@@ -150,21 +148,7 @@ export function QuotesView() {
         </Chip>
       </div>
 
-      {mode !== "author" ? (
-        <div className="scroll-auto mb-5 flex flex-nowrap gap-2 overflow-x-auto pb-1">
-          {QUOTE_TOPICS.map((t) => (
-            <Chip
-              key={t.id}
-              active={topic === t.id}
-              onClick={() => {
-                setTopic(t.id);
-              }}
-            >
-              {t.label}
-            </Chip>
-          ))}
-        </div>
-      ) : null}
+
 
       <form
         className="mb-6 flex flex-wrap gap-2"
@@ -175,16 +159,37 @@ export function QuotesView() {
           if (exact) goAuthor(n);
         }}
       >
-        <Input
+                <div className="relative min-w-0 flex-1">
+          <Input
           value={person}
           onChange={(e) => {
             setPerson(e.target.value);
             if (mode === "author") setSearch("");
           }}
-          placeholder="A line, a person, or a word"
-          className="h-11 min-w-0 flex-1"
+          placeholder="Type a name � Albert, Maya, Seneca"
+          className="h-11 min-w-0 w-full"
           aria-label="Search quotes"
+          autoComplete="off"
         />
+          {person.trim().length >= 2 && suggestAuthors(person).length ? (
+            <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-card p-1 shadow-[var(--shadow-float)]">
+              {suggestAuthors(person).map((a) => (
+                <li key={a.slug}>
+                  <button
+                    type="button"
+                    className="flex min-h-9 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
+                    onClick={() => {
+                      setPerson(a.name);
+                      goAuthor(a.name);
+                    }}
+                  >
+                    {a.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <Button type="submit" className="h-11 shrink-0">
           Search
         </Button>
@@ -200,20 +205,6 @@ export function QuotesView() {
         </Chip>
       </form>
 
-      <div className="mb-6 hidden flex-wrap gap-2 sm:flex">
-        {POPULAR_AUTHORS.slice(0, 8).map((a) => (
-          <Chip
-            key={a.slug}
-            active={mode === "author" && search.toLowerCase() === a.name.toLowerCase()}
-            onClick={() => {
-              setPerson(a.name);
-              goAuthor(a.name);
-            }}
-          >
-            {a.name}
-          </Chip>
-        ))}
-      </div>
 
       {quotes.isPending && !list.length ? (
         <div className="space-y-4">

@@ -63,8 +63,7 @@ import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
-import { buildResearch, downloadPdf, relatedNewsUrl, researchPdf } from "@/lib/research";
-import { fetchFeed } from "@/lib/feeds";
+import { buildResearch, downloadPdf, fetchRelatedStories, researchPdf } from "@/lib/research";
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
@@ -119,8 +118,7 @@ function sparkOf(
     return q.spark;
   }
   if (!q?.price || q.price <= 0) return undefined;
-  const n = range === "1d" ? 28 : 36;
-  return sessionSpark(q.price, q.change, `${item.symbol}:${range}:${isoDate()}`, n);
+  return sessionSpark(q.price, q.change, item.symbol);
 }
 
 function PrefSwitch({
@@ -1086,18 +1084,17 @@ export function FinanceMarkets() {
 }
 
 function RelatedNews({ item }: { item: WatchItem }) {
-  const url = relatedNewsUrl(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name],
-    queryFn: () => fetchFeed({ data: { url, name: "Related", category: "Markets" } }),
-    staleTime: 15 * 60_000,
+    queryKey: ["stock-news", item.symbol, item.name, "v2"],
+    queryFn: () => fetchRelatedStories(item),
+    staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
     retry: 1,
   });
-  const items = mixStories(news.data ?? [], 5);
+  const items = [...(news.data ?? [])].sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || "")).slice(0, 12);
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Related news</p>
+      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Latest news</p>
       {news.isPending && !items.length ? (
         <div className="mt-2 space-y-2" aria-busy>
           <Skeleton className="h-4 w-full" />
@@ -1116,7 +1113,7 @@ function RelatedNews({ item }: { item: WatchItem }) {
         <p className="mt-2 text-sm text-muted-foreground">No related stories right now.</p>
       ) : (
         <div className="mt-2 space-y-2">
-          {items.slice(0, 5).map((n) => (
+          {items.map((n) => (
             <a
               key={`${n.link}-${n.title}`}
               href={n.link}
@@ -1124,7 +1121,13 @@ function RelatedNews({ item }: { item: WatchItem }) {
               rel="noopener noreferrer"
               className="block text-sm leading-snug hover:underline"
             >
-              {n.title}
+              <span className="block">{n.title}</span>
+              <span className="text-xs text-muted-foreground">
+                {n.src}
+                {n.date
+                  ? ` · ${new Date(n.date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                  : ""}
+              </span>
             </a>
           ))}
         </div>
@@ -1192,7 +1195,7 @@ function QuoteSheet({
         </div>
         <ChangePill value={row.q?.change} />
       </div>
-      <Spark values={row.q?.spark} up={(row.q?.change ?? 0) >= 0} className="h-16 w-full" />
+      <Spark values={row.q?.spark} up={(row.q?.change ?? 0) >= 0} className="h-24 w-full" />
       <p className="text-xs text-muted-foreground">
         {SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M"} tape
         {row.q?.spark && row.q.spark.length > 2 ? ` · ${row.q.spark.length} pts` : ""}

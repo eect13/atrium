@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, relatedNewsUrl, researchPdf } from "./research.ts";
+import { buildResearch, isRelatedStory, relatedNewsUrl, rumorNewsUrl, researchPdf } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -58,3 +58,19 @@ test("related news query is ticker-aware", () => {
   assert.match(crypto, /gl=US/);
 });
 
+
+test("isRelatedStory keeps Lopez and drops noise", () => {
+  const item = { label: "LPZ", symbol: "LPZ", name: "Lopez Holdings Corporation", kind: "stock" };
+  assert.equal(
+    isRelatedStory({ title: "Lopez Holdings Corporation Announces Schedule for 2026 Annual Stockholders Meeting", src: "mb.com.ph" }, item),
+    true,
+  );
+  assert.equal(isRelatedStory({ title: "PSE index edges up as banks lead", src: "Inquirer" }, item), false);
+  assert.equal(isRelatedStory({ title: "LPZ in talks for a power deal — Bilyonaryo", src: "Bilyonaryo" }, item), true);
+});
+
+test("rumor news query is Bilyonaryo-scoped", () => {
+  const url = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  assert.match(decodeURIComponent(url), /site:bilyonaryo.com/);
+  assert.match(decodeURIComponent(url), /BDO Unibank/);
+});

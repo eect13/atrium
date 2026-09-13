@@ -45,34 +45,28 @@ function rng(seed: number) {
 }
 
 /** Smooth session path from previous close → last. Stable for a ticker+day so it does not flicker. */
-export function sessionSpark(last: number, change?: number, seed = "tape", n = 36): number[] {
-  if (!Number.isFinite(last) || last <= 0) return [];
-  const ch = Number.isFinite(change) ? (change as number) : 0;
-  const prev = last / (1 + ch / 100);
-  if (!Number.isFinite(prev) || prev <= 0) return [last];
-  const rand = rng(hash(`${seed}:${last.toFixed(4)}:${ch.toFixed(3)}`));
-  const band = Math.max(Math.abs(last - prev) * 0.55, last * 0.004);
-  const out: number[] = [];
-  for (let i = 0; i < n; i += 1) {
-    const t = i / (n - 1);
-    const bridge = prev + (last - prev) * t;
-    const wobble = (rand() - 0.5) * 2 * band * Math.sin(Math.PI * t);
-    const bump = Math.sin(t * Math.PI * 2.2) * band * 0.35 * (rand() * 0.6 + 0.4);
-    out.push(Math.max(last * 0.5, bridge + wobble + bump));
-  }
-  out[0] = prev;
-  out[n - 1] = last;
-  return out;
+export function sessionSpark(last: number, change?: number, _seed = "tape", _n = 36): number[] {
+  const prev = last - (Number.isFinite(change) ? Number(change) : 0);
+  if (!Number.isFinite(prev) || prev === last) return [last * 0.998, last];
+  return [prev, last];
 }
 
-export function pointsToPath(values: number[], w: number, h: number, pad = 1): { line: string; area: string } {
-  if (values.length < 2) return { line: "", area: "" };
+export function sparkDomain(values: number[]) {
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const span = max - min || 1;
+  const last = values[values.length - 1] ?? 0;
+  const raw = max - min;
+  const floor = Math.max(Math.abs(last) * 0.025, raw * 1.18, 1e-9);
+  const mid = raw > 0 ? (max + min) / 2 : last;
+  return { lo: mid - floor / 2, span: floor };
+}
+
+export function pointsToPath(values: number[], w: number, h: number, pad = 1): { line: string; area: string; lo: number; span: number } {
+  if (values.length < 2) return { line: "", area: "", lo: 0, span: 1 };
+  const { lo, span } = sparkDomain(values);
   const pts = values.map((v, i) => ({
     x: (i / (values.length - 1)) * w,
-    y: h - ((v - min) / span) * (h - pad * 2) - pad,
+    y: h - ((v - lo) / span) * (h - pad * 2) - pad,
   }));
   const fmt = (n: number) => n.toFixed(2);
   let line = `M${fmt(pts[0]!.x)} ${fmt(pts[0]!.y)}`;
@@ -92,7 +86,7 @@ export function pointsToPath(values: number[], w: number, h: number, pad = 1): {
     }
   }
   const area = `${line} L${fmt(w)} ${fmt(h)} L0 ${fmt(h)} Z`;
-  return { line, area };
+  return { line, area, lo, span };
 }
 
 export function readTape(): TapeMap {

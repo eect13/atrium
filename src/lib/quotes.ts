@@ -1,11 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
+import { httpText } from "./http.ts";
 import { z } from "zod";
 
 export type DeskQuote = {
   text: string;
   author: string;
   href: string;
-  source: "brainyquote" | "local";
+  source: "brainyquote" | "local" | "live";
 };
 
 export const QUOTE_SESSION_KEY = "atrium.quote.session";
@@ -150,6 +151,8 @@ export function parseBrainyRss(xml: string): DeskQuote[] {
 
 export const POPULAR_AUTHORS = [
   { name: "Albert Einstein", slug: "albert-einstein" },
+  { name: "Albert Camus", slug: "albert-camus" },
+  { name: "Albert Schweitzer", slug: "albert-schweitzer" },
   { name: "Marcus Aurelius", slug: "marcus-aurelius" },
   { name: "Steve Jobs", slug: "steve-jobs" },
   { name: "Maya Angelou", slug: "maya-angelou" },
@@ -170,6 +173,25 @@ export const POPULAR_AUTHORS = [
   { name: "Sun Tzu", slug: "sun-tzu" },
   { name: "Simone Weil", slug: "simone-weil" },
 ] as const;
+
+export function suggestAuthors(q: string, limit = 8) {
+  const n = q.trim().toLowerCase();
+  if (n.length < 2) return [];
+  const extra = LOCAL_QUOTES.map((x) => ({ name: x.author, slug: authorSlug(x.author) }));
+  const all = [...POPULAR_AUTHORS, ...extra];
+  const seen = new Set<string>();
+  const out: { name: string; slug: string }[] = [];
+  for (const a of all) {
+    const key = a.slug || authorSlug(a.name);
+    if (seen.has(key)) continue;
+    if (a.name.toLowerCase().includes(n) || key.includes(n.replace(/\s+/g, "-"))) {
+      seen.add(key);
+      out.push({ name: a.name, slug: key });
+    }
+    if (out.length >= limit) break;
+  }
+  return out;
+}
 
 function local(author: string, slug: string, text: string): DeskQuote {
   return { text, author, href: `https://www.brainyquote.com/authors/${slug}-quotes`, source: "local" };
@@ -239,57 +261,28 @@ export const QUOTE_TOPICS = [
   { id: "nature", label: "Nature", rss: "https://www.brainyquote.com/link/quotena.rss", path: "/topics/nature-quotes" },
 ] as const;
 
-export type QuoteTopicId = (typeof QUOTE_TOPICS)[number]["id"];
-
-export function normalizeQuoteTopic(raw?: string): QuoteTopicId {
-  return QUOTE_TOPICS.some((t) => t.id === raw) ? (raw as QuoteTopicId) : "all";
-}
-
-function hash(s: string) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function shuffle<T>(list: T[], seed: string) {
-  const out = [...list];
-  let s = hash(seed) || 1;
-  for (let i = out.length - 1; i > 0; i -= 1) {
-    s = Math.imul(s ^ (s >>> 15), 1 | s) >>> 0;
-    const j = s % (i + 1);
-    const a = out[i]!;
-    out[i] = out[j]!;
-    out[j] = a;
-  }
-  return out;
-}
-
-const g = globalThis as typeof globalThis & {
-  __atriumQuotes?: Map<string, { exp: number; data: DeskQuote[] }>;
-};
-
-function cache() {
-  g.__atriumQuotes ??= new Map();
-  return g.__atriumQuotes;
-}
 
 async function pull(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": UA,
-        accept: "text/html,application/xhtml+xml,application/xml,application/rss+xml;q=0.9,*/*;q=0.8",
-        "accept-language": "en-US,en;q=0.9",
-      },
-      signal: AbortSignal.timeout(FETCH_MS),
-    });
-    if (!res.ok) return null;
-    return await res.text();
+    return await Promise.race([
+      httpText(url),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+    ]);
   } catch {
     return null;
+  }
+}
+
+async function fromDummy(): Promise<DeskQuote[]> {
+  try {
+    const raw = await pull("https://dummyjson.com/quotes?limit=50");
+    if (!raw) return [];
+    const data = JSON.parse(raw) as { quotes?: { quote?: string; author?: string }[] };
+    return (data.quotes ?? [])
+      .filter((q) => q.quote && q.author)
+      .map((q) => ({ text: q.quote!, author: q.author!, href: "https://dummyjson.com/quotes", source: "live" as const }));
+  } catch {
+    return [];
   }
 }
 
@@ -308,7 +301,8 @@ async function fromRss(): Promise<DeskQuote[]> {
   const hit = cache().get(key);
   if (hit && hit.exp > Date.now()) return hit.data;
   const pages = await Promise.all(BRAINY_RSS.map((url) => pull(url)));
-  const data = unique(pages.flatMap((xml) => (xml ? parseBrainyRss(xml) : [])));
+  let data = unique(pages.flatMap((xml) => (xml ? parseBrainyRss(xml) : [])));
+  if (!data.length) data = await fromDummy();
   if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
   return data;
 }

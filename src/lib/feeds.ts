@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { httpText } from "./http.ts";
 import { z } from "zod";
 import { cleanHeadline, keepStory, type NewsTag } from "./headline.ts";
 
@@ -7,6 +8,7 @@ export type ParsedStory = {
   link: string;
   desc: string;
   date: string;
+  source: string;
 };
 
 export type FeedProbe = {
@@ -195,6 +197,7 @@ export function parseRss(xml: string): ParsedStory[] {
       link: decodeEntities(linkHref),
       desc: (tag(block, "description") || tag(block, "summary")).slice(0, 180),
       date: tag(block, "pubDate") || tag(block, "updated") || tag(block, "published"),
+      source: tag(block, "source"),
     };
   });
 }
@@ -280,24 +283,14 @@ const FETCH_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
 async function pull(url: string) {
-  const res = await fetch(url, {
-    headers: { "user-agent": FETCH_UA, accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8" },
-    signal: AbortSignal.timeout(8_000),
-    redirect: "follow",
-  });
-  const body = await res.text();
-  return { ok: res.ok, status: res.status, type: res.headers.get("content-type") ?? "", body, finalUrl: res.url || url };
+  const body = await httpText(url);
+  return { ok: true, status: 200, type: "application/xml", body, finalUrl: url };
 }
 
 export const fetchFeed = createServerFn({ method: "POST" })
   .validator(z.object({ url: z.string().url(), name: z.string(), category: z.string() }))
   .handler(async ({ data }) => {
-    const res = await fetch(data.url, {
-      headers: { "user-agent": FETCH_UA },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) throw new Error(`Feed ${data.name} failed (${res.status})`);
-    const xml = await res.text();
+    const xml = await httpText(data.url);
     return parseRss(xml)
       .map((s) => ({ ...s, src: data.name, category: data.category }))
       .filter(keepStory)
@@ -338,10 +331,5 @@ export const fetchIcsUrl = createServerFn({ method: "POST" })
   .validator(z.object({ url: z.string().url() }))
   .handler(async ({ data }) => {
     const url = data.url.replace(/^webcal:/i, "https:");
-    const res = await fetch(url, {
-      headers: { "user-agent": "Atrium/1.0" },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) throw new Error(`Calendar fetch failed (${res.status})`);
-    return await res.text();
+    return await httpText(url);
   });

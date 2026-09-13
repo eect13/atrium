@@ -1,37 +1,62 @@
+import { useEffect, useRef, useState } from "react";
 import { chgPct } from "@/lib/format";
 import { pointsToPath } from "@/lib/sparks";
 import { cn } from "@/lib/utils";
 
-function lastDot(values: number[], w: number, h: number, pad = 1) {
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
+function lastDot(values: number[], w: number, h: number, pad: number, lo: number, span: number) {
   const v = values[values.length - 1]!;
   return {
     x: w,
-    y: h - ((v - min) / span) * (h - pad * 2) - pad,
+    y: h - ((v - lo) / span) * (h - pad * 2) - pad,
   };
 }
 
 export function Spark({ values, up, className }: { values?: number[]; up: boolean; className?: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const [size, setSize] = useState({ w: 160, h: 36 });
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const w = Math.max(48, Math.round(r.width * (window.devicePixelRatio || 1)));
+      const h = Math.max(24, Math.round(r.height * (window.devicePixelRatio || 1)));
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!values || values.length < 2) {
-    return <span className={cn("inline-block h-8 w-full sm:h-9", className)} />;
+    return <span ref={box} className={cn("inline-block h-8 w-full sm:h-9", className)} />;
   }
-  const w = 160;
-  const h = 44;
-  const { line, area } = pointsToPath(values, w, h);
-  const dot = lastDot(values, w, h);
+
+  const pad = 3;
+  const { line, area, lo, span } = pointsToPath(values, size.w, size.h, pad);
+  const dot = lastDot(values, size.w, size.h, pad, lo, span);
   return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      className={cn("h-8 w-full shrink-0 sm:h-9", up ? "text-ok" : "text-destructive", className)}
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      <path fill="currentColor" opacity="0.1" d={area} />
-      <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" d={line} />
-      <circle cx={Math.max(3, dot.x - 2)} cy={dot.y} r="2.4" fill="currentColor" />
-    </svg>
+    <span ref={box} className={cn("inline-block h-8 w-full sm:h-9", className)}>
+      <svg
+        viewBox={`0 0 ${size.w} ${size.h}`}
+        className={cn("h-full w-full", up ? "text-ok" : "text-destructive")}
+        preserveAspectRatio="none"
+        aria-hidden
+      >
+        <path fill="currentColor" opacity="0.12" d={area} />
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={Math.max(1.2, size.h / 28)}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          d={line}
+        />
+        <circle cx={Math.max(3, dot.x - 2)} cy={dot.y} r={Math.max(2, size.h / 16)} fill="currentColor" />
+      </svg>
+    </span>
   );
 }
 

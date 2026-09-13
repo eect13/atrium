@@ -5,6 +5,8 @@ export const DESK_SIDEBAR = 224;
 export const DESK_HEADER = 56;
 /** Tab chips + home-indicator. Matches `.pb-dock` (chips ~52px + safe-area). */
 export const DESK_DOCK = 72;
+/** Keep this much of a float on-screen so a big window can still be grabbed. */
+export const DESK_GRIP = 48;
 
 export type ResizeCorner = "nw" | "ne" | "sw" | "se";
 export type ResizeEdge = "n" | "s" | "e" | "w";
@@ -27,8 +29,10 @@ export function deskMin(width?: number) {
 export function clampDesk(x: number, y: number, w = 0, h = 0) {
   if (typeof window === "undefined") return { x, y };
   const { minX, minY, padB } = deskMin();
-  const maxX = Math.max(minX, window.innerWidth - Math.max(72, w * 0.2));
-  const maxY = Math.max(minY, window.innerHeight - padB - Math.max(44, h * 0.2));
+  const grip = Math.min(DESK_GRIP, Math.max(32, w || DESK_GRIP));
+  const gripY = Math.min(DESK_GRIP, Math.max(32, h || DESK_GRIP));
+  const maxX = Math.max(minX, window.innerWidth - grip);
+  const maxY = Math.max(minY, window.innerHeight - padB - gripY);
   return {
     x: Math.min(maxX, Math.max(minX, x)),
     y: Math.min(maxY, Math.max(minY, y)),
@@ -38,8 +42,8 @@ export function clampDesk(x: number, y: number, w = 0, h = 0) {
 export function clampSize(x: number, y: number, w: number, h: number) {
   if (typeof window === "undefined") return { w, h };
   const { padB } = deskMin();
-  const maxW = Math.max(180, window.innerWidth - x - 8);
-  const maxH = Math.max(140, window.innerHeight - y - padB);
+  const maxW = Math.max(180, window.innerWidth - Math.min(x, window.innerWidth - 180) - 8);
+  const maxH = Math.max(140, window.innerHeight - Math.min(y, window.innerHeight - 140) - padB);
   return {
     w: Math.min(Math.max(w, 180), maxW),
     h: Math.min(Math.max(h, 120), maxH),

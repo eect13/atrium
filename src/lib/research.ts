@@ -1,3 +1,6 @@
+import { httpText } from "./http.ts";
+import { parseRss } from "./feeds.ts";
+import { cleanHeadline } from "./headline.ts";
 import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 
@@ -349,17 +352,119 @@ export function downloadPdf(filename: string, bytes: Uint8Array) {
   return url;
 }
 
-export function relatedNewsQuery(item: { label: string; symbol: string; name?: string; kind: string }) {
-  const name = item.name ?? item.label;
-  if (item.kind === "crypto") return `${item.label} ${name} crypto`;
-  if (item.kind === "fx") return `${item.label} peso forex`;
-  if (item.kind === "cmdty") return `${item.label} ${name} commodity`;
-  if (item.kind === "global") return `${item.symbol.replace(/^\^/, "")} ${name}`;
-  return `${item.symbol} ${name}`;
+export type NewsWindow = "1d" | "7d" | "30d";
+
+const GENERIC_NAME = /^(inc|corp|corporation|holdings?|plc|ltd|limited|group|the|and|of|ph|co|company|philippine|philippines)$/i;
+
+export function relatedNeedles(item: { label: string; symbol: string; name?: string; kind: string }) {
+  const name = (item.name ?? item.label).trim();
+  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
+  const out: string[] = [];
+  const add = (s: string) => {
+    const t = s.trim().toLowerCase();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  if (sym) add(sym);
+  if (item.label) add(item.label);
+  if (name) add(name);
+  for (const part of name.split(/[\s,/&-]+/)) {
+    const bit = part.replace(/[.]/g, "");
+    if (bit.length >= 3 && !GENERIC_NAME.test(bit)) add(bit);
+  }
+  return out;
 }
 
-export function relatedNewsUrl(item: { label: string; symbol: string; name?: string; kind: string }) {
-  const q = relatedNewsQuery(item);
-  const locale = item.kind === "stock" ? "hl=en-PH&gl=PH&ceid=PH:en" : "hl=en&gl=US&ceid=US:en";
+export function isRelatedStory(
+  story: { title: string; desc?: string; src?: string },
+  item: { label: string; symbol: string; name?: string; kind: string },
+) {
+  const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`.toLowerCase();
+  for (const n of relatedNeedles(item)) {
+    if (n.length <= 3) {
+      const re = new RegExp(`(?:^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i");
+      if (re.test(hay)) return true;
+    } else if (hay.includes(n)) return true;
+  }
+  return false;
+}
+
+export function relatedNewsQuery(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
+  const name = (item.name ?? item.label).trim();
+  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
+  let q = "";
+  if (item.kind === "crypto") q = `${item.label} OR ${name} crypto`;
+  else if (item.kind === "fx") q = `${item.label} peso forex`;
+  else if (item.kind === "cmdty") q = `${item.label} OR ${name} commodity`;
+  else if (item.kind === "global") q = `${sym} OR ${name}`;
+  else {
+    const bits = [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
+    q = bits.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" OR ");
+  }
+  return `${q} when:${window}`;
+}
+
+export function relatedNewsUrl(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
+  const q = relatedNewsQuery(item, window);
+  const locale = item.kind === "stock" || item.kind === "fx" ? "hl=en-PH&gl=PH&ceid=PH:en" : "hl=en&gl=US&ceid=US:en";
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
+}
+
+export function rumorNewsUrl(item: { label: string; symbol: string; name?: string }, window: NewsWindow = "7d") {
+  const name = (item.name ?? item.label).trim();
+  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
+  const bits = [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
+  const q = `site:bilyonaryo.com (${bits.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" OR ")}) when:${window}`;
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-PH&gl=PH&ceid=PH:en`;
+}
+
+export type RelatedStory = {
+  title: string;
+  link: string;
+  desc: string;
+  date: string;
+  src: string;
+};
+
+function asStories(xml: string): RelatedStory[] {
+  return parseRss(xml)
+    .filter((s) => s.title && !/^untitled$/i.test(s.title))
+    .map((s) => ({
+      title: cleanHeadline(s.title) || s.title,
+      link: s.link,
+      desc: s.desc,
+      date: s.date,
+      src: s.source || "Google News",
+    }))
+    .filter((s) => s.title);
+}
+
+function mergeStories(rows: RelatedStory[]) {
+  const seen = new Set<string>();
+  const out: RelatedStory[] = [];
+  for (const row of rows) {
+    const key = `${row.link}|${row.title}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out.sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || ""));
+}
+
+export async function fetchRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
+  const urls: string[] = [];
+  for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
+  if (item.kind === "stock" || item.kind === "fx") {
+    urls.push(rumorNewsUrl(item, "7d"), rumorNewsUrl(item, "30d"));
+  }
+  const gathered: RelatedStory[] = [];
+  for (const url of urls) {
+    try {
+      gathered.push(...asStories(await httpText(url)));
+    } catch {
+      /* next feed */
+    }
+    const related = mergeStories(gathered.filter((s) => isRelatedStory(s, item)));
+    if (related.length >= 4) return related.slice(0, 12);
+  }
+  return mergeStories(gathered.filter((s) => isRelatedStory(s, item))).slice(0, 12);
 }

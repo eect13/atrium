@@ -81,6 +81,7 @@ function runCapture(cmd, args, env = process.env) {
     shell: false,
     env,
     encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
   });
   return {
@@ -788,6 +789,12 @@ function signApkIfNeeded(sdk, env) {
   } else {
     copyFileSync(unsigned, aligned);
   }
+  // apksigner.bat + paths with spaces ("Vibe Apps") splits args. Sign from %TEMP%.
+  const stage = join(tmpdir(), "atrium-apk-sign");
+  mkdirSync(stage, { recursive: true });
+  const tmpIn = join(stage, "in.apk");
+  const tmpOut = join(stage, "out.apk");
+  copyFileSync(existsSync(aligned) ? aligned : unsigned, tmpIn);
   const signStatus = run(
     apksigner,
     [
@@ -801,15 +808,16 @@ function signApkIfNeeded(sdk, env) {
       "--ks-key-alias",
       "androiddebugkey",
       "--out",
-      signed,
-      aligned,
+      tmpOut,
+      tmpIn,
     ],
     env,
   );
-  if (signStatus !== 0 || !existsSync(signed)) {
+  if (signStatus !== 0 || !existsSync(tmpOut)) {
     console.log("  apksigner failed — deploying unsigned APK.");
     return unsigned;
   }
+  copyFileSync(tmpOut, signed);
   return signed;
 }
 

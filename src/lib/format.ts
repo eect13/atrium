@@ -491,3 +491,52 @@ export function noteTitle(note: { title?: string; html?: string; text: string })
   const line = body.split("\n").find((l) => l.trim()) ?? "";
   return line.trim() || "Untitled";
 }
+
+export const WORLD_ZONES = [
+  { id: "desk", label: "Desk (profile)" },
+  { id: "local", label: "This computer" },
+  { id: "UTC", label: "UTC" },
+  { id: "America/New_York", label: "New York" },
+  { id: "America/Los_Angeles", label: "Los Angeles" },
+  { id: "America/Chicago", label: "Chicago" },
+  { id: "Europe/London", label: "London" },
+  { id: "Europe/Paris", label: "Paris" },
+  { id: "Asia/Tokyo", label: "Tokyo" },
+  { id: "Asia/Singapore", label: "Singapore" },
+  { id: "Asia/Hong_Kong", label: "Hong Kong" },
+  { id: "Asia/Manila", label: "Manila" },
+  { id: "Australia/Sydney", label: "Sydney" },
+] as const;
+
+export function resolveEventTz(id: string) {
+  if (id === "desk") return deskZone().tz;
+  if (id === "local") return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return id;
+}
+
+export function partsInTz(d: Date, tz: string): ManilaParts {
+  const prev = deskZone();
+  setDeskZone({ tz });
+  const p = manilaParts(d);
+  setDeskZone(prev);
+  return p;
+}
+
+export function toZoneInput(d: Date | string = new Date(), tz?: string) {
+  const use = tz || deskZone().tz;
+  const p = partsInTz(new Date(d), use);
+  return `${p.year}-${pad2(p.month)}-${pad2(p.day)}T${pad2(p.hour)}:${pad2(p.minute)}`;
+}
+
+export function fromZoneInput(value: string, tz?: string) {
+  const use = tz || deskZone().tz;
+  const [date, time = "00:00"] = value.split("T");
+  if (!date) return null;
+  const [y, mo, da] = date.split("-").map(Number);
+  const [h, mi] = time.split(":").map(Number);
+  const prev = deskZone();
+  setDeskZone({ tz: use });
+  const dt = fromManila(y || 0, mo || 1, da || 1, h || 0, mi || 0);
+  setDeskZone(prev);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}

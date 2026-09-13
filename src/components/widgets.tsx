@@ -50,7 +50,7 @@ import { WATCH_CATALOG } from "@/lib/types";
 import { regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
 import { fetchWeather, hasWeatherPin, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
-import { fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
+import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
 import { locateMe } from "@/lib/locate";
 import { Spark } from "@/components/spark";
@@ -461,53 +461,72 @@ export function CalendarPeek({
     node.scrollTop = Math.max(0, target);
   }, [day, showNow, nowTop, blocks, peekMonth]);
 
+  const goToday = () => {
+    const n = new Date();
+    setDay(isoDate(n));
+    setCursor(n);
+  };
+  const navBtn =
+    "min-h-8 shrink-0 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground";
   const modeBar = (
-    <div className="mb-2 flex flex-wrap items-center gap-1">
-      {(
-        [
-          ["auto", "Auto"],
-          ["month", "Month"],
-          ["week", "Compact"],
-        ] as const
-      ).map(([id, label]) => (
-        <button
-          key={id}
-          type="button"
-          aria-pressed={calPeek === id}
-          className={cn(
-            "min-h-8 rounded-md px-2 text-xs",
-            calPeek === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-          )}
-          onClick={() => setCalPeek(id)}
-        >
-          {label}
+    <div className="mb-2 shrink-0 space-y-1">
+      <div className="flex items-center gap-1" data-tauri-drag-region>
+        <span className="min-w-0 grow truncate px-1 text-sm font-medium" data-tauri-drag-region>
+          {peekMonth ? monthName(cursor) : fmtDate(manilaAt(day, 12).toISOString())}
+        </span>
+        <button type="button" data-no-drag className={navBtn} onClick={goToday}>
+          Today
         </button>
-      ))}
-      {peekMonth ? (
-        <>
+        {peekMonth ? (
+          <>
+            <button
+              type="button"
+              data-no-drag
+              className={navBtn}
+              onClick={() => {
+                const p = manilaParts(cursor);
+                setCursor(fromManila(p.year, p.month - 1, 1, 12));
+              }}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              data-no-drag
+              className={navBtn}
+              onClick={() => {
+                const p = manilaParts(cursor);
+                setCursor(fromManila(p.year, p.month + 1, 1, 12));
+              }}
+            >
+              Next
+            </button>
+          </>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1">
+        {(
+          [
+            ["auto", "Auto"],
+            ["month", "Month"],
+            ["week", "Compact"],
+          ] as const
+        ).map(([id, label]) => (
           <button
+            key={id}
             type="button"
-            className="min-h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              const p = manilaParts(cursor);
-              setCursor(fromManila(p.year, p.month - 1, 1, 12));
-            }}
+            data-no-drag
+            aria-pressed={calPeek === id}
+            className={cn(
+              "min-h-8 rounded-md px-2 text-xs",
+              calPeek === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setCalPeek(id)}
           >
-            Prev
+            {label}
           </button>
-          <span className="px-1 text-xs text-muted-foreground">{monthName(cursor)}</span>
-          <button
-            type="button"
-            className="min-h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              const p = manilaParts(cursor);
-              setCursor(fromManila(p.year, p.month + 1, 1, 12));
-            }}
-          >
-            Next
-          </button>
-        </>
-      ) : null}
+        ))}
+      </div>
     </div>
   );
 
@@ -517,19 +536,19 @@ export function CalendarPeek({
         {fmtDate(manilaAt(day, 12).toISOString())}
       </p>
       {!list.length ? (
-        <p className="text-xs text-muted-foreground">No events</p>
+        <p className="text-sm text-muted-foreground">Nothing on this day.</p>
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {list.map((e) => (
             <button
               key={e.id}
               type="button"
-              className="flex min-h-9 w-full flex-col items-start rounded-sm px-2 py-1 text-left"
+              className="flex min-h-11 w-full flex-col items-start rounded-md bg-muted/60 px-2.5 py-1.5 text-left"
               style={{ boxShadow: `inset 3px 0 0 ${CAT_COLORS[e.cat]}` }}
               onClick={() => pick(e)}
             >
-              <span className="truncate text-sm">{e.title}</span>
-              <span className="text-xs tabular-nums text-muted-foreground">
+              <span className="text-sm font-medium leading-snug">{e.title}</span>
+              <span className="mt-0.5 text-xs tabular-nums text-muted-foreground">
                 {isAllDayEvent(e) ? "All day" : fmtWhen(e)}
                 {e.loc ? ` · ${e.loc}` : ""}
               </span>
@@ -546,7 +565,13 @@ export function CalendarPeek({
         {modeBar}
         <div className="grid grid-cols-7 gap-0.5">
           {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-            <div key={`${d}-${i}`} className="pb-1 text-center text-[0.65rem] text-muted-foreground">
+            <div
+              key={`${d}-${i}`}
+              className={cn(
+                "pb-1 text-center text-[0.65rem] text-muted-foreground",
+                (i === 0 || i === 6) && "opacity-50",
+              )}
+            >
               {d}
             </div>
           ))}
@@ -555,6 +580,7 @@ export function CalendarPeek({
             const count = byDay[key]?.length ?? 0;
             const isToday = sameDay(c.date, now);
             const on = key === day;
+            const weekend = manilaParts(c.date).weekdayIndex === 0 || manilaParts(c.date).weekdayIndex === 6;
             return (
               <button
                 key={key + (c.out ? "-out" : "")}
@@ -563,6 +589,7 @@ export function CalendarPeek({
                 className={cn(
                   "flex min-h-9 flex-col items-center justify-center rounded-sm text-xs tabular-nums",
                   c.out && "opacity-40",
+                  weekend && !on && "text-muted-foreground/70",
                   on ? "bg-primary text-primary-foreground" : "text-muted-foreground",
                   isToday && !on && "ring-1 ring-ring",
                 )}
@@ -709,8 +736,8 @@ export function QuoteBody() {
     queryFn: async () => {
       const hit = readQuoteSession();
       if (hit) return hit;
-      const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: readQuoteSeed() } });
-      const first = data.quotes[0];
+      const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: readQuoteSeed() } }).catch(() => ({ quotes: [] as typeof LOCAL_QUOTES }));
+      const first = data.quotes[0] ?? LOCAL_QUOTES[0];
       if (first) writeQuoteSession(first);
       return first ?? null;
     },
@@ -721,8 +748,8 @@ export function QuoteBody() {
   const author = q.data?.author;
 
   async function shuffle() {
-    const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: `${Date.now()}` } });
-    const next = data.quotes.find((row) => row.text !== text) ?? data.quotes[0];
+    const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: `${Date.now()}` } }).catch(() => ({ quotes: LOCAL_QUOTES }));
+    const next = data.quotes.find((row) => row.text !== text) ?? data.quotes[0] ?? LOCAL_QUOTES[0];
     if (!next) return;
     writeQuoteSession(next);
     queryClient.setQueryData(["quotes", "session"], next);
@@ -939,7 +966,7 @@ export function FinancePeek() {
               ) : (
                 <>
                   {spark && spark.length >= 2 ? (
-                    <Spark values={spark} up={up} className="h-8 w-full justify-self-stretch sm:h-9" />
+                    <Spark values={spark} up={up} className="h-8 w-full min-w-0 sm:h-9" />
                   ) : (
                     <span />
                   )}

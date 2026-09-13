@@ -1,6 +1,21 @@
 {
   "identifier": "default",
-  "description": "Main window capabilities",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Main and float window capabilities",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-skip-taskbar",
+    "core:window:allow-set-decorations",
+    "core:window:allow-start-dragging",
+    "core:webview:allow-create-webview-window"
+  ]
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,10 @@ import {
   monthCells,
   sameDay,
   toManilaInput,
+  toZoneInput,
+  fromZoneInput,
+  resolveEventTz,
+  WORLD_ZONES,
   uid,
   weekRangeLabel,
 } from "@/lib/format";
@@ -54,17 +58,26 @@ function heading(cursor: Date, mode: CalMode) {
 }
 
 export function CalendarView() {
-  const { events, addEvent, updateEvent, removeEvent, importEvents } = useAtrium(
+  const { events, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor } = useAtrium(
     useShallow((s) => ({
       events: s.events,
       addEvent: s.addEvent,
       updateEvent: s.updateEvent,
       removeEvent: s.removeEvent,
       importEvents: s.importEvents,
+      calMode: s.calMode,
+      calCursor: s.calCursor,
+      setCalMode: s.setCalMode,
+      setCalCursor: s.setCalCursor,
     })),
   );
-  const [cursor, setCursor] = useState(() => new Date());
-  const [mode, setMode] = useState<CalMode>("month");
+  const [cursor, setCursor] = useState(() => {
+    if (calCursor && !Number.isNaN(+new Date(calCursor))) return new Date(calCursor);
+    return new Date();
+  });
+  const [mode, setMode] = useState<CalMode>(() =>
+    calMode === "week" || calMode === "day" || calMode === "agenda" || calMode === "month" ? calMode : "month",
+  );
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -73,6 +86,14 @@ export function CalendarView() {
   const [cat, setCat] = useState<EventCat>("work");
   const [loc, setLoc] = useState("");
   const [allDay, setAllDay] = useState(false);
+  const [eventTz, setEventTz] = useState("desk");
+
+  useEffect(() => {
+    setCalMode(mode);
+  }, [mode, setCalMode]);
+  useEffect(() => {
+    setCalCursor(isoDate(cursor));
+  }, [cursor, setCalCursor]);
   const [subUrl, setSubUrl] = useState("");
 
   function openDay(date: string) {
@@ -387,6 +408,21 @@ export function CalendarView() {
                 }}
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="ev-tz">Time zone</Label>
+              <select
+                id="ev-tz"
+                className="h-11 w-full rounded-md border border-border bg-muted px-3 text-sm"
+                value={eventTz}
+                onChange={(e) => setEventTz(e.target.value)}
+              >
+                {WORLD_ZONES.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             {allDay ? (
               <div className="space-y-1">
                 <Label htmlFor="ev-date">Date</Label>
@@ -452,8 +488,9 @@ export function CalendarView() {
               ) : null}
               <Button
                 onClick={() => {
-                  const startAt = fromManilaInput(start);
-                  let endAt = fromManilaInput(end);
+                  const tz = resolveEventTz(eventTz);
+                  const startAt = fromZoneInput(start, tz);
+                  let endAt = fromZoneInput(end, tz);
                   if (!startAt || !endAt) {
                     toast("Need a valid start and end");
                     return;

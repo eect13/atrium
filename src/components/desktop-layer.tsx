@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { FloatWindow } from "@/components/float-window";
 import { NoteColor } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
-import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos } from "@/components/note-pad";
+import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { fitBox } from "@/lib/desk";
 import { inkOnPaper, noteTitle } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
+import { closeNativeFloat, isTauri, openNativeFloat } from "@/lib/native-float";
 
 function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean }) {
   if (kind === "finance") return modules.finance;
@@ -55,8 +56,25 @@ export function DesktopLayer({
     })),
   );
   const [inkId, setInkId] = useState<string | null>(null);
+  const inkRedo = useInkRedo();
+  const liveNative = useRef({ notes: new Set<string>(), wins: new Set<string>() });
   const pinned = modules.notes ? notes.filter((n) => n.pinned) : [];
   const floating = windows.filter((w) => allowed(w.kind, modules));
+  useEffect(() => {
+    if (!isTauri()) return;
+    const noteIds = new Set(pinned.map((n) => n.id));
+    const winIds = new Set(floating.map((w) => w.id));
+    for (const id of liveNative.current.notes) if (!noteIds.has(id)) void closeNativeFloat("note", id);
+    for (const id of liveNative.current.wins) if (!winIds.has(id)) void closeNativeFloat("widget", id);
+    for (const n of pinned) {
+      void openNativeFloat("note", n.id, { x: n.x, y: n.y, w: n.w, h: n.h, title: n.title || "Note" });
+    }
+    for (const w of floating) {
+      void openNativeFloat("widget", w.id, { x: w.x, y: w.y, w: w.w, h: w.h, title: WIDGET_LABEL[w.kind] });
+    }
+    liveNative.current = { notes: noteIds, wins: winIds };
+  }, [pinned, floating]);
+
 
   useEffect(() => {
     const ac = new AbortController();
@@ -81,6 +99,7 @@ export function DesktopLayer({
   }, [pinned, floating, unpinNote, closeWindow]);
 
   useEffect(() => {
+    if (isTauri()) return;
     const ac = new AbortController();
     const clampAll = () => {
       for (const w of floating) {
@@ -97,6 +116,7 @@ export function DesktopLayer({
     return () => ac.abort();
   }, [floating, pinned, updateWindow, updateNote]);
 
+  if (isTauri()) return null;
   return (
     <div className="pointer-events-none fixed inset-0 z-40">
       {floating.map((win) => (
@@ -149,17 +169,6 @@ export function DesktopLayer({
               onClose={() => unpinNote(n.id)}
             >
               <div className="flex h-full min-h-0 flex-col">
-                <div className="max-md:opacity-100 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100">
-                  <NoteFormat
-                    ink={ink}
-                    drawing={drawing}
-                    canUndo={Boolean(n.ink?.length)}
-                    onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
-                    onUndo={() => updateNote(n.id, { ink: (n.ink ?? []).slice(0, -1) })}
-                    onClear={() => updateNote(n.id, { ink: [] })}
-                    onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
-                  />
-                </div>
                 <div className="relative min-h-0 flex-1">
                   <NoteInk
                     strokes={n.ink ?? []}
@@ -173,6 +182,20 @@ export function DesktopLayer({
                   />
                   <NoteEditor note={n} ink={ink} drawing={drawing} onUpdate={(patch) => updateNote(n.id, patch)} />
                 </div>
+                <NoteFormat
+                  ink={ink}
+                  drawing={drawing}
+                  canUndo={Boolean(n.ink?.length)}
+                  canRedo={inkRedo.canRedoFor(n.id)}
+                  onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
+                  onUndo={() => inkRedo.pushUndo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
+                  onRedo={() => inkRedo.popRedo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
+                  onClear={() => {
+                    inkRedo.forget(n.id);
+                    updateNote(n.id, { ink: [] });
+                  }}
+                  onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
+                />
               </div>
             </FloatWindow>
           </div>

@@ -143,6 +143,7 @@ export function FloatWindow({
     window.addEventListener("pointermove", move, { signal });
     window.addEventListener("pointerup", stop, { signal });
     window.addEventListener("pointercancel", stop, { signal });
+    window.addEventListener("lostpointercapture", stop, { signal });
   }
 
   const geom = live.current;
@@ -168,7 +169,7 @@ export function FloatWindow({
     >
       <header
         className={cn(
-          "relative z-[2] flex h-10 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
+          "relative z-[2] flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
           paper ? "border-current/20" : "border-border bg-muted",
         )}
         onPointerDown={(e) => {

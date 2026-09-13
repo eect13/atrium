@@ -31,6 +31,7 @@ import type {
   QuoteCcy,
   StickyNote,
   Tx,
+  CalMode,
   ViewId,
   WatchItem,
   WidgetKind,
@@ -42,7 +43,12 @@ import { asNewsFilter, asNewsTag } from "./headline";
 import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 
-export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({ ...f, enabled: false }));
+const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
+
+export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({
+  ...f,
+  enabled: (STARTER_FEED_IDS as readonly string[]).includes(f.id),
+}));
 
 function withDefaultFeeds(feeds: Feed[]) {
   const have = new Set(feeds.map((f) => f.id));
@@ -58,6 +64,12 @@ function withDefaultFeeds(feeds: Feed[]) {
       category: asNewsTag(def?.category ?? f.category),
     };
   });
+}
+
+function seedStarterFeeds(feeds: Feed[]) {
+  const next = withDefaultFeeds(feeds);
+  if (next.some((f) => f.enabled)) return next;
+  return next.map((f) => ({ ...f, enabled: (STARTER_FEED_IDS as readonly string[]).includes(f.id) }));
 }
 
 function seedEvents(): CalendarEvent[] {
@@ -141,6 +153,8 @@ type Data = {
   railCollapsed: boolean;
   boardQuery: string;
   boardFocus: string | null;
+  calMode: CalMode;
+  calCursor: string;
 };
 
 type State = Data & {
@@ -197,7 +211,10 @@ type State = Data & {
   setRailCollapsed: (v: boolean) => void;
   setBoardQuery: (q: string) => void;
   setBoardFocus: (id: string | null) => void;
+  setCalMode: (v: CalMode) => void;
+  setCalCursor: (iso: string) => void;
   reset: () => void;
+  wipeProfile: () => void;
 };
 
 const SPARK_RANGE_IDS = ["1d", "1w", "1m", "3m", "6m", "1y"] as const;
@@ -234,7 +251,7 @@ function asBooksName(books: Books | undefined, profileName: string): Books | und
 }
 
 function windowSize(kind: WidgetKind) {
-  if (kind === "calendar") return { w: 440, h: 540 };
+  if (kind === "calendar") return { w: 460, h: 580 };
   if (kind === "news") return { w: 360, h: 240 };
   if (kind === "weather") return { w: 320, h: 360 };
   if (kind === "finance") return { w: 340, h: 280 };
@@ -245,13 +262,10 @@ function snapBooks(slice: Pick<Data, "books" | "accounts" | "budgets" | "txs">) 
   writeBooksSnap(toBooksFile(slice));
 }
 
-function initial(): Data {
+function demoDesk(): Data {
   const demo = demoBooks();
   return {
-    profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION },
-    theme: "dark",
-    view: "dashboard",
-    modules: { calendar: true, notes: true, finance: true, news: true, quotes: true },
+    ...blankDesk(),
     events: seedEvents(),
     notes: [
       {
@@ -277,14 +291,33 @@ function initial(): Data {
         pinned: false,
       },
     ],
-    notesLayout: "board",
-    windows: [],
     books: demo.books,
     accounts: demo.accounts,
     budgets: demo.budgets,
     txs: demo.txs,
     watch: WATCH_CATALOG.filter((w) => ["bdo", "sm", "jfc", "btc", "eth", "usdphp", "spx", "gold"].includes(w.id)),
-    feeds: DEFAULT_FEEDS,
+  };
+}
+
+function initial(): Data { return blankDesk(); }
+
+function blankDesk(): Data {
+  const empty = emptyBooks("");
+  return {
+    profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION },
+    theme: "dark",
+    view: "dashboard",
+    modules: { calendar: true, notes: true, finance: true, news: true, quotes: true },
+    events: [],
+    notes: [],
+    notesLayout: "board",
+    windows: [],
+    books: empty.books,
+    accounts: empty.accounts,
+    budgets: empty.budgets,
+    txs: empty.txs,
+    watch: [],
+    feeds: NEWS_CATALOG.map((f) => ({ ...f, enabled: false })),
     quoteCcy: "PHP",
     marketPrefs: { ...DEFAULT_MARKET_PREFS },
     dashOrder: [...DEFAULT_DASH],
@@ -296,6 +329,8 @@ function initial(): Data {
     railCollapsed: false,
     boardQuery: "",
     boardFocus: null,
+    calMode: "month",
+    calCursor: "",
   };
 }
 
@@ -628,15 +663,22 @@ export const useAtrium = create<State>()(
       setRailCollapsed: (railCollapsed) => set({ railCollapsed }),
       setBoardQuery: (boardQuery) => set({ boardQuery }),
       setBoardFocus: (boardFocus) => set({ boardFocus }),
+      setCalMode: (calMode) => set({ calMode }),
+      setCalCursor: (calCursor) => set({ calCursor }),
       reset: () => {
-        const next = initial();
+        const next = demoDesk();
+        applyTheme(next.theme);
+        set(next);
+      },
+      wipeProfile: () => {
+        const next = blankDesk();
         applyTheme(next.theme);
         set(next);
       },
     }),
     {
       name: "atrium.v1",
-      version: 25,
+      version: 27,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -818,6 +860,18 @@ export const useAtrium = create<State>()(
             calPeek: peek === "month" || peek === "week" || peek === "auto" ? peek : "auto",
           };
         }
+        if (version < 26) {
+          p = {
+            ...p,
+            boardQuery: typeof p.boardQuery === "string" ? p.boardQuery : "",
+            boardFocus: typeof p.boardFocus === "string" ? p.boardFocus : null,
+            calMode: p.calMode === "week" || p.calMode === "day" || p.calMode === "agenda" || p.calMode === "month" ? p.calMode : "month",
+            calCursor: typeof p.calCursor === "string" ? p.calCursor : "",
+          };
+        }
+        if (version < 27) {
+          p = { ...p, feeds: seedStarterFeeds(p.feeds ?? []) };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -844,6 +898,10 @@ export const useAtrium = create<State>()(
         newsQuery: s.newsQuery,
         newsTag: s.newsTag,
         railCollapsed: s.railCollapsed,
+        boardQuery: s.boardQuery,
+        boardFocus: s.boardFocus,
+        calMode: s.calMode,
+        calCursor: s.calCursor,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
@@ -873,8 +931,10 @@ export const useAtrium = create<State>()(
           ...current,
           ...p,
           view,
-          boardQuery: current.boardQuery,
-          boardFocus: current.boardFocus,
+          boardQuery: typeof p.boardQuery === "string" ? p.boardQuery : current.boardQuery,
+          boardFocus: typeof p.boardFocus === "string" || p.boardFocus === null ? p.boardFocus : current.boardFocus,
+          calMode: p.calMode === "week" || p.calMode === "day" || p.calMode === "agenda" || p.calMode === "month" ? p.calMode : (current as Data).calMode ?? "month",
+          calCursor: typeof p.calCursor === "string" ? p.calCursor : (current as Data).calCursor ?? "",
           profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,

@@ -180,13 +180,30 @@ export default defineConfig(({ command, isPreview }) => {
       clearScreen: false,
       base: "./",
       plugins: [tailwindcss(), viteReact(), tauriIndexPlugin()],
-      resolve: { tsconfigPaths: true },
+      resolve: {
+        tsconfigPaths: true,
+        alias: {
+          "@tanstack/react-start/server": fileURLToPath(new URL("./src/lib/tauri-start-stub.ts", import.meta.url)),
+          "@tanstack/react-start": fileURLToPath(new URL("./src/lib/tauri-start-stub.ts", import.meta.url)),
+        },
+      },
       build: {
         outDir: join(projectRoot, ".vercel", "output", "static"),
         emptyOutDir: true,
         chunkSizeWarningLimit: 900,
         rolldownOptions: {
           input: "desktop.html",
+          output: {
+            manualChunks(id) {
+              if (!id.includes("node_modules")) return;
+              if (id.includes("recharts")) return "recharts";
+              if (id.includes("@tanstack") || id.includes("react-query")) return "tanstack";
+              if (id.includes("lucide-react")) return "icons";
+              if (id.includes("zod") || id.includes("zustand")) return "state";
+              if (id.includes("radix-ui")) return "radix";
+              return "vendor";
+            },
+          },
         },
       },
     };

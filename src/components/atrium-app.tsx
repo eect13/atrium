@@ -14,7 +14,7 @@ import {
   Settings2,
   Wallet,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { DesktopLayer } from "@/components/desktop-layer";
@@ -23,11 +23,18 @@ import { ThemeSync, ThemeToggle } from "@/components/theme-toggle";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { CalendarView } from "@/components/views/calendar-view";
-import { DashboardView } from "@/components/views/dashboard-view";
-import { NotesView } from "@/components/views/notes-view";
-import { OptionsView } from "@/components/views/options-view";
-
+const DashboardView = lazy(() =>
+  import("@/components/views/dashboard-view").then((m) => ({ default: m.DashboardView })),
+);
+const CalendarView = lazy(() =>
+  import("@/components/views/calendar-view").then((m) => ({ default: m.CalendarView })),
+);
+const NotesView = lazy(() =>
+  import("@/components/views/notes-view").then((m) => ({ default: m.NotesView })),
+);
+const OptionsView = lazy(() =>
+  import("@/components/views/options-view").then((m) => ({ default: m.OptionsView })),
+);
 const FinanceView = lazy(() =>
   import("@/components/views/finance-view").then((m) => ({ default: m.FinanceView })),
 );
@@ -48,7 +55,31 @@ import { parseWhen } from "@/lib/parse-when";
 import { useAtrium } from "@/lib/store";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { DEFAULT_TAGLINE } from "@/lib/types";
+import { rememberMainWindow } from "@/lib/native-session";
+import { APP_VERSION } from "@/lib/version";
 import { cn } from "@/lib/utils";
+
+
+class ViewCrash extends Component<{ children: ReactNode }, { err: Error | null }> {
+  state: { err: Error | null } = { err: null };
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    console.error("Atrium view crashed", err, info.componentStack);
+  }
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="p-6 text-sm">
+          <p className="font-medium">This tab crashed.</p>
+          <p className="mt-1 text-muted-foreground">{this.state.err.message}</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const NEWS_SNAP = "atrium.news.snap";
 
@@ -290,6 +321,8 @@ export function AtriumApp() {
     setHit(-1);
   }, [cmd]);
 
+  useEffect(() => rememberMainWindow(), []);
+
   useEffect(() => {
     const ac = new AbortController();
     window.addEventListener(
@@ -465,7 +498,7 @@ export function AtriumApp() {
           {railCollapsed ? null : (
             <div>
               <p className="text-sm font-medium tracking-wide">Atrium</p>
-              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Command center</p>
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{`v${APP_VERSION}`}</p>
             </div>
           )}
         </div>
@@ -495,7 +528,7 @@ export function AtriumApp() {
             <div>
               <SheetTitle className="text-sm font-medium tracking-wide">Atrium</SheetTitle>
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                Command center
+                {`v${APP_VERSION}`}
               </p>
             </div>
           </div>
@@ -625,11 +658,22 @@ export function AtriumApp() {
           </div>
         </header>
         <main className="scroll-auto min-h-0 min-w-0 flex-1 bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6">
+          <ViewCrash>
           {view === "dashboard" && (
-            <DashboardView headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+            <Suspense fallback={<ViewFallback />}>
+              <DashboardView headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+            </Suspense>
           )}
-          {view === "calendar" && <CalendarView />}
-          {view === "notes" && modules.notes && <NotesView />}
+          {view === "calendar" && (
+            <Suspense fallback={<ViewFallback />}>
+              <CalendarView />
+            </Suspense>
+          )}
+          {view === "notes" && modules.notes && (
+            <Suspense fallback={<ViewFallback />}>
+              <NotesView />
+            </Suspense>
+          )}
           {view === "finance" && modules.finance && (
             <Suspense fallback={<ViewFallback />}>
               <FinanceView />
@@ -650,7 +694,12 @@ export function AtriumApp() {
             />
             </Suspense>
           )}
-          {view === "options" && <OptionsView />}
+          {view === "options" && (
+            <Suspense fallback={<ViewFallback />}>
+              <OptionsView />
+            </Suspense>
+          )}
+          </ViewCrash>
         </main>
       </div>
 
