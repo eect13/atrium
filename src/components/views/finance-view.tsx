@@ -58,7 +58,6 @@ export function FinanceView() {
                 : "Register, wallet, backup — all on this device."}
           </p>
         </div>
-        <FloatBtn kind="finance" />
         <div className="grow" />
         <div className="flex flex-wrap gap-2">
           {marketsOn ? (
@@ -75,6 +74,7 @@ export function FinanceView() {
             Options
           </Chip>
         </div>
+        <FloatBtn kind="finance" />
       </div>
       {shown === "markets" ? <FinanceMarkets /> : shown === "books" ? <FinanceBooks /> : <FinanceOptions />}
     </div>

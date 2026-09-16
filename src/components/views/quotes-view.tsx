@@ -136,7 +136,6 @@ export function QuotesView() {
                   : "A new roll each session"}
           </p>
         </div>
-        <FloatBtn kind="quote" />
         <div className="grow" />
         <Chip active={mode === "random"} onClick={goRandom}>
           <Shuffle className="size-3.5" />
@@ -146,6 +145,7 @@ export function QuotesView() {
           <Star className="size-3.5" />
           Popular
         </Chip>
+        <FloatBtn kind="quote" />
       </div>
 
 

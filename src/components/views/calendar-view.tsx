@@ -190,7 +190,6 @@ export function CalendarView() {
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="font-display text-2xl font-medium tracking-tight">{heading(cursor, mode)}</h2>
-        <FloatBtn kind="calendar" />
         <Button variant="outline" size="sm" onClick={() => setCursor(shiftCursor(cursor, mode, -1))}>
           Prev
         </Button>
@@ -245,6 +244,7 @@ export function CalendarView() {
         <Button size="sm" onClick={() => openDay(isoDate())}>
           New event
         </Button>
+        <FloatBtn kind="calendar" />
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
         Integrate by importing an .ics, pasting a public iCal URL, exporting Atrium, or pulling Google Calendar when connected.

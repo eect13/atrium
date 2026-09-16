@@ -65,7 +65,7 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.2.10 (personal dashboard)";
+const UA = "Atrium/1.2.11 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
@@ -118,7 +118,7 @@ async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload |
   url.searchParams.set("hourly", "temperature_2m,precipitation_probability");
   url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min");
   url.searchParams.set("timezone", deskZone().tz);
-  url.searchParams.set("forecast_days", "5");
+  url.searchParams.set("forecast_days", "7");
   url.searchParams.set("forecast_hours", "24");
   url.searchParams.set("models", "best_match");
   url.searchParams.set("cell_selection", "nearest");

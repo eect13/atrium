@@ -4,19 +4,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AppWindow,
-  Cloud,
-  CloudDrizzle,
-  CloudFog,
-  CloudLightning,
-  CloudRain,
-  CloudSnow,
-  CloudSun,
   Eye,
   EyeOff,
   House,
-  LocateFixed,
   Shuffle,
-  Sun,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
@@ -26,7 +17,6 @@ import {
   fmtDate,
   fmtWhen,
   fromManila,
-  hourInTZ,
   isoDate,
   isoMonth,
   isAllDayEvent,
@@ -50,26 +40,12 @@ import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types"
 import { WATCH_CATALOG } from "@/lib/types";
 import { regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
-import { fetchWeather, hasWeatherPin, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
-import { locateMe, locationBlockedCopy } from "@/lib/locate";
-import { rainSoon } from "@/lib/rain";
-import { PlaceField } from "@/components/place-field";
+import { WeatherGlance, useWeather } from "@/components/weather-panel";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-
-const WMO_ICON: Record<WmoKind, typeof Sun> = {
-  sun: Sun,
-  partly: CloudSun,
-  cloud: Cloud,
-  fog: CloudFog,
-  drizzle: CloudDrizzle,
-  rain: CloudRain,
-  snow: CloudSnow,
-  storm: CloudLightning,
-};
 
 const HOUR_PX = 48;
 const DAY_START = 7;
@@ -80,7 +56,6 @@ function hourLabel(hour: number) {
   return `${hour % 12 || 12}${ap}`;
 }
 
-const WEATHER_SNAP = "atrium.weather.snap";
 const MARKET_SNAP = "atrium.markets.snap";
 
 function readSnap<T>(key: string): T | undefined {
@@ -102,228 +77,8 @@ function writeSnap(key: string, value: unknown) {
   }
 }
 
-export function useWeather() {
-  const profile = useAtrium((s) => s.profile);
-  const pinned = hasWeatherPin(profile);
-  const lat = pinned ? Number(profile.lat) : Number.NaN;
-  const lon = pinned ? Number(profile.lon) : Number.NaN;
-  return useQuery({
-    queryKey: ["weather", lat, lon],
-    queryFn: async () => {
-      const data = await fetchWeather({ data: { lat, lon } });
-      writeSnap(WEATHER_SNAP, { lat, lon, data });
-      return data;
-    },
-    staleTime: 30 * 60_000,
-    gcTime: 60 * 60_000,
-    retry: 1,
-    placeholderData: (prev) => {
-      if (prev) return prev;
-      const snap = readSnap<{ lat: number; lon: number; data: WeatherPayload }>(WEATHER_SNAP);
-      if (!snap?.data?.current) return undefined;
-      if (Math.abs(snap.lat - lat) > 0.05 || Math.abs(snap.lon - lon) > 0.05) return undefined;
-      return snap.data;
-    },
-    enabled: pinned,
-  });
-}
-
 export function WeatherBody() {
-  const profile = useAtrium((s) => s.profile);
-  const setProfile = useAtrium((s) => s.setProfile);
-  const [locating, setLocating] = useState(false);
-  const weather = useWeather();
-  const hasPin = hasWeatherPin(profile);
-
-  function applyPin(hit: { city: string; lat: number; lon: number }) {
-    setProfile({ city: hit.city, lat: hit.lat, lon: hit.lon });
-    toast(`Weather pin: ${hit.city}`);
-  }
-
-  async function useMyLocation() {
-    setLocating(true);
-    try {
-      const found = await locateMe();
-      if (!found) {
-        toast(locationBlockedCopy());
-        return;
-      }
-      const city = found.hit.city || profile.city;
-      setProfile({ lat: found.hit.lat, lon: found.hit.lon, city });
-      toast(
-        city
-          ? found.via === "gps"
-            ? `Weather pin: ${city}`
-            : `Weather pin: ${city} (network)`
-          : "Weather pin updated",
-      );
-    } finally {
-      setLocating(false);
-    }
-  }
-
-  const pinField = (
-    <PlaceField
-      country={profile.region}
-      placeholder={regionOf(profile.region).cityHint}
-      pinned={profile.city}
-      onPick={applyPin}
-      onClear={() => {
-        setProfile({ city: "", lat: null, lon: null });
-        toast("Weather pin cleared");
-      }}
-    />
-  );
-
-  const locateBtn = (
-    <button
-      type="button"
-      className="inline-flex min-h-8 items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
-      onClick={() => void useMyLocation()}
-      disabled={locating}
-    >
-      <LocateFixed className="size-3.5" />
-      {locating ? "Locating…" : "Use my location"}
-    </button>
-  );
-
-  if (!hasPin) {
-    return (
-      <div className="space-y-2">
-        {pinField}
-        {locateBtn}
-      </div>
-    );
-  }
-
-  if (weather.isPending && !weather.data) {
-    return (
-      <div aria-busy aria-live="polite">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">{pinField}</div>
-          {locateBtn}
-        </div>
-        <div className="mt-2 flex items-center gap-3">
-          <Skeleton className="size-10 rounded-md" />
-          <div className="min-w-0 flex-1">
-            <Skeleton className="h-9 w-16" />
-            <Skeleton className="mt-2 h-3 w-40" />
-          </div>
-        </div>
-        <div className="mt-4 flex gap-1">
-          {Array.from({ length: 5 }, (_, i) => (
-            <Skeleton key={i} className="h-16 flex-1 rounded-md" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-  const payload = weather.data;
-  if (weather.isError || payload?.error || !payload?.current || !payload.daily) {
-    return (
-      <div className="space-y-2">
-        {pinField}
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">Weather unavailable.</p>
-          <div className="flex items-center gap-3">
-            {locateBtn}
-            <button type="button" className="min-h-8 text-xs underline" onClick={() => void weather.refetch()}>
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  const daily = payload.daily;
-  const current = payload.current;
-  const sky = wmo(current.weather_code);
-  const Icon = WMO_ICON[sky.kind];
-  const nowKey = isoDate();
-  const nowHour = hourInTZ();
-  const hourly = payload.hourly;
-  const start = hourly
-    ? hourly.time.findIndex((t) => t.startsWith(nowKey) && Number(t.slice(11, 13)) >= nowHour)
-    : -1;
-  const hours =
-    hourly && start >= 0
-      ? hourly.time.slice(start, start + 6).map((t, i) => ({
-          t,
-          temp: hourly.temperature_2m[start + i],
-          rain: hourly.precipitation_probability?.[start + i],
-          mm: hourly.precipitation?.[start + i],
-        }))
-      : [];
-  const rainLine = rainSoon(hours);
-
-  return (
-    <div>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">{pinField}</div>
-        {locateBtn}
-      </div>
-      <div className="mt-2 flex items-center gap-3">
-        <Icon className="size-10 shrink-0 text-ring" aria-hidden />
-        <div className="flex items-baseline gap-3">
-          <span className="font-display text-4xl tabular-nums">
-            {Math.round(current.temperature_2m)}°
-          </span>
-          <span className="text-sm text-muted-foreground">
-            {sky.label}
-            {rainLine ? (
-              <>
-                <br />
-                {rainLine}
-              </>
-            ) : null}
-            <br />
-            Feels {Math.round(current.apparent_temperature ?? current.temperature_2m)}°
-            {" · "}
-            Wind {Math.round(current.wind_speed_10m)} km/h
-            {current.relative_humidity_2m != null
-              ? ` · ${Math.round(current.relative_humidity_2m)}% hum`
-              : ""}
-          </span>
-        </div>
-      </div>
-      {hours.length ? (
-        <div className="mt-4 flex gap-1">
-          {hours.map((h) => (
-            <div key={h.t} className="flex-1 rounded-md bg-muted px-1 py-2 text-center text-xs text-muted-foreground">
-              {hourLabel(Number(h.t.slice(11, 13)))}
-              <strong className="mt-1 block text-sm text-foreground tabular-nums">{Math.round(h.temp)}°</strong>
-              {h.rain != null && h.rain > 0 ? (
-                <span className="tabular-nums">{h.rain}%</span>
-              ) : h.mm != null && h.mm > 0 ? (
-                <span className="tabular-nums">{h.mm.toFixed(1)}mm</span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <div className="mt-3 flex gap-2">
-        {daily.time.slice(0, 5).map((t, i) => {
-          const daySky = wmo(daily.weather_code?.[i] ?? current.weather_code);
-          const DayIcon = WMO_ICON[daySky.kind];
-          return (
-            <div key={t} className="flex flex-1 flex-col items-center rounded-md bg-muted px-1 py-2 text-xs text-muted-foreground">
-              <DayIcon className="mb-1 size-3.5" aria-hidden />
-              {manilaAt(t, 12).toLocaleDateString(deskZone().locale, {
-                weekday: "short",
-                timeZone: deskZone().tz,
-              })}
-              <strong className="mt-1 text-sm text-foreground tabular-nums">
-                {Math.round(daily.temperature_2m_max[i])}°
-              </strong>
-              <span className="tabular-nums">
-                {Math.round(daily.temperature_2m_min?.[i] ?? daily.temperature_2m_max[i])}°
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <WeatherGlance hours={6} days={5} />;
 }
 
 export function AgendaBody() {
@@ -1159,7 +914,7 @@ export function WidgetBody({
 export function FloatBtn({ kind }: { kind: WidgetKind }) {
   const openWindow = useAtrium((s) => s.openWindow);
   const on = useAtrium((s) => s.windows.some((w) => w.kind === kind));
-  const label = on ? "Show floating window" : "Float on desk";
+  const label = on ? "On desk" : "Float";
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -1194,7 +949,7 @@ export function DeskMenu() {
     })),
   );
   const items: { kind: WidgetKind; label: string }[] = [
-    { kind: "weather", label: "Weather" },
+    ...(modules.weather !== false ? [{ kind: "weather" as const, label: "Weather" }] : []),
     { kind: "calendar", label: "Calendar" },
     ...(modules.quotes !== false ? [{ kind: "quote" as const, label: "Quote" }] : []),
     ...(modules.finance ? [{ kind: "finance" as const, label: "Finance" }] : []),
@@ -1225,24 +980,27 @@ export function DeskMenu() {
   }, [open]);
   return (
     <div ref={root} className="relative">
-      <button
-        type="button"
-        className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
-        aria-label="Floating desk"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        title="Floating desk"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <AppWindow className="size-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
+            aria-label="Windows"
+            aria-expanded={open}
+            aria-haspopup="menu"
+            onClick={() => setOpen((o) => !o)}
+          >
+            <AppWindow className="size-4" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Windows</TooltipContent>
+      </Tooltip>
       {open ? (
         <div
           role="menu"
           data-desk-menu=""
-          className="absolute right-0 top-11 z-50 w-56 rounded-lg bg-card p-2 text-card-foreground shadow-[var(--shadow-float)]"
+          className="absolute right-0 top-11 z-50 w-52 rounded-lg bg-card p-2 text-card-foreground shadow-[var(--shadow-float)]"
         >
-          <p className="px-2 pb-1 text-xs uppercase tracking-[0.06em] text-muted-foreground">Float on desk</p>
           {items.map((item) => {
             const win = windows.find((w) => w.kind === item.kind);
             return (

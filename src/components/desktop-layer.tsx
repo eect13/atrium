@@ -14,10 +14,11 @@ import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
 import { closeNativeFloat, isTauri, openNativeFloat } from "@/lib/native-float";
 
-function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean }) {
+function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean; weather?: boolean }) {
   if (kind === "finance") return modules.finance;
   if (kind === "news") return modules.news;
   if (kind === "quote") return modules.quotes !== false;
+  if (kind === "weather") return modules.weather !== false;
   return true;
 }
 

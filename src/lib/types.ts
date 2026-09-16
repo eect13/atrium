@@ -1,7 +1,7 @@
 import type { ScreenCap, ScreenPe, ScreenVol, ScreenYld, ScreenerId } from "./screener";
 
-export type ModuleId = "calendar" | "notes" | "finance" | "news" | "quotes";
-export type ViewId = "dashboard" | ModuleId | "options" | "quotes";
+export type ModuleId = "calendar" | "weather" | "notes" | "finance" | "news" | "quotes";
+export type ViewId = "dashboard" | ModuleId | "options";
 export type CalMode = "month" | "week" | "day" | "agenda";
 export type EventCat = "work" | "personal" | "family" | "health" | "other";
 export type EventSource = "local" | "ics" | "google";
@@ -72,7 +72,7 @@ export const DEFAULT_MARKET_PREFS: MarketPrefs = {
 };
 
 export const WIDGET_LABEL: Record<WidgetKind, string> = {
-  weather: "Today",
+  weather: "Weather",
   agenda: "Up next",
   calendar: "Calendar",
   quote: "Quote",

@@ -22,7 +22,7 @@ export function DashboardView({
   newsLoading?: boolean;
   newsError?: boolean;
 }) {
-  const { profile, notes, modules, dashOrder, dashLocked, dashSpan, setDashOrder, setDashLocked, setDashSpan, resetDash } =
+  const { profile, notes, modules, dashOrder, dashLocked, dashSpan, setDashOrder, setDashLocked, setDashSpan, resetDash, setView } =
     useAtrium(
       useShallow((s) => ({
         profile: s.profile,
@@ -35,12 +35,14 @@ export function DashboardView({
         setDashLocked: s.setDashLocked,
         setDashSpan: s.setDashSpan,
         resetDash: s.resetDash,
+        setView: s.setView,
       })),
     );
   const [drag, setDrag] = useState<DashCard | null>(null);
   const from = useRef<DashCard | null>(null);
 
   const visible = dashOrder.filter((id) => {
+    if (id === "weather") return modules.weather !== false;
     if (id === "quote") return modules.quotes !== false;
     if (id === "finance") return modules.finance;
     if (id === "notes") return modules.notes;
@@ -63,7 +65,18 @@ export function DashboardView({
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date().toLocaleDateString(deskZone().locale, { year: "numeric", timeZone: deskZone().tz })}
             {` · ${regionOf(profile.region).name}`}
-            {profile.city.trim() ? ` · ${profile.city}` : ""}
+            {profile.city.trim() ? (
+              <>
+                {" · "}
+                <button
+                  type="button"
+                  className="hover:text-foreground hover:underline"
+                  onClick={() => setView("weather")}
+                >
+                  {profile.city}
+                </button>
+              </>
+            ) : null}
           </p>
           <div className="mt-5">
             <WeatherBody />

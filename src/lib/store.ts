@@ -320,7 +320,7 @@ function blankDesk(): Data {
     profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION },
     theme: "dark",
     view: "dashboard",
-    modules: { calendar: true, notes: true, finance: true, news: true, quotes: true },
+    modules: { calendar: true, weather: true, notes: true, finance: true, news: true, quotes: true },
     events: [],
     notes: [],
     notesLayout: "board",
@@ -412,6 +412,9 @@ export const useAtrium = create<State>()(
           }
           if (id === "quotes" && !next.quotes) {
             windows = windows.filter((w) => w.kind !== "quote");
+          }
+          if (id === "weather" && !next.weather) {
+            windows = windows.filter((w) => w.kind !== "weather");
           }
           return { modules: next, view, windows };
         }),
@@ -747,7 +750,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 29,
+      version: 30,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -889,6 +892,7 @@ export const useAtrium = create<State>()(
             ...p,
             modules: {
               calendar: true,
+              weather: true,
               notes: true,
               finance: true,
               news: true,
@@ -953,6 +957,11 @@ export const useAtrium = create<State>()(
         if (version < 29) {
           p = { ...p, winBoxSm: normalizeWinBox(p.winBoxSm) };
         }
+        if (version < 30) {
+          const mods = { ...(p.modules ?? {}) } as Data["modules"];
+          mods.weather = mods.weather !== false;
+          p = { ...p, modules: mods };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -995,6 +1004,7 @@ export const useAtrium = create<State>()(
             ? "options"
             : persistedView === "dashboard" ||
                 persistedView === "calendar" ||
+                persistedView === "weather" ||
                 persistedView === "notes" ||
                 persistedView === "finance" ||
                 persistedView === "quotes" ||
@@ -1051,6 +1061,7 @@ export const useAtrium = create<State>()(
           newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
           modules: {
             calendar: true,
+            weather: (p.modules as { weather?: boolean } | undefined)?.weather !== false,
             notes: (p.modules?.notes ?? current.modules.notes) !== false,
             finance: (p.modules?.finance ?? current.modules.finance) !== false,
             news: (p.modules?.news ?? current.modules.news) !== false,

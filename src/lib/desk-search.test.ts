@@ -58,4 +58,7 @@ test("suggestCommands ranks tickers and views", () => {
   assert.ok(hits.some((h) => h.label === "BDO"));
   const views = suggestCommands("fin");
   assert.ok(views.some((h) => h.fill === "finance"));
+  const wx = suggestCommands("weather");
+  assert.ok(wx.some((h) => h.fill === "weather"));
+  assert.equal(resolveCommand("zip").type, "view");
 });

@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
+  CloudSun,
   LayoutGrid,
   Menu,
   Newspaper,
@@ -45,6 +46,9 @@ const NewsView = lazy(() =>
 );
 const QuotesView = lazy(() =>
   import("@/components/views/quotes-view").then((m) => ({ default: m.QuotesView })),
+);
+const WeatherView = lazy(() =>
+  import("@/components/views/weather-view").then((m) => ({ default: m.WeatherView })),
 );
 import { DeskMenu, WarmQueries } from "@/components/widgets";
 import { resolveCommand, suggestCommands } from "@/lib/desk-search";
@@ -117,6 +121,7 @@ const NAV: {
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutGrid },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
+  { id: "weather", label: "Weather", icon: CloudSun, module: "weather" },
   { id: "notes", label: "Notes", icon: NotebookPen, module: "notes" },
   { id: "finance", label: "Finance", icon: Wallet, module: "finance" },
   { id: "quotes", label: "Quotes", icon: Quote, module: "quotes" },
@@ -669,6 +674,11 @@ export function AtriumApp() {
           {view === "calendar" && (
             <Suspense fallback={<ViewFallback />}>
               <CalendarView />
+            </Suspense>
+          )}
+          {view === "weather" && modules.weather !== false && (
+            <Suspense fallback={<ViewFallback />}>
+              <WeatherView />
             </Suspense>
           )}
           {view === "notes" && modules.notes && (

@@ -28,14 +28,15 @@ import { DESK_REGIONS, regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
+  { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Today card, and city or ZIP pin." },
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
   { id: "finance" as const, label: "Finance watcher", blurb: "Cash books, market board, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
   { id: "news" as const, label: "News briefing", blurb: "RSS mosaic in the MSN style." },
 ];
 
-const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" }[] = [
-  { kind: "weather" },
+const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" | "weather" }[] = [
+  { kind: "weather", need: "weather" },
   { kind: "calendar" },
   { kind: "quote", need: "quotes" },
   { kind: "finance", need: "finance" },
@@ -56,6 +57,7 @@ const JUMP = [
 ];
 
 function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: (p: Partial<Profile>) => void }) {
+  const setView = useAtrium((s) => s.setView);
   const [name, setName] = useState(profile.name);
   const [city, setCity] = useState(profile.city);
   const [tagline, setTagline] = useState(profile.tagline);
@@ -178,7 +180,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
           }}
         />
         <p className="text-xs text-muted-foreground">
-          Type a city or ZIP — suggestions appear as you type. 10001 is New York even on a Philippines desk.
+          Type a city or ZIP — suggestions appear as you type. The Weather tab is the main place for this pin.
         </p>
       </div>
       <div className="space-y-1 sm:col-span-2">
@@ -228,9 +230,12 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
               Open pin in Maps
             </a>
           ) : null}
+          <Button type="button" variant="outline" onClick={() => setView("weather")}>
+            Open Weather
+          </Button>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Type a city and press Enter to recast the pin. Lat / lon stay on this device.
+          Same pin as the Weather tab. Lat / lon stay on this device.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="space-y-1">
