@@ -13,6 +13,7 @@ import {
   CloudSun,
   Eye,
   EyeOff,
+  House,
   LocateFixed,
   Shuffle,
   Sun,
@@ -49,10 +50,12 @@ import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types"
 import { WATCH_CATALOG } from "@/lib/types";
 import { regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
-import { fetchWeather, hasWeatherPin, lookupPlace, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
+import { fetchWeather, hasWeatherPin, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
+import { locateMe, locationBlockedCopy } from "@/lib/locate";
+import { rainSoon } from "@/lib/rain";
+import { PlaceField } from "@/components/place-field";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
-import { locateMe } from "@/lib/locate";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -129,27 +132,12 @@ export function WeatherBody() {
   const profile = useAtrium((s) => s.profile);
   const setProfile = useAtrium((s) => s.setProfile);
   const [locating, setLocating] = useState(false);
-  const [placeQ, setPlaceQ] = useState("");
-  const [pinning, setPinning] = useState(false);
   const weather = useWeather();
   const hasPin = hasWeatherPin(profile);
 
-  async function pinPlace(raw: string) {
-    const q = raw.trim();
-    if (!q) return;
-    setPinning(true);
-    try {
-      const hit = await lookupPlace({ data: { name: q, country: profile.region } });
-      if (!hit) {
-        toast("Could not map that place");
-        return;
-      }
-      setProfile({ city: hit.city, lat: hit.lat, lon: hit.lon });
-      setPlaceQ("");
-      toast(`Weather pin: ${hit.city}`);
-    } finally {
-      setPinning(false);
-    }
+  function applyPin(hit: { city: string; lat: number; lon: number }) {
+    setProfile({ city: hit.city, lat: hit.lat, lon: hit.lon });
+    toast(`Weather pin: ${hit.city}`);
   }
 
   async function useMyLocation() {
@@ -157,7 +145,7 @@ export function WeatherBody() {
     try {
       const found = await locateMe();
       if (!found) {
-        toast("Location blocked here — type a city or ZIP");
+        toast(locationBlockedCopy());
         return;
       }
       const city = found.hit.city || profile.city;
@@ -174,6 +162,19 @@ export function WeatherBody() {
     }
   }
 
+  const pinField = (
+    <PlaceField
+      country={profile.region}
+      placeholder={regionOf(profile.region).cityHint}
+      pinned={profile.city}
+      onPick={applyPin}
+      onClear={() => {
+        setProfile({ city: "", lat: null, lon: null });
+        toast("Weather pin cleared");
+      }}
+    />
+  );
+
   const locateBtn = (
     <button
       type="button"
@@ -187,32 +188,9 @@ export function WeatherBody() {
   );
 
   if (!hasPin) {
-    const hint = regionOf(profile.region).cityHint;
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">City or ZIP for local weather.</p>
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void pinPlace(placeQ);
-          }}
-        >
-          <input
-            aria-label="City or ZIP"
-            value={placeQ}
-            onChange={(e) => setPlaceQ(e.target.value)}
-            placeholder={hint}
-            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-muted px-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          <button
-            type="submit"
-            className="inline-flex h-9 shrink-0 items-center px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
-            disabled={pinning || placeQ.trim().length < 2}
-          >
-            {pinning ? "Pinning…" : "Pin"}
-          </button>
-        </form>
+        {pinField}
         {locateBtn}
       </div>
     );
@@ -222,7 +200,7 @@ export function WeatherBody() {
     return (
       <div aria-busy aria-live="polite">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm text-muted-foreground">{profile.city.trim() || "Pinned location"}</p>
+          <div className="min-w-0 flex-1">{pinField}</div>
           {locateBtn}
         </div>
         <div className="mt-2 flex items-center gap-3">
@@ -243,13 +221,16 @@ export function WeatherBody() {
   const payload = weather.data;
   if (weather.isError || payload?.error || !payload?.current || !payload.daily) {
     return (
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Weather unavailable.</p>
-        <div className="flex items-center gap-3">
-          {locateBtn}
-          <button type="button" className="min-h-8 text-xs underline" onClick={() => void weather.refetch()}>
-            Retry
-          </button>
+      <div className="space-y-2">
+        {pinField}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">Weather unavailable.</p>
+          <div className="flex items-center gap-3">
+            {locateBtn}
+            <button type="button" className="min-h-8 text-xs underline" onClick={() => void weather.refetch()}>
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -273,11 +254,12 @@ export function WeatherBody() {
           mm: hourly.precipitation?.[start + i],
         }))
       : [];
+  const rainLine = rainSoon(hours);
 
   return (
     <div>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{profile.city.trim() || "Pinned location"}</p>
+        <div className="min-w-0 flex-1">{pinField}</div>
         {locateBtn}
       </div>
       <div className="mt-2 flex items-center gap-3">
@@ -288,6 +270,12 @@ export function WeatherBody() {
           </span>
           <span className="text-sm text-muted-foreground">
             {sky.label}
+            {rainLine ? (
+              <>
+                <br />
+                {rainLine}
+              </>
+            ) : null}
             <br />
             Feels {Math.round(current.apparent_temperature ?? current.temperature_2m)}°
             {" · "}
@@ -1090,6 +1078,7 @@ export function NewsPeek({
 }) {
   const setView = useAtrium((s) => s.setView);
   const feedOn = useAtrium((s) => s.feeds.some((f) => f.enabled));
+  const enableStarterFeeds = useAtrium((s) => s.enableStarterFeeds);
   if (!headlines.length) {
     if (loading) {
       return (
@@ -1108,13 +1097,25 @@ export function NewsPeek({
       return <p className="text-sm text-muted-foreground">Headlines unavailable.</p>;
     }
     return (
-      <button
-        type="button"
-        className="text-left text-sm text-muted-foreground hover:text-foreground"
-        onClick={() => setView("news")}
-      >
-        {feedOn ? "No headlines yet." : "No sources on — pick feeds in News."}
-      </button>
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">{feedOn ? "No headlines yet." : "No sources on."}</p>
+        {!feedOn ? (
+          <button
+            type="button"
+            className="text-sm text-foreground underline-offset-2 hover:underline"
+            onClick={() => {
+              enableStarterFeeds();
+              toast("Starter feeds on");
+            }}
+          >
+            Use starter feeds
+          </button>
+        ) : (
+          <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setView("news")}>
+            Open News
+          </button>
+        )}
+      </div>
     );
   }
   return (
@@ -1182,12 +1183,13 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
 export function DeskMenu() {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const { openWindow, windows, closeWindow, closeAllWindows, modules } = useAtrium(
+  const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules } = useAtrium(
     useShallow((s) => ({
       openWindow: s.openWindow,
       windows: s.windows,
       closeWindow: s.closeWindow,
       closeAllWindows: s.closeAllWindows,
+      homeWindows: s.homeWindows,
       modules: s.modules,
     })),
   );
@@ -1260,17 +1262,31 @@ export function DeskMenu() {
             );
           })}
           {windows.length > 0 ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="mt-1 flex h-11 w-full items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => {
-                closeAllWindows();
-                setOpen(false);
-              }}
-            >
-              Close all windows
-            </button>
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="mt-1 flex h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  homeWindows();
+                  setOpen(false);
+                }}
+              >
+                <House className="size-3.5" />
+                Bring windows home
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex h-11 w-full items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  closeAllWindows();
+                  setOpen(false);
+                }}
+              >
+                Close all windows
+              </button>
+            </>
           ) : null}
         </div>
       ) : null}

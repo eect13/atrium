@@ -2,7 +2,7 @@
 
 Personal command center. Times and quotes are Asia/Manila. Data stays on this device (`atrium.v1`).
 
-**Version 1.2.9**
+**Version 1.2.10**
 
 ## Use
 
@@ -12,10 +12,10 @@ Personal command center. Times and quotes are Asia/Manila. Data stays on this de
 - Finance: Markets first (official PSEi 30, Yahoo screener with PE/cap filters, sparks, research PDF) and Books (cash, bank, wallet, card). Open a ticker for related news. Add any name from the plus button. Stock tape in Options: Auto (phisix + Yahoo) or Yahoo-only
 - Quotes: optional module. Topic chips, live search, Exact author toggle. Live public lines, shuffled on Random — desk copies only if the feed is empty
 - Notes: Windows Sticky Notes baseline — colored pads, title + body, new/delete/color, list + board, pin to float — plus format (B/I/U/S/bullets), pictures, pencil with undo, autohide tools
-- News: tagged briefing with search. Sources start off; whatever you leave on is restored next open
+- News: tagged briefing with search. Sources start off — tap Use starter feeds, or pick outlets. Whatever you leave on is restored next open
 - Sidebar: collapse, then Options, then an optional tagline. Version sits under the mark. Toggle modules in Options
-- Profile: name starts blank. Pin a city or ZIP in Options (or on the weather card) for local forecast. Backup / restore / delete the whole desk from Options
-- Floating desk: pin notes and widgets over any screen. Close and reopen and they return where you left them. Drag the title bar to move; hover edges/corners to resize. Switching sidebar tabs does not pop floats in front. On Windows and Android, pin opens a real OS window — always on top, notes stay off the taskbar
+- Profile: name starts blank. Pin a city or ZIP (type-ahead) on the weather card or in Options. ZIP 10001 is New York even on a Philippines desk. Backup / restore / delete the whole desk from Options
+- Floating desk: pin notes and widgets over any screen. Close and reopen and they return where you left them (separate last-size on a phone). Title bar and close stay on-screen; snap to edges; Bring windows home in the desk menu. Esc or Floating desk still closes. Switching sidebar tabs does not pop floats in front. On Windows, closing an OS window saves its last box
 
 ## Install / deploy (native)
 
@@ -40,7 +40,7 @@ Preferred layout on Eric’s PC:
 apk.bat
 ```
 
-Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output: `deploy/android/atrium-v1.2.9-arm64-release.apk`.
+Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output: `deploy/android/atrium-v1.2.10-arm64-release.apk`.
 
 ### Dev
 

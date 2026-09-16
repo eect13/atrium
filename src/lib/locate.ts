@@ -83,7 +83,17 @@ async function readIpwho(): Promise<PlaceHit | null> {
   }
 }
 
-/** GPS first; preview iframes usually deny it, so fall back to the browser's public IP. */
+/** Copy when GPS is denied — preview iframes almost always block it. */
+export function locationBlockedCopy() {
+  try {
+    if (typeof window !== "undefined" && window.self !== window.top) {
+      return "This preview blocks location — type a city or ZIP";
+    }
+  } catch {
+    return "This preview blocks location — type a city or ZIP";
+  }
+  return "Location blocked — type a city or ZIP";
+}
 export async function locateMe(): Promise<LocateResult | null> {
   const gps = await gpsFix();
   if (gps) {

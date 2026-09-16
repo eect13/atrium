@@ -7,10 +7,26 @@ function labelFor(kind: "note" | "widget", id: string) {
   return `${kind}-${safe}`;
 }
 
+const goneWatch = new Set<string>();
+
+async function watchGone(label: string, win: { once: (ev: string, cb: () => void) => Promise<unknown> | unknown }, onGone?: () => void) {
+  if (!onGone || goneWatch.has(label)) return;
+  goneWatch.add(label);
+  try {
+    await win.once("tauri://destroyed", () => {
+      goneWatch.delete(label);
+      onGone();
+    });
+  } catch {
+    goneWatch.delete(label);
+  }
+}
+
 export async function openNativeFloat(
   kind: "note" | "widget",
   id: string,
   opts: { x: number; y: number; w: number; h: number; title: string; pinned?: boolean },
+  onGone?: () => void,
 ) {
   if (!isTauri()) return false;
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -19,10 +35,11 @@ export async function openNativeFloat(
   if (existing) {
     // Already open — do not show/focus. Switching sidebar tabs re-renders the
     // desk and used to steal OS focus, popping every float in front.
+    void watchGone(label, existing, onGone);
     return true;
   }
   const q = new URLSearchParams({ float: kind, id });
-  new WebviewWindow(label, {
+  const win = new WebviewWindow(label, {
     url: `index.html?${q.toString()}`,
     title: opts.title || (kind === "note" ? "Note" : "Atrium"),
     width: Math.max(240, Math.round(opts.w)),
@@ -37,6 +54,7 @@ export async function openNativeFloat(
     visible: true,
     dragDropEnabled: false,
   });
+  void watchGone(label, win, onGone);
   return true;
 }
 
@@ -57,6 +75,27 @@ export async function setNativeAlwaysOnTop(on: boolean) {
   if (!isTauri()) return;
   const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   await getCurrentWebviewWindow().setAlwaysOnTop(on);
+}
+
+/** Persist the last box then dock/close in the store when the OS chrome dismisses the window. */
+export function watchNativeClose(onClose: () => void) {
+  if (!isTauri()) return () => {};
+  let un: (() => void) | undefined;
+  let dead = false;
+  void (async () => {
+    const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const win = getCurrentWebviewWindow();
+    const stop = await win.onCloseRequested(() => {
+      if (dead) return;
+      onClose();
+    });
+    if (dead) stop();
+    else un = stop;
+  })();
+  return () => {
+    dead = true;
+    un?.();
+  };
 }
 
 export function watchNativeBounds(onBox: (box: { x: number; y: number; w: number; h: number }) => void) {

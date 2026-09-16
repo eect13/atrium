@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { isoDate, manilaParts, deskZone } from "./format";
-import { parsePostal } from "./postal";
+import { parsePostal, postalCountries, type PostalHint } from "./postal";
 
 export { parsePostal };
 
@@ -65,7 +65,7 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.2.9 (personal dashboard)";
+const UA = "Atrium/1.2.10 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
@@ -233,7 +233,7 @@ export const fetchWeather = createServerFn({ method: "POST" })
     return { error: true };
   });
 
-export type PlaceHit = { city: string; lat: number; lon: number };
+export type PlaceHit = { city: string; lat: number; lon: number; detail?: string };
 
 function isoFrom(country?: string) {
   const cc = (country ?? "").trim().toUpperCase();
@@ -241,14 +241,13 @@ function isoFrom(country?: string) {
   return cc.slice(0, 2);
 }
 
-function zipCountries(cc: string): string[] {
-  if (cc) return [cc.toLowerCase()];
-  return ["ph", "us", "gb", "ca", "au", "sg", "jp", "in", "de"];
+function placeLabel(name: string, admin?: string, country?: string) {
+  return [name, admin, country].filter(Boolean).join(", ");
 }
 
-async function lookupZippopotam(postal: string, cc: string): Promise<PlaceHit | null> {
+async function lookupZippopotam(postal: string, countries: string[]): Promise<PlaceHit | null> {
   const code = postal.replace(/\s+/g, "");
-  for (const country of zipCountries(cc)) {
+  for (const country of countries.slice(0, 4)) {
     try {
       const res = await fetch(`https://api.zippopotam.us/${country}/${encodeURIComponent(code)}`, {
         signal: AbortSignal.timeout(3_500),
@@ -263,12 +262,16 @@ async function lookupZippopotam(postal: string, cc: string): Promise<PlaceHit | 
       const lon = Number(place?.longitude);
       if (!place || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
       const city = [place["place name"], place.state].filter(Boolean).join(", ") || postal;
-      return { city, lat, lon };
+      return { city, lat, lon, detail: city };
     } catch {
       /* next */
     }
   }
   return null;
+}
+
+function cityFromAddress(a: Record<string, string>, fallback: string) {
+  return a.city || a.town || a.municipality || a.village || a.suburb || a.county || a.state || fallback;
 }
 
 async function lookupNominatimPostal(postal: string, cc: string): Promise<PlaceHit | null> {
@@ -294,53 +297,94 @@ async function lookupNominatimPostal(postal: string, cc: string): Promise<PlaceH
     const lon = Number(hit?.lon);
     if (!hit || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     const a = hit.address ?? {};
-    const city =
-      a.city || a.town || a.municipality || a.village || a.suburb || a.county || a.state || postal;
-    return { city, lat, lon };
+    const city = cityFromAddress(a, postal);
+    return { city, lat, lon, detail: placeLabel(city, a.state, a.country) };
   } catch {
     return null;
   }
 }
 
-async function lookupName(name: string, cc: string): Promise<PlaceHit | null> {
+async function lookupPostal(postal: string, deskCc: string, hint?: PostalHint) {
+  const countries = postalCountries(deskCc, hint);
+  const first = countries[0] ?? "";
+  const hit =
+    (await lookupNominatimPostal(postal, first)) ??
+    (first ? await lookupNominatimPostal(postal, "") : null) ??
+    (await lookupZippopotam(postal, countries));
+  return hit;
+}
+
+type GeoRow = {
+  name?: string;
+  latitude: number;
+  longitude: number;
+  admin1?: string;
+  country?: string;
+  country_code?: string;
+};
+
+async function lookupNames(name: string, cc: string, count: number): Promise<PlaceHit[]> {
   const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
   url.searchParams.set("name", name);
-  url.searchParams.set("count", "1");
+  url.searchParams.set("count", String(count));
   url.searchParams.set("language", "en");
   url.searchParams.set("format", "json");
-  if (cc) url.searchParams.set("countryCode", cc);
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      results?: { name?: string; latitude: number; longitude: number; admin1?: string }[];
-    };
-    const hit = json.results?.[0];
-    if (!hit) return null;
-    const city = [hit.name, hit.admin1].filter(Boolean).join(", ");
-    return { city: city || name, lat: hit.latitude, lon: hit.longitude };
+    if (!res.ok) return [];
+    const json = (await res.json()) as { results?: GeoRow[] };
+    const rows = [...(json.results ?? [])];
+    if (cc) rows.sort((a, b) => Number(b.country_code?.toUpperCase() === cc) - Number(a.country_code?.toUpperCase() === cc));
+    return rows
+      .filter((hit) => Number.isFinite(hit.latitude) && Number.isFinite(hit.longitude))
+      .map((hit) => {
+        const city = [hit.name, hit.admin1].filter(Boolean).join(", ") || name;
+        return {
+          city,
+          lat: hit.latitude,
+          lon: hit.longitude,
+          detail: placeLabel(hit.name || name, hit.admin1, hit.country),
+        };
+      });
   } catch {
-    return null;
+    return [];
   }
 }
 
+const placeInput = z.object({
+  name: z.string().trim().min(2).max(80),
+  country: z.string().trim().max(8).optional(),
+});
+
 export const lookupPlace = createServerFn({ method: "POST" })
-  .validator(
-    z.object({
-      name: z.string().trim().min(2).max(80),
-      country: z.string().trim().max(8).optional(),
-    }),
-  )
+  .validator(placeInput)
   .handler(async ({ data }): Promise<PlaceHit | null> => {
-    const cc = isoFrom(data.country);
-    const postal = parsePostal(data.name);
-    if (postal) {
-      const hit =
-        (await lookupNominatimPostal(postal.postal, cc)) ?? (await lookupZippopotam(postal.postal, cc));
-      if (hit) return hit;
-    }
-    return lookupName(data.name, cc);
+    const hits = await findPlaces(data.name, isoFrom(data.country), 1);
+    return hits[0] ?? null;
   });
+
+export const lookupPlaces = createServerFn({ method: "POST" })
+  .validator(placeInput)
+  .handler(async ({ data }): Promise<PlaceHit[]> => {
+    return findPlaces(data.name, isoFrom(data.country), 6);
+  });
+
+async function findPlaces(name: string, cc: string, count: number): Promise<PlaceHit[]> {
+  const postal = parsePostal(name);
+  const out: PlaceHit[] = [];
+  if (postal) {
+    const hit = await lookupPostal(postal.postal, cc, postal.hint);
+    if (hit) out.push(hit);
+    if (count <= 1) return out;
+  }
+  const names = await lookupNames(name, cc, count);
+  for (const hit of names) {
+    if (out.some((p) => Math.abs(p.lat - hit.lat) < 0.01 && Math.abs(p.lon - hit.lon) < 0.01)) continue;
+    out.push(hit);
+    if (out.length >= count) break;
+  }
+  return out;
+}
 
 export const reversePlace = createServerFn({ method: "POST" })
   .validator(

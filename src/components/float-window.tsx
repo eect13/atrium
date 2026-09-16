@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { clampDesk, clampSize, resizeFrom, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
+import { clampDesk, clampSize, resizeFrom, snapDesk, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Tip } from "@/components/ui/tooltip";
@@ -134,8 +134,16 @@ export function FloatWindow({
         article.style.left = `${live.current.x}px`;
         article.style.top = `${live.current.y}px`;
       }
-      if (kind === "move") onMove(live.current.x, live.current.y);
-      else {
+      if (kind === "move") {
+        const snapped = snapDesk(live.current.x, live.current.y, live.current.w, live.current.h);
+        live.current.x = snapped.x;
+        live.current.y = snapped.y;
+        if (article) {
+          article.style.left = `${snapped.x}px`;
+          article.style.top = `${snapped.y}px`;
+        }
+        onMove(snapped.x, snapped.y);
+      } else {
         onMove(live.current.x, live.current.y);
         onResize(live.current.w, live.current.h);
       }

@@ -5,8 +5,10 @@ export const DESK_SIDEBAR = 224;
 export const DESK_HEADER = 56;
 /** Tab chips + home-indicator. Matches `.pb-dock` (chips ~52px + safe-area). */
 export const DESK_DOCK = 72;
-/** Keep this much of a float on-screen so a big window can still be grabbed. */
-export const DESK_GRIP = 48;
+/** Title bar height — close control lives here, so it must stay on-screen. */
+export const DESK_BAR = 44;
+/** Snap-to-edge distance. */
+export const DESK_SNAP = 24;
 
 export type ResizeCorner = "nw" | "ne" | "sw" | "se";
 export type ResizeEdge = "n" | "s" | "e" | "w";
@@ -28,17 +30,36 @@ export function deskMin(width?: number) {
   };
 }
 
+function maxOrigin(min: number, span: number, limit: number) {
+  return Math.max(min, limit - Math.max(span, DESK_BAR));
+}
+
 export function clampDesk(x: number, y: number, w = 0, h = 0) {
   if (typeof window === "undefined") return { x, y };
   const { minX, minY, padB } = deskMin();
-  const grip = Math.min(DESK_GRIP, Math.max(32, w || DESK_GRIP));
-  const gripY = Math.min(DESK_GRIP, Math.max(32, h || DESK_GRIP));
-  const maxX = Math.max(minX, window.innerWidth - grip);
-  const maxY = Math.max(minY, window.innerHeight - padB - gripY);
+  const ww = w > 0 ? w : DESK_BAR;
+  const maxX = maxOrigin(minX, ww, window.innerWidth);
+  const maxY = maxOrigin(minY, DESK_BAR, window.innerHeight - padB);
   return {
     x: Math.min(maxX, Math.max(minX, x)),
     y: Math.min(maxY, Math.max(minY, y)),
   };
+}
+
+/** Pull a box onto the nearest desk edge when it is close enough. */
+export function snapDesk(x: number, y: number, w: number, h: number) {
+  if (typeof window === "undefined") return { x, y };
+  const next = clampDesk(x, y, w, h);
+  const { minX, minY, padB } = deskMin();
+  const maxX = maxOrigin(minX, w > 0 ? w : DESK_BAR, window.innerWidth);
+  const maxY = maxOrigin(minY, DESK_BAR, window.innerHeight - padB);
+  let nx = next.x;
+  let ny = next.y;
+  if (Math.abs(nx - minX) <= DESK_SNAP) nx = minX;
+  else if (Math.abs(nx - maxX) <= DESK_SNAP) nx = maxX;
+  if (Math.abs(ny - minY) <= DESK_SNAP) ny = minY;
+  else if (Math.abs(ny - maxY) <= DESK_SNAP) ny = maxY;
+  return { x: nx, y: ny };
 }
 
 export function clampSize(x: number, y: number, w: number, h: number) {
@@ -93,13 +114,11 @@ export function restoreBox(saved: DeskBox | undefined, size: { w: number; h: num
   return fitBox(saved.x, saved.y, saved.w || size.w, saved.h || size.h);
 }
 
-/** True when the grip would be completely off the desk (safe to clamp). */
+/** True when clamp would move the box — title bar / close would not stay on-screen. */
 export function boxOffscreen(x: number, y: number, w: number, h: number) {
   if (typeof window === "undefined") return false;
-  const { minX, minY, padB } = deskMin();
-  const grip = Math.min(DESK_GRIP, Math.max(32, w || DESK_GRIP));
-  const gripY = Math.min(DESK_GRIP, Math.max(32, h || DESK_GRIP));
-  return x + grip < minX || y + gripY < minY || x > window.innerWidth - 8 || y > window.innerHeight - padB - 8;
+  const next = clampDesk(x, y, w, h);
+  return next.x !== x || next.y !== y;
 }
 
 /** Resize from a corner or edge. North/west moves origin; south/east grows. */

@@ -17,12 +17,14 @@ import {
 import { Component, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { DesktopLayer } from "@/components/desktop-layer";
 import { AtriumBadge } from "@/components/atrium-mark";
 import { ThemeSync, ThemeToggle } from "@/components/theme-toggle";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+const DesktopLayer = lazy(() =>
+  import("@/components/desktop-layer").then((m) => ({ default: m.DesktopLayer })),
+);
 const DashboardView = lazy(() =>
   import("@/components/views/dashboard-view").then((m) => ({ default: m.DashboardView })),
 );
@@ -704,7 +706,9 @@ export function AtriumApp() {
       </div>
 
       <div className="pointer-events-none fixed inset-0 z-40 hidden lg:block">
-        <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+        <Suspense fallback={null}>
+          <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+        </Suspense>
       </div>
     </div>
   );

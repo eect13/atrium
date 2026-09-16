@@ -14,7 +14,7 @@ import {
   withoutCvc,
   writeBooksSnap,
 } from "./books";
-import { fitBox, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
+import { isNarrow, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
 import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, staleTagline, uid } from "./format";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
@@ -43,7 +43,7 @@ import { asNewsFilter, asNewsTag } from "./headline";
 import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 
-const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
+export const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
 
 export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({
   ...f,
@@ -137,6 +137,7 @@ type Data = {
   notesLayout: NotesLayout;
   windows: FloatWin[];
   winBox: Partial<Record<WidgetKind, DeskBox>>;
+  winBoxSm: Partial<Record<WidgetKind, DeskBox>>;
   books: Books;
   accounts: Account[];
   budgets: Budget[];
@@ -177,6 +178,7 @@ type State = Data & {
   updateWindow: (id: string, patch: Partial<FloatWin>) => void;
   closeWindow: (id: string) => void;
   closeAllWindows: () => void;
+  homeWindows: () => void;
   raise: (kind: "note" | "win", id: string) => void;
   addTx: (t: Tx) => void;
   updateTx: (id: string, patch: Partial<Tx>) => void;
@@ -207,6 +209,7 @@ type State = Data & {
   setNewsTag: (t: string) => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
+  enableStarterFeeds: () => void;
   addFeed: (f: Feed) => void;
   removeFeed: (id: string) => void;
   setRailCollapsed: (v: boolean) => void;
@@ -257,6 +260,15 @@ function windowSize(kind: WidgetKind) {
   if (kind === "weather") return { w: 320, h: 360 };
   if (kind === "finance") return { w: 340, h: 280 };
   return { w: 300, h: 240 };
+}
+
+function boxesNow(s: Pick<Data, "winBox" | "winBoxSm">) {
+  return isNarrow() ? (s.winBoxSm ?? {}) : (s.winBox ?? {});
+}
+
+function withBox(s: Data, kind: WidgetKind, box: DeskBox): Pick<Data, "winBox" | "winBoxSm"> {
+  if (isNarrow()) return { winBox: s.winBox, winBoxSm: { ...s.winBoxSm, [kind]: box } };
+  return { winBox: { ...s.winBox, [kind]: box }, winBoxSm: s.winBoxSm };
 }
 
 function snapBooks(slice: Pick<Data, "books" | "accounts" | "budgets" | "txs">) {
@@ -314,6 +326,7 @@ function blankDesk(): Data {
     notesLayout: "board",
     windows: [],
     winBox: {},
+    winBoxSm: {},
     books: empty.books,
     accounts: empty.accounts,
     budgets: empty.budgets,
@@ -495,7 +508,7 @@ export const useAtrium = create<State>()(
                 id: uid(),
                 kind,
                 z: nextZ(s),
-                ...restoreBox(s.winBox?.[kind], windowSize(kind), n),
+                ...restoreBox(boxesNow(s)[kind], windowSize(kind), n),
               },
             ],
           };
@@ -507,21 +520,43 @@ export const useAtrium = create<State>()(
           const moved = hit && (patch.x != null || patch.y != null || patch.w != null || patch.h != null);
           if (!moved || !hit) return { windows: next };
           const w = next.find((x) => x.id === id)!;
-          return { windows: next, winBox: { ...s.winBox, [hit.kind]: { x: w.x, y: w.y, w: w.w, h: w.h } } };
+          return { windows: next, ...withBox(s, hit.kind, { x: w.x, y: w.y, w: w.w, h: w.h }) };
         }),
       closeWindow: (id) =>
         set((s) => {
           const w = s.windows.find((x) => x.id === id);
           return {
             windows: s.windows.filter((x) => x.id !== id),
-            winBox: w ? { ...s.winBox, [w.kind]: { x: w.x, y: w.y, w: w.w, h: w.h } } : s.winBox,
+            ...(w ? withBox(s, w.kind, { x: w.x, y: w.y, w: w.w, h: w.h }) : {}),
           };
         }),
       closeAllWindows: () =>
         set((s) => {
-          const winBox = { ...s.winBox };
-          for (const w of s.windows) winBox[w.kind] = { x: w.x, y: w.y, w: w.w, h: w.h };
-          return { windows: [], winBox };
+          let winBox = { ...s.winBox };
+          let winBoxSm = { ...s.winBoxSm };
+          const target = isNarrow() ? winBoxSm : winBox;
+          for (const w of s.windows) target[w.kind] = { x: w.x, y: w.y, w: w.w, h: w.h };
+          if (isNarrow()) winBoxSm = target;
+          else winBox = target;
+          return { windows: [], winBox, winBoxSm };
+        }),
+      homeWindows: () =>
+        set((s) => {
+          const windows = s.windows.map((w, i) => ({ ...w, ...placeWindow({ w: w.w, h: w.h }, i) }));
+          let pinned = 0;
+          const notes = s.notes.map((n) => {
+            if (!n.pinned) return n;
+            const box = placeWindow({ w: n.w, h: n.h }, pinned);
+            pinned += 1;
+            return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
+          });
+          let winBox = { ...s.winBox };
+          let winBoxSm = { ...s.winBoxSm };
+          const target = isNarrow() ? winBoxSm : winBox;
+          for (const w of windows) target[w.kind] = { x: w.x, y: w.y, w: w.w, h: w.h };
+          if (isNarrow()) winBoxSm = target;
+          else winBox = target;
+          return { windows, notes, winBox, winBoxSm };
         }),
       raise: (kind, id) =>
         set((s) => {
@@ -687,6 +722,7 @@ export const useAtrium = create<State>()(
           const ids = new Set(pack.ids);
           return { feeds: s.feeds.map((f) => (ids.has(f.id) ? { ...f, enabled: on } : f)) };
         }),
+      enableStarterFeeds: () => set((s) => ({ feeds: seedStarterFeeds(s.feeds) })),
       addFeed: (f) =>
         set((s) => {
           if (s.feeds.some((x) => x.url === f.url || x.id === f.id)) return s;
@@ -711,7 +747,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 28,
+      version: 29,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -914,6 +950,9 @@ export const useAtrium = create<State>()(
           }
           p = { ...p, winBox: boxes };
         }
+        if (version < 29) {
+          p = { ...p, winBoxSm: normalizeWinBox(p.winBoxSm) };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -926,6 +965,7 @@ export const useAtrium = create<State>()(
         notesLayout: s.notesLayout,
         windows: s.windows,
         winBox: s.winBox,
+        winBoxSm: s.winBoxSm,
         books: s.books,
         accounts: s.accounts.map(withoutCvc),
         budgets: s.budgets,
@@ -985,6 +1025,7 @@ export const useAtrium = create<State>()(
             h: w.h ?? 240,
           })),
           winBox: normalizeWinBox(p.winBox ?? current.winBox),
+          winBoxSm: normalizeWinBox(p.winBoxSm ?? current.winBoxSm),
           notes: (p.notes ?? current.notes).map((n) => ({
             ...n,
             w: n.w ?? 208,

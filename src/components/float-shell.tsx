@@ -8,7 +8,7 @@ import { NoteInk } from "@/components/note-ink";
 import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { inkOnPaper, noteTitle } from "@/lib/format";
-import { closeThisWindow, setNativeAlwaysOnTop, watchNativeBounds } from "@/lib/native-float";
+import { closeThisWindow, setNativeAlwaysOnTop, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
 import { useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
 import { WIDGET_LABEL } from "@/lib/types";
@@ -94,6 +94,13 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
       else updateWindow(id, box);
     });
   }, [kind, id, updateNote, updateWindow]);
+
+  useEffect(() => {
+    return watchNativeClose(() => {
+      if (kind === "note") unpinNote(id);
+      else closeWindow(id);
+    });
+  }, [kind, id, unpinNote, closeWindow]);
 
   useEffect(() => {
     if (gone) void closeThisWindow();

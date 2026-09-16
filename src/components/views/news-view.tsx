@@ -46,13 +46,14 @@ export function NewsView({
   loading: boolean;
   error?: boolean;
 }) {
-  const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack, newsQuery, newsTag, setNewsQuery, setNewsTag } = useAtrium(
+  const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack, enableStarterFeeds, newsQuery, newsTag, setNewsQuery, setNewsTag } = useAtrium(
     useShallow((s) => ({
       feeds: s.feeds,
       toggleFeed: s.toggleFeed,
       addFeed: s.addFeed,
       removeFeed: s.removeFeed,
       setFeedPack: s.setFeedPack,
+      enableStarterFeeds: s.enableStarterFeeds,
       newsQuery: s.newsQuery,
       newsTag: s.newsTag,
       setNewsQuery: s.setNewsQuery,
@@ -246,11 +247,22 @@ export function NewsView({
         <div className="mb-4 rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
           <p className="font-display text-xl font-medium tracking-tight">No sources on</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Feeds start off. Pick the outlets you want — nothing is fetched until you enable one.
+            Feeds stay off until you pick them. One tap turns on Inquirer, Philstar, Rappler, BBC and a few more.
           </p>
-          <Button className="mt-4" onClick={() => setOpen(true)}>
-            Open Feeds
-          </Button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              onClick={() => {
+                enableStarterFeeds();
+                toast("Starter feeds on");
+                onRefresh();
+              }}
+            >
+              Use starter feeds
+            </Button>
+            <Button variant="outline" onClick={() => setOpen(true)}>
+              Open Feeds
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="mb-4">

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { boxOffscreen, normalizeWinBox, resizeFrom, restoreBox } from "./desk.ts";
+import { boxOffscreen, normalizeWinBox, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
 
 const box = { x: 100, y: 80, w: 200, h: 160 };
 
@@ -59,4 +59,8 @@ test("restoreBox reuses last box and cascades when missing", () => {
 
 test("boxOffscreen is false without a window (SSR)", () => {
   assert.equal(boxOffscreen(-4000, -4000, 320, 360), false);
+});
+
+test("snapDesk is a no-op without a window (SSR)", () => {
+  assert.deepEqual(snapDesk(1084, 56, 320, 360), { x: 1084, y: 56 });
 });

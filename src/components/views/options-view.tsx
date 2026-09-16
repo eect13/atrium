@@ -18,8 +18,9 @@ import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAt
 import { DEFAULT_TAGLINE, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
-import { lookupPlace, mapsPin, hasWeatherPin } from "@/lib/weather";
-import { locateMe } from "@/lib/locate";
+import { mapsPin, hasWeatherPin } from "@/lib/weather";
+import { locateMe, locationBlockedCopy } from "@/lib/locate";
+import { PlaceField } from "@/components/place-field";
 import { DeskStorage } from "./finance-options";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 import { FEED_PACKS, packIsOn } from "@/lib/feeds";
@@ -70,36 +71,12 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
     setLon(profile.lon == null ? "" : String(profile.lon));
   }, [profile.name, profile.city, profile.tagline, profile.lat, profile.lon]);
 
-  async function pinCity(raw: string) {
-    const q = raw.trim();
-    if (!q) {
-      setCity("");
-      setLat("");
-      setLon("");
-      setProfile({ city: "", lat: null, lon: null });
-      toast("Weather pin cleared");
-      return;
-    }
-    setCity(q);
-    const hit = await lookupPlace({ data: { name: q, country: profile.region } });
-    if (!hit) {
-      setProfile({ city: q });
-      toast("Could not map that place — coords unchanged");
-      return;
-    }
-    setLat(String(hit.lat));
-    setLon(String(hit.lon));
-    setCity(hit.city);
-    setProfile({ city: hit.city, lat: hit.lat, lon: hit.lon });
-    toast(`Weather pin: ${hit.city}`);
-  }
-
   async function useMyLocation() {
     setLocating(true);
     try {
       const found = await locateMe();
       if (!found) {
-        toast("Location blocked here — type a city or ZIP instead");
+        toast(locationBlockedCopy());
         return;
       }
       const cityName = found.hit.city || profile.city;
@@ -180,20 +157,29 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
       </div>
       <div className="space-y-1">
         <Label htmlFor="opt-city">City or ZIP</Label>
-        <Input
+        <PlaceField
           id="opt-city"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
+          country={profile.region}
           placeholder={regionOf(profile.region).cityHint}
-          onBlur={(e) => void pinCity(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void pinCity(e.currentTarget.value);
-            }
+          pinned={profile.city}
+          onPick={(hit) => {
+            setLat(String(hit.lat));
+            setLon(String(hit.lon));
+            setCity(hit.city);
+            setProfile({ city: hit.city, lat: hit.lat, lon: hit.lon });
+            toast(`Weather pin: ${hit.city}`);
+          }}
+          onClear={() => {
+            setCity("");
+            setLat("");
+            setLon("");
+            setProfile({ city: "", lat: null, lon: null });
+            toast("Weather pin cleared");
           }}
         />
-        <p className="text-xs text-muted-foreground">City name or postal / ZIP. Uses the desk region to disambiguate.</p>
+        <p className="text-xs text-muted-foreground">
+          Type a city or ZIP — suggestions appear as you type. 10001 is New York even on a Philippines desk.
+        </p>
       </div>
       <div className="space-y-1 sm:col-span-2">
         <Label htmlFor="opt-tagline">Sidebar tagline</Label>
