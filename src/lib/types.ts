@@ -109,6 +109,11 @@ export type StickyNote = {
   ink?: NoteStroke[];
   html?: string;
   photos?: NotePhoto[];
+  /** Last floating-desk box. Unpin parks the pad on the board; pin restores this. */
+  fx?: number;
+  fy?: number;
+  fw?: number;
+  fh?: number;
 };
 
 export type FloatWin = {

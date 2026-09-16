@@ -17,9 +17,8 @@ export async function openNativeFloat(
   const label = labelFor(kind, id);
   const existing = await WebviewWindow.getByLabel(label);
   if (existing) {
-    await existing.unminimize();
-    await existing.show();
-    await existing.setFocus();
+    // Already open — do not show/focus. Switching sidebar tabs re-renders the
+    // desk and used to steal OS focus, popping every float in front.
     return true;
   }
   const q = new URLSearchParams({ float: kind, id });

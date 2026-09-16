@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { isoDate, manilaParts, deskZone } from "./format";
+import { parsePostal } from "./postal";
+
+export { parsePostal };
 
 export type WmoKind = "sun" | "partly" | "cloud" | "fog" | "drizzle" | "rain" | "snow" | "storm";
 
@@ -62,14 +65,14 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.0 (personal dashboard)";
+const UA = "Atrium/1.2.9 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
-const FETCH_MS = 3_500;
+const FETCH_MS = 5_000;
 const cache = new Map<string, { exp: number; staleExp: number; data: WeatherPayload }>();
 
 function cacheKey(lat: number, lon: number) {
-  return `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  return `${lat.toFixed(3)},${lon.toFixed(3)}`;
 }
 
 function stamp(d: Date) {
@@ -117,6 +120,8 @@ async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload |
   url.searchParams.set("timezone", deskZone().tz);
   url.searchParams.set("forecast_days", "5");
   url.searchParams.set("forecast_hours", "24");
+  url.searchParams.set("models", "best_match");
+  url.searchParams.set("cell_selection", "nearest");
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
     if (!res.ok) return null;
@@ -203,26 +208,9 @@ async function fromMetNo(lat: number, lon: number): Promise<WeatherPayload | nul
   }
 }
 
-function firstWeather(lat: number, lon: number): Promise<WeatherPayload | null> {
-  return new Promise((resolve) => {
-    let left = 2;
-    let settled = false;
-    const finish = (value: WeatherPayload | null) => {
-      if (settled) return;
-      if (value && !value.error) {
-        settled = true;
-        resolve(value);
-        return;
-      }
-      left -= 1;
-      if (left <= 0) {
-        settled = true;
-        resolve(null);
-      }
-    };
-    fromOpenMeteo(lat, lon).then(finish, () => finish(null));
-    fromMetNo(lat, lon).then(finish, () => finish(null));
-  });
+/** Open-Meteo (ECMWF blend) first — Met.no is Nordic-centric and used to win a race. */
+async function firstWeather(lat: number, lon: number): Promise<WeatherPayload | null> {
+  return (await fromOpenMeteo(lat, lon)) ?? (await fromMetNo(lat, lon));
 }
 
 export const fetchWeather = createServerFn({ method: "POST" })
@@ -247,27 +235,111 @@ export const fetchWeather = createServerFn({ method: "POST" })
 
 export type PlaceHit = { city: string; lat: number; lon: number };
 
-export const lookupPlace = createServerFn({ method: "POST" })
-  .validator(z.object({ name: z.string().trim().min(2) }))
-  .handler(async ({ data }): Promise<PlaceHit | null> => {
-    const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
-    url.searchParams.set("name", data.name);
-    url.searchParams.set("count", "1");
-    url.searchParams.set("language", "en");
-    url.searchParams.set("format", "json");
+function isoFrom(country?: string) {
+  const cc = (country ?? "").trim().toUpperCase();
+  if (!cc || cc === "EU") return "";
+  return cc.slice(0, 2);
+}
+
+function zipCountries(cc: string): string[] {
+  if (cc) return [cc.toLowerCase()];
+  return ["ph", "us", "gb", "ca", "au", "sg", "jp", "in", "de"];
+}
+
+async function lookupZippopotam(postal: string, cc: string): Promise<PlaceHit | null> {
+  const code = postal.replace(/\s+/g, "");
+  for (const country of zipCountries(cc)) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
-      if (!res.ok) return null;
+      const res = await fetch(`https://api.zippopotam.us/${country}/${encodeURIComponent(code)}`, {
+        signal: AbortSignal.timeout(3_500),
+      });
+      if (!res.ok) continue;
       const json = (await res.json()) as {
-        results?: { name?: string; latitude: number; longitude: number; admin1?: string }[];
+        "country abbreviation"?: string;
+        places?: { "place name"?: string; state?: string; latitude?: string; longitude?: string }[];
       };
-      const hit = json.results?.[0];
-      if (!hit) return null;
-      const city = [hit.name, hit.admin1].filter(Boolean).join(", ");
-      return { city: city || data.name, lat: hit.latitude, lon: hit.longitude };
+      const place = json.places?.[0];
+      const lat = Number(place?.latitude);
+      const lon = Number(place?.longitude);
+      if (!place || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const city = [place["place name"], place.state].filter(Boolean).join(", ") || postal;
+      return { city, lat, lon };
     } catch {
-      return null;
+      /* next */
     }
+  }
+  return null;
+}
+
+async function lookupNominatimPostal(postal: string, cc: string): Promise<PlaceHit | null> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("postalcode", postal);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("addressdetails", "1");
+  if (cc) url.searchParams.set("countrycodes", cc.toLowerCase());
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": UA, accept: "application/json" },
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      lat?: string;
+      lon?: string;
+      address?: Record<string, string>;
+    }[];
+    const hit = json[0];
+    const lat = Number(hit?.lat);
+    const lon = Number(hit?.lon);
+    if (!hit || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const a = hit.address ?? {};
+    const city =
+      a.city || a.town || a.municipality || a.village || a.suburb || a.county || a.state || postal;
+    return { city, lat, lon };
+  } catch {
+    return null;
+  }
+}
+
+async function lookupName(name: string, cc: string): Promise<PlaceHit | null> {
+  const url = new URL("https://geocoding-api.open-meteo.com/v1/search");
+  url.searchParams.set("name", name);
+  url.searchParams.set("count", "1");
+  url.searchParams.set("language", "en");
+  url.searchParams.set("format", "json");
+  if (cc) url.searchParams.set("countryCode", cc);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      results?: { name?: string; latitude: number; longitude: number; admin1?: string }[];
+    };
+    const hit = json.results?.[0];
+    if (!hit) return null;
+    const city = [hit.name, hit.admin1].filter(Boolean).join(", ");
+    return { city: city || name, lat: hit.latitude, lon: hit.longitude };
+  } catch {
+    return null;
+  }
+}
+
+export const lookupPlace = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      name: z.string().trim().min(2).max(80),
+      country: z.string().trim().max(8).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<PlaceHit | null> => {
+    const cc = isoFrom(data.country);
+    const postal = parsePostal(data.name);
+    if (postal) {
+      const hit =
+        (await lookupNominatimPostal(postal.postal, cc)) ?? (await lookupZippopotam(postal.postal, cc));
+      if (hit) return hit;
+    }
+    return lookupName(data.name, cc);
   });
 
 export const reversePlace = createServerFn({ method: "POST" })
@@ -282,7 +354,8 @@ export const reversePlace = createServerFn({ method: "POST" })
     url.searchParams.set("lat", String(data.lat));
     url.searchParams.set("lon", String(data.lon));
     url.searchParams.set("format", "json");
-    url.searchParams.set("zoom", "12");
+    url.searchParams.set("zoom", "16");
+    url.searchParams.set("addressdetails", "1");
     try {
       const res = await fetch(url, {
         headers: { "user-agent": UA },
@@ -291,8 +364,8 @@ export const reversePlace = createServerFn({ method: "POST" })
       if (!res.ok) return { city: "", lat: data.lat, lon: data.lon };
       const json = (await res.json()) as { address?: Record<string, string> };
       const a = json.address ?? {};
-      const city =
-        a.city || a.town || a.municipality || a.village || a.suburb || a.county || "";
+      const place = a.city || a.town || a.municipality || a.village || a.suburb || a.county || "";
+      const city = [place, a.postcode].filter(Boolean).join(" ");
       return { city, lat: data.lat, lon: data.lon };
     } catch {
       return { city: "", lat: data.lat, lon: data.lon };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeskRegion, DESK_REGIONS, regionOf } from "./region.ts";
+import { applyDeskRegion, DESK_REGIONS, isoCountry, regionOf } from "./region.ts";
 import { deskZone, fromManila, hexColor, inkOnPaper, manilaParts, setDeskZone } from "./format.ts";
 
 test("Philippines is the factory desk region", () => {
@@ -10,6 +10,9 @@ test("Philippines is the factory desk region", () => {
   assert.equal(regionOf("nope").id, "PH");
   assert.ok(DESK_REGIONS.some((r) => r.id === "US"));
   assert.ok(DESK_REGIONS.some((r) => r.id === "JP"));
+  assert.equal(isoCountry("PH"), "PH");
+  assert.equal(isoCountry("EU"), "");
+  assert.equal(isoCountry("nope"), "PH");
 });
 
 test("desk zone follows region then restores Manila", () => {

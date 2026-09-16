@@ -24,12 +24,12 @@ async function gpsFix(): Promise<{ lat: number; lon: number } | null> {
     const pos = await withTimeout(
       new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: false,
-          timeout: 4_000,
-          maximumAge: 300_000,
+          enableHighAccuracy: true,
+          timeout: 8_000,
+          maximumAge: 60_000,
         });
       }),
-      4_500,
+      9_000,
     );
     return { lat: pos.coords.latitude, lon: pos.coords.longitude };
   } catch {

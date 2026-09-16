@@ -49,7 +49,7 @@ import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types"
 import { WATCH_CATALOG } from "@/lib/types";
 import { regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
-import { fetchWeather, hasWeatherPin, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
+import { fetchWeather, hasWeatherPin, lookupPlace, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
 import { locateMe } from "@/lib/locate";
@@ -129,15 +129,35 @@ export function WeatherBody() {
   const profile = useAtrium((s) => s.profile);
   const setProfile = useAtrium((s) => s.setProfile);
   const [locating, setLocating] = useState(false);
+  const [placeQ, setPlaceQ] = useState("");
+  const [pinning, setPinning] = useState(false);
   const weather = useWeather();
   const hasPin = hasWeatherPin(profile);
+
+  async function pinPlace(raw: string) {
+    const q = raw.trim();
+    if (!q) return;
+    setPinning(true);
+    try {
+      const hit = await lookupPlace({ data: { name: q, country: profile.region } });
+      if (!hit) {
+        toast("Could not map that place");
+        return;
+      }
+      setProfile({ city: hit.city, lat: hit.lat, lon: hit.lon });
+      setPlaceQ("");
+      toast(`Weather pin: ${hit.city}`);
+    } finally {
+      setPinning(false);
+    }
+  }
 
   async function useMyLocation() {
     setLocating(true);
     try {
       const found = await locateMe();
       if (!found) {
-        toast("Location blocked here — type a city in Options");
+        toast("Location blocked here — type a city or ZIP");
         return;
       }
       const city = found.hit.city || profile.city;
@@ -167,9 +187,32 @@ export function WeatherBody() {
   );
 
   if (!hasPin) {
+    const hint = regionOf(profile.region).cityHint;
     return (
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">Set a city in Options, or pin it here.</p>
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">City or ZIP for local weather.</p>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void pinPlace(placeQ);
+          }}
+        >
+          <input
+            aria-label="City or ZIP"
+            value={placeQ}
+            onChange={(e) => setPlaceQ(e.target.value)}
+            placeholder={hint}
+            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-muted px-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <button
+            type="submit"
+            className="inline-flex h-9 shrink-0 items-center px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
+            disabled={pinning || placeQ.trim().length < 2}
+          >
+            {pinning ? "Pinning…" : "Pin"}
+          </button>
+        </form>
         {locateBtn}
       </div>
     );

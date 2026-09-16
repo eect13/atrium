@@ -11,6 +11,8 @@ export const DESK_GRIP = 48;
 export type ResizeCorner = "nw" | "ne" | "sw" | "se";
 export type ResizeEdge = "n" | "s" | "e" | "w";
 export type ResizeHandle = ResizeCorner | ResizeEdge;
+export type DeskBox = { x: number; y: number; w: number; h: number };
+export const WIDGET_KINDS = ["weather", "agenda", "calendar", "quote", "finance", "news"] as const;
 
 export function isNarrow(width = typeof window === "undefined" ? 1280 : window.innerWidth) {
   return width < MD;
@@ -67,6 +69,37 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   const { minX, minY } = deskMin();
   const step = isNarrow() ? 12 : 28;
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
+}
+
+export function normalizeWinBox(raw?: unknown): Partial<Record<(typeof WIDGET_KINDS)[number], DeskBox>> {
+  const out: Partial<Record<(typeof WIDGET_KINDS)[number], DeskBox>> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const id of WIDGET_KINDS) {
+    const b = (raw as Record<string, unknown>)[id];
+    if (!b || typeof b !== "object") continue;
+    const box = b as Record<string, unknown>;
+    const x = Number(box.x);
+    const y = Number(box.y);
+    const w = Number(box.w);
+    const h = Number(box.h);
+    if ([x, y, w, h].every(Number.isFinite)) out[id] = { x, y, w, h };
+  }
+  return out;
+}
+
+/** Reopen a float at its last box; fall back to a cascade if we never saved one. */
+export function restoreBox(saved: DeskBox | undefined, size: { w: number; h: number }, index = 0): DeskBox {
+  if (!saved) return placeWindow(size, index);
+  return fitBox(saved.x, saved.y, saved.w || size.w, saved.h || size.h);
+}
+
+/** True when the grip would be completely off the desk (safe to clamp). */
+export function boxOffscreen(x: number, y: number, w: number, h: number) {
+  if (typeof window === "undefined") return false;
+  const { minX, minY, padB } = deskMin();
+  const grip = Math.min(DESK_GRIP, Math.max(32, w || DESK_GRIP));
+  const gripY = Math.min(DESK_GRIP, Math.max(32, h || DESK_GRIP));
+  return x + grip < minX || y + gripY < minY || x > window.innerWidth - 8 || y > window.innerHeight - padB - 8;
 }
 
 /** Resize from a corner or edge. North/west moves origin; south/east grows. */

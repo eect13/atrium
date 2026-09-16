@@ -8,7 +8,7 @@ import { NoteColor } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
 import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
-import { fitBox } from "@/lib/desk";
+import { boxOffscreen, fitBox } from "@/lib/desk";
 import { inkOnPaper, noteTitle } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
@@ -60,21 +60,28 @@ export function DesktopLayer({
   const liveNative = useRef({ notes: new Set<string>(), wins: new Set<string>() });
   const pinned = modules.notes ? notes.filter((n) => n.pinned) : [];
   const floating = windows.filter((w) => allowed(w.kind, modules));
+  const pinnedKey = pinned.map((n) => n.id).join("\0");
+  const floatingKey = floating.map((w) => w.id).join("\0");
+  const boxesRef = useRef({ pinned, floating });
+  boxesRef.current = { pinned, floating };
+
   useEffect(() => {
     if (!isTauri()) return;
-    const noteIds = new Set(pinned.map((n) => n.id));
-    const winIds = new Set(floating.map((w) => w.id));
+    const { pinned: liveNotes, floating: liveWins } = boxesRef.current;
+    const noteIds = new Set(liveNotes.map((n) => n.id));
+    const winIds = new Set(liveWins.map((w) => w.id));
     for (const id of liveNative.current.notes) if (!noteIds.has(id)) void closeNativeFloat("note", id);
     for (const id of liveNative.current.wins) if (!winIds.has(id)) void closeNativeFloat("widget", id);
-    for (const n of pinned) {
-      void openNativeFloat("note", n.id, { x: n.x, y: n.y, w: n.w, h: n.h, title: n.title || "Note" });
+    for (const n of liveNotes) {
+      if (liveNative.current.notes.has(n.id)) continue;
+      void openNativeFloat("note", n.id, { x: n.x, y: n.y, w: n.w, h: n.h, title: n.title || "Note", pinned: true });
     }
-    for (const w of floating) {
+    for (const w of liveWins) {
+      if (liveNative.current.wins.has(w.id)) continue;
       void openNativeFloat("widget", w.id, { x: w.x, y: w.y, w: w.w, h: w.h, title: WIDGET_LABEL[w.kind] });
     }
     liveNative.current = { notes: noteIds, wins: winIds };
-  }, [pinned, floating]);
-
+  }, [pinnedKey, floatingKey]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -83,8 +90,9 @@ export function DesktopLayer({
       (e) => {
         if (e.key !== "Escape" || isTyping(e.target)) return;
         if (document.querySelector("[data-desk-menu]")) return;
-        const topNote = pinned.reduce<(typeof pinned)[number] | null>((best, n) => (!best || n.z > best.z ? n : best), null);
-        const topWin = floating.reduce<(typeof floating)[number] | null>((best, w) => (!best || w.z > best.z ? w : best), null);
+        const { pinned: liveNotes, floating: liveWins } = boxesRef.current;
+        const topNote = liveNotes.reduce<(typeof liveNotes)[number] | null>((best, n) => (!best || n.z > best.z ? n : best), null);
+        const topWin = liveWins.reduce<(typeof liveWins)[number] | null>((best, w) => (!best || w.z > best.z ? w : best), null);
         if (topNote && (!topWin || topNote.z >= topWin.z)) {
           e.preventDefault();
           unpinNote(topNote.id);
@@ -96,25 +104,27 @@ export function DesktopLayer({
       { signal: ac.signal },
     );
     return () => ac.abort();
-  }, [pinned, floating, unpinNote, closeWindow]);
+  }, [unpinNote, closeWindow]);
 
   useEffect(() => {
     if (isTauri()) return;
-    const ac = new AbortController();
     const clampAll = () => {
-      for (const w of floating) {
+      const { pinned: liveNotes, floating: liveWins } = boxesRef.current;
+      for (const w of liveWins) {
+        if (!boxOffscreen(w.x, w.y, w.w, w.h)) continue;
         const next = fitBox(w.x, w.y, w.w, w.h);
         if (next.x !== w.x || next.y !== w.y || next.w !== w.w || next.h !== w.h) updateWindow(w.id, next);
       }
-      for (const n of pinned) {
+      for (const n of liveNotes) {
+        if (!boxOffscreen(n.x, n.y, n.w, n.h)) continue;
         const next = fitBox(n.x, n.y, n.w, n.h);
         if (next.x !== n.x || next.y !== n.y || next.w !== n.w || next.h !== n.h) updateNote(n.id, next);
       }
     };
     clampAll();
-    window.addEventListener("resize", clampAll, { signal: ac.signal });
-    return () => ac.abort();
-  }, [floating, pinned, updateWindow, updateNote]);
+    window.addEventListener("resize", clampAll);
+    return () => window.removeEventListener("resize", clampAll);
+  }, [updateWindow, updateNote]);
 
   if (isTauri()) return null;
   return (

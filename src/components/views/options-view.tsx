@@ -81,7 +81,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
       return;
     }
     setCity(q);
-    const hit = await lookupPlace({ data: { name: q } });
+    const hit = await lookupPlace({ data: { name: q, country: profile.region } });
     if (!hit) {
       setProfile({ city: q });
       toast("Could not map that place — coords unchanged");
@@ -99,7 +99,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
     try {
       const found = await locateMe();
       if (!found) {
-        toast("Location blocked here — type a city instead");
+        toast("Location blocked here — type a city or ZIP instead");
         return;
       }
       const cityName = found.hit.city || profile.city;
@@ -179,7 +179,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
         </p>
       </div>
       <div className="space-y-1">
-        <Label htmlFor="opt-city">City</Label>
+        <Label htmlFor="opt-city">City or ZIP</Label>
         <Input
           id="opt-city"
           value={city}
@@ -193,6 +193,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
             }
           }}
         />
+        <p className="text-xs text-muted-foreground">City name or postal / ZIP. Uses the desk region to disambiguate.</p>
       </div>
       <div className="space-y-1 sm:col-span-2">
         <Label htmlFor="opt-tagline">Sidebar tagline</Label>
@@ -214,7 +215,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
       </div>
       <div className="sm:col-span-2 rounded-xl bg-muted p-5">
         <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Weather pin</p>
-        <p className="mt-1 font-display text-2xl tracking-tight">{profile.city.trim() || "No city pinned"}</p>
+        <p className="mt-1 font-display text-2xl tracking-tight">{profile.city.trim() || "No place pinned"}</p>
         <Tooltip>
           <TooltipTrigger asChild>
             <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">{coord}</p>

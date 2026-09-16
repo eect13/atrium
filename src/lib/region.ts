@@ -21,7 +21,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-PH",
     ccy: "PHP",
     yahoo: "PH",
-    cityHint: "Manila, Cebu, Davao",
+    cityHint: "Manila, Cebu, or 1740",
     factory: true,
   },
   {
@@ -31,7 +31,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-US",
     ccy: "USD",
     yahoo: "US",
-    cityHint: "New York, Chicago, Los Angeles",
+    cityHint: "New York, or 10001",
   },
   {
     id: "SG",
@@ -40,7 +40,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-SG",
     ccy: "SGD",
     yahoo: "SG",
-    cityHint: "Singapore",
+    cityHint: "Singapore, or 018956",
   },
   {
     id: "JP",
@@ -49,7 +49,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-US",
     ccy: "JPY",
     yahoo: "JP",
-    cityHint: "Tokyo, Osaka",
+    cityHint: "Tokyo, or 100-0001",
   },
   {
     id: "HK",
@@ -67,7 +67,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-GB",
     ccy: "GBP",
     yahoo: "GB",
-    cityHint: "London, Manchester",
+    cityHint: "London, or SW1A 1AA",
   },
   {
     id: "AU",
@@ -76,7 +76,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-AU",
     ccy: "AUD",
     yahoo: "AU",
-    cityHint: "Sydney, Melbourne",
+    cityHint: "Sydney, or 2000",
   },
   {
     id: "IN",
@@ -85,7 +85,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-IN",
     ccy: "INR",
     yahoo: "IN",
-    cityHint: "Mumbai, Delhi, Bengaluru",
+    cityHint: "Mumbai, or 400001",
   },
   {
     id: "EU",
@@ -94,7 +94,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-GB",
     ccy: "EUR",
     yahoo: "DE",
-    cityHint: "Berlin, Paris, Amsterdam",
+    cityHint: "Berlin, or 10115",
   },
   {
     id: "CA",
@@ -103,7 +103,7 @@ export const DESK_REGIONS: DeskRegion[] = [
     locale: "en-CA",
     ccy: "CAD",
     yahoo: "CA",
-    cityHint: "Toronto, Vancouver",
+    cityHint: "Toronto, or M5V 2T6",
   },
 ];
 
@@ -111,6 +111,12 @@ export const DEFAULT_REGION = "PH";
 
 export function regionOf(id?: string | null): DeskRegion {
   return DESK_REGIONS.find((r) => r.id === id) ?? DESK_REGIONS[0]!;
+}
+
+/** ISO 3166-1 alpha-2 for geocoders. Euro area is not a country — leave blank. */
+export function isoCountry(id?: string | null): string {
+  const r = regionOf(id);
+  return r.id === "EU" ? "" : r.id;
 }
 
 export function applyDeskRegion(id?: string | null) {
