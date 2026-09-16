@@ -9,7 +9,7 @@ import { FloatBtn } from "@/components/widgets";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
+import { LOCAL_QUOTES, fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
 export function useDeskQuotes(
@@ -33,7 +33,7 @@ export function useDeskQuotes(
           limit: mode === "author" ? 24 : 16,
           seed,
         },
-      }),
+      }).catch(() => ({ quotes: LOCAL_QUOTES, from: "local" as const })),
     staleTime: mode === "random" ? Infinity : 30 * 60_000,
     gcTime: 6 * 60 * 60_000,
   });
@@ -166,7 +166,7 @@ export function QuotesView() {
             setPerson(e.target.value);
             if (mode === "author") setSearch("");
           }}
-          placeholder="Type a name � Albert, Maya, Seneca"
+          placeholder="Type a name — Albert, Maya, Seneca"
           className="h-11 min-w-0 w-full"
           aria-label="Search quotes"
           autoComplete="off"

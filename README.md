@@ -2,7 +2,7 @@
 
 Personal command center. Times and quotes are Asia/Manila. Data stays on this device (`atrium.v1`).
 
-**Version 1.2.7**
+**Version 1.2.8**
 
 ## Use
 
@@ -40,7 +40,7 @@ Preferred layout on Eric’s PC:
 apk.bat
 ```
 
-Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output: `deploy/android/atrium-v1.2.7-arm64-release.apk`.
+Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output: `deploy/android/atrium-v1.2.8-arm64-release.apk`.
 
 ### Dev
 

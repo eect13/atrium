@@ -1,4 +1,4 @@
-import { isTauri } from "@/lib/http";
+import { isTauri } from "./http.ts";
 
 export { isTauri };
 
@@ -19,6 +19,7 @@ export async function openNativeFloat(
   if (existing) {
     await existing.unminimize();
     await existing.show();
+    await existing.setFocus();
     return true;
   }
   const q = new URLSearchParams({ float: kind, id });
@@ -104,7 +105,7 @@ export function parseFloatHash(href = typeof location !== "undefined" ? location
     const u = new URL(href, "https://atrium.local/");
     const kind = u.searchParams.get("float") || new URLSearchParams(u.hash.replace(/^#/, "")).get("float");
     const id = u.searchParams.get("id") || new URLSearchParams(u.hash.replace(/^#/, "")).get("id");
-    if ((kind === "note" || kind === "widget") && id) return { kind, id };
+    if ((kind === "note" || kind === "widget") && id) return { kind: kind as "note" | "widget", id };
   } catch {
     /* ignore */
   }

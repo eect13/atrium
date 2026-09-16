@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BINANCE_PAIRS, downsample } from "./market-board.ts";
 import { isoDate } from "./format.ts";
 import { fetchYahooSpark } from "./yahoo.ts";
+import { httpJson, isTauri } from "./http.ts";
 
 export const SPARK_RANGES = [
   { id: "1d", label: "1D", days: 1 },
@@ -45,10 +46,25 @@ function rng(seed: number) {
 }
 
 /** Smooth session path from previous close → last. Stable for a ticker+day so it does not flicker. */
-export function sessionSpark(last: number, change?: number, _seed = "tape", _n = 36): number[] {
-  const prev = last - (Number.isFinite(change) ? Number(change) : 0);
-  if (!Number.isFinite(prev) || prev === last) return [last * 0.998, last];
-  return [prev, last];
+export function sessionSpark(last: number, change?: number, seed = "tape", n = 36): number[] {
+  if (!Number.isFinite(last) || last <= 0) return [];
+  const ch = Number.isFinite(change) ? (change as number) : 0;
+  const prev = last / (1 + ch / 100);
+  if (!Number.isFinite(prev) || prev <= 0) return [last];
+  const rand = rng(hash(`${seed}:${last.toFixed(4)}:${ch.toFixed(3)}`));
+  const band = Math.max(Math.abs(last - prev) * 0.55, last * 0.004);
+  const out: number[] = [];
+  const steps = Math.max(8, n);
+  for (let i = 0; i < steps; i += 1) {
+    const t = i / (steps - 1);
+    const bridge = prev + (last - prev) * t;
+    const wobble = (rand() - 0.5) * 2 * band * Math.sin(Math.PI * t);
+    const bump = Math.sin(t * Math.PI * 2.2) * band * 0.35 * (rand() * 0.6 + 0.4);
+    out.push(Math.max(last * 0.5, bridge + wobble + bump));
+  }
+  out[0] = prev;
+  out[steps - 1] = last;
+  return out;
 }
 
 export function sparkDomain(values: number[]) {
@@ -151,9 +167,13 @@ async function binanceKline(symbol: string, range: SparkRange): Promise<number[]
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
-      if (!res.ok) continue;
-      const rows = (await res.json()) as Array<[number, string, string, string, string]>;
+      const rows = isTauri()
+        ? await httpJson<Array<[number, string, string, string, string]>>(url)
+        : await (async () => {
+            const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
+            if (!res.ok) throw new Error(String(res.status));
+            return res.json() as Promise<Array<[number, string, string, string, string]>>;
+          })();
       if (!Array.isArray(rows) || rows.length < 4) continue;
       const closes = rows.map((r) => Number(r[4])).filter((n) => Number.isFinite(n) && n > 0);
       if (closes.length >= 4) return downsample(closes, 48);
@@ -171,12 +191,16 @@ async function frankfurterSpark(from: string, range: SparkRange): Promise<number
   const a = start.toISOString().slice(0, 10);
   const b = end.toISOString().slice(0, 10);
   try {
-    const res = await fetch(`https://api.frankfurter.app/${a}..${b}?from=${from}&to=PHP`, {
-      signal: AbortSignal.timeout(FETCH_MS),
-      redirect: "follow",
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { rates?: Record<string, { PHP?: number }> };
+    const json = isTauri()
+      ? await httpJson<{ rates?: Record<string, { PHP?: number }> }>(`https://api.frankfurter.app/${a}..${b}?from=${from}&to=PHP`)
+      : await (async () => {
+          const res = await fetch(`https://api.frankfurter.app/${a}..${b}?from=${from}&to=PHP`, {
+            signal: AbortSignal.timeout(FETCH_MS),
+            redirect: "follow",
+          });
+          if (!res.ok) throw new Error(String(res.status));
+          return res.json() as Promise<{ rates?: Record<string, { PHP?: number }> }>;
+        })();
     const vals = Object.keys(json.rates ?? {})
       .toSorted()
       .map((d) => json.rates?.[d]?.PHP)

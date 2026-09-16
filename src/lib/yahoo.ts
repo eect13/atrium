@@ -1,4 +1,7 @@
-/** Yahoo Finance last + spark. Delayed, not for trading. Server-side only. */
+/** Yahoo Finance last + spark. Delayed, not for trading.
+ *  Desktop Tauri runs this in the webview (tauri-start-stub), so pulls must use httpJson. */
+
+import { httpJson, isTauri } from "./http.ts";
 
 export type YahooLast = {
   symbol: string;
@@ -58,6 +61,9 @@ function finitePos(n: unknown): number | undefined {
 }
 
 async function pull(url: string) {
+  if (isTauri()) {
+    return httpJson(url, { accept: "application/json", "user-agent": UA });
+  }
   const res = await fetch(url, {
     headers: { accept: "application/json", "user-agent": UA },
     signal: AbortSignal.timeout(FETCH_MS),

@@ -16,7 +16,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/books.test.ts src/lib/dash.test.ts src/lib/desk-search.test.ts src/lib/desk.test.ts src/lib/feeds.test.ts src/lib/format.test.ts src/lib/issuer.test.ts src/lib/market-board.test.ts src/lib/pse-index.test.ts src/lib/quotes.test.ts src/lib/region.test.ts src/lib/research.test.ts src/lib/screener.test.ts src/lib/sparks.test.ts src/lib/yahoo.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/books.test.ts src/lib/dash.test.ts src/lib/desk-search.test.ts src/lib/desk.test.ts src/lib/feeds.test.ts src/lib/format.test.ts src/lib/issuer.test.ts src/lib/market-board.test.ts src/lib/native-float.test.ts src/lib/pse-index.test.ts src/lib/profile-desk.test.ts src/lib/quotes.test.ts src/lib/region.test.ts src/lib/research.test.ts src/lib/screener.test.ts src/lib/sparks.test.ts src/lib/yahoo.test.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "deploy": "node scripts/deploy.mjs",
@@ -29,7 +29,7 @@
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@hookform/resolvers": "^5.7.0",
-    "@radix-ui/react-accordion": "^1.2.72",
+    "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-checkbox": "^1.3.3",
@@ -40,12 +40,12 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-radio-group": "^1.3.8",
-    "@radix-ui/react-scroll-area": "^1.2.70",
+    "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-slider": "^1.3.6",
-    "@radix-ui/react-slot": "^1.2.7",
-    "@radix-ui/react-switch": "^1.2.7",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
@@ -102,6 +102,6 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0"
   },
-  "version": "1.2.7",
-  "description": "Atrium — personal command center (Asia/Manila, atrium.v1)."
+  "version": "1.2.8",
+  "description": "Atrium \u2014 personal command center (Asia/Manila, atrium.v1)."
 }

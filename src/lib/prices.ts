@@ -6,26 +6,31 @@ import { sessionSpark } from "./sparks";
 import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast } from "./yahoo";
 import { WATCH_CATALOG } from "./types";
 import { SCREEN_FETCH } from "./screener";
+import { httpJson, isTauri } from "./http";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
 export type PriceResult = { failed?: boolean; quotes: PriceMap };
 
 const FETCH_MS = 3_500;
 
+async function remoteJson<T>(url: string, headers?: Record<string, string>, timeout = FETCH_MS): Promise<T> {
+  if (isTauri()) return httpJson<T>(url, headers);
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeout) });
+  if (!res.ok) throw new Error(String(res.status));
+  return res.json() as Promise<T>;
+}
+
+
 export const fetchPrices = createServerFn({ method: "POST" })
   .validator(z.object({ ids: z.array(z.string()) }))
   .handler(async ({ data }): Promise<PriceResult> => {
     if (!data.ids.length) return { quotes: {} };
     try {
-      const res = await fetch(
+      const quotes = await remoteJson<PriceMap>(
         `https://api.coingecko.com/api/v3/simple/price?ids=${data.ids.join(",")}&vs_currencies=php&include_24hr_change=true`,
-        {
-          headers: { accept: "application/json" },
-          signal: AbortSignal.timeout(FETCH_MS),
-        },
+        { accept: "application/json" },
       );
-      if (!res.ok) return { failed: true, quotes: {} };
-      return { quotes: (await res.json()) as PriceMap };
+      return { quotes };
     } catch {
       return { failed: true, quotes: {} };
     }
@@ -111,11 +116,7 @@ function fromPhp(php: number, vs: Vs, fx: MarketSnapshot["fx"] | null): { price:
 
 async function loadFx(): Promise<MarketSnapshot["fx"] | null> {
   try {
-    const res = await fetch("https://open.er-api.com/v6/latest/USD", {
-      signal: AbortSignal.timeout(FETCH_MS),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { rates?: Record<string, number> };
+    const json = await remoteJson<{ rates?: Record<string, number> }>("https://open.er-api.com/v6/latest/USD");
     const php = json.rates?.PHP;
     const eur = json.rates?.EUR;
     const jpy = json.rates?.JPY;
@@ -145,12 +146,10 @@ function downsampleSpark(values: number[], n = 24) {
 async function geckoSimple(ids: string[], vs: Vs): Promise<GeckoRow[]> {
   if (!ids.length) return [];
   try {
-    const extra = await fetch(
+    const map = await remoteJson<Record<string, Record<string, number>>>(
       `https://api.coingecko.com/api/v3/simple/price?ids=${[...new Set(ids)].join(",")}&vs_currencies=${vs}&include_24hr_change=true`,
-      { headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_MS) },
+      { accept: "application/json" },
     );
-    if (!extra.ok) return [];
-    const map = (await extra.json()) as Record<string, Record<string, number>>;
     const changeKey = `${vs}_24h_change`;
     return Object.entries(map).flatMap(([id, q]) =>
       q && q[vs] != null
@@ -173,12 +172,7 @@ async function geckoSimple(ids: string[], vs: Vs): Promise<GeckoRow[]> {
 async function geckoMarkets(ids: string[], vs: Vs): Promise<GeckoRow[]> {
   if (!ids.length) return [];
   try {
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=${vs}&ids=${[...new Set(ids)].join(",")}&sparkline=true&price_change_percentage=24h`,
-      { headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_MS) },
-    );
-    if (!res.ok) return [];
-    const rows = (await res.json()) as Array<{
+    const rows = await remoteJson<Array<{
       id: string;
       symbol: string;
       name: string;
@@ -186,7 +180,10 @@ async function geckoMarkets(ids: string[], vs: Vs): Promise<GeckoRow[]> {
       price_change_percentage_24h: number | null;
       total_volume?: number;
       sparkline_in_7d?: { price?: number[] };
-    }>;
+    }>>(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=${vs}&ids=${[...new Set(ids)].join(",")}&sparkline=true&price_change_percentage=24h`,
+      { accept: "application/json" },
+    );
     if (!Array.isArray(rows) || !rows.length) return [];
     return rows.map((row) => ({
       id: row.id,
@@ -233,12 +230,7 @@ async function loadBinance(): Promise<MarketQuote[]> {
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(FETCH_MS),
-      });
-      if (!res.ok) continue;
-      const rows = (await res.json()) as BinanceTicker[];
+      const rows = await remoteJson<BinanceTicker[]>(url, { accept: "application/json" });
       if (!Array.isArray(rows) || !rows.length) continue;
       const quotes = rows.flatMap((row) => {
         const meta = BINANCE_PAIRS[row.symbol];
@@ -393,6 +385,11 @@ async function fetchPse(url: string): Promise<{ rows: MarketQuote[]; asOf?: stri
   const headers: Record<string, string> = { accept: "application/json" };
   const prev = g.__atriumPse;
   if (prev?.etag) headers["if-none-match"] = prev.etag;
+  if (isTauri()) {
+    const parsed = parsePse(await remoteJson<{ stocks?: PseRow[]; stock?: PseRow[]; as_of?: string }>(url, headers));
+    if (!parsed.rows.length) throw new Error("empty");
+    return parsed;
+  }
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_MS) });
   if (res.status === 304 && prev?.rows.length) {
     return { rows: prev.rows, asOf: prev.asOf, etag: prev.etag };

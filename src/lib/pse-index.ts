@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { BLUECHIPS, PSEI_NAMES } from "./market-board.ts";
+import { httpJson, isTauri } from "./http.ts";
 
 export type PseIndexSnap = {
   tickers: string[];
@@ -42,18 +43,23 @@ function seedIndex(): PseIndexSnap {
 }
 
 async function loadWikipedia(page: string): Promise<PseIndexSnap | null> {
-  const res = await fetch(
-    `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(page)}&prop=wikitext&format=json&formatversion=2`,
-    {
-      headers: {
-        accept: "application/json",
-        "user-agent": "Atrium/1.0 (personal command center; PSEi constituents)",
-      },
-      signal: AbortSignal.timeout(FETCH_MS),
-    },
-  );
-  if (!res.ok) return null;
-  const json = (await res.json()) as { parse?: { wikitext?: string } };
+  const url = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(page)}&prop=wikitext&format=json&formatversion=2`;
+  const headers = {
+    accept: "application/json",
+    "user-agent": "Atrium/1.0 (personal command center; PSEi constituents)",
+  };
+  let json: { parse?: { wikitext?: string } };
+  try {
+    json = isTauri()
+      ? await httpJson<{ parse?: { wikitext?: string } }>(url, headers)
+      : await (async () => {
+          const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_MS) });
+          if (!res.ok) throw new Error(String(res.status));
+          return res.json() as Promise<{ parse?: { wikitext?: string } }>;
+        })();
+  } catch {
+    return null;
+  }
   const text = json.parse?.wikitext ?? "";
   const rows = parsePseWikitext(text);
   if (rows.length < 20 || rows.length > 40) return null;

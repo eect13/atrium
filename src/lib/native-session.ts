@@ -8,8 +8,11 @@ function readBox(): Box | null {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<Box> | null;
     if (!raw) return null;
-    const { x, y, w, h } = raw;
-    if (![x, y, w, h].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    const x = Number(raw.x);
+    const y = Number(raw.y);
+    const w = Number(raw.w);
+    const h = Number(raw.h);
+    if (![x, y, w, h].every((n) => Number.isFinite(n))) return null;
     if (w < 390 || h < 640) return null;
     return { x, y, w, h };
   } catch {

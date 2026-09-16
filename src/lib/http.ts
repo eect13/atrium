@@ -1,4 +1,4 @@
-/** Fetch text, using a Rust command inside Tauri so RSS/news is not blocked by CORS. */
+/** Fetch text/JSON. Inside Tauri, Rust fetch_text bypasses webview CORS (Yahoo, RSS, etc.). */
 
 export function isTauri() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -16,4 +16,10 @@ export async function httpText(url: string, headers?: Record<string, string>) {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
+}
+
+/** JSON GET. Same Tauri path as httpText so finance/Yahoo work from tauri.localhost. */
+export async function httpJson<T = unknown>(url: string, headers?: Record<string, string>): Promise<T> {
+  const text = await httpText(url, headers);
+  return JSON.parse(text) as T;
 }

@@ -261,6 +261,43 @@ export const QUOTE_TOPICS = [
   { id: "nature", label: "Nature", rss: "https://www.brainyquote.com/link/quotena.rss", path: "/topics/nature-quotes" },
 ] as const;
 
+export type QuoteTopicId = (typeof QUOTE_TOPICS)[number]["id"];
+
+export function normalizeQuoteTopic(raw?: string): QuoteTopicId {
+  const id = (raw ?? "").trim().toLowerCase();
+  return QUOTE_TOPICS.some((t) => t.id === id) ? (id as QuoteTopicId) : "all";
+}
+
+function hash(s: string) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function shuffle<T>(list: T[], seed: string) {
+  const out = [...list];
+  let s = hash(seed) || 1;
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    s = Math.imul(s ^ (s >>> 15), 1 | s) >>> 0;
+    const j = s % (i + 1);
+    const a = out[i]!;
+    out[i] = out[j]!;
+    out[j] = a;
+  }
+  return out;
+}
+
+const g = globalThis as typeof globalThis & {
+  __atriumQuotes?: Map<string, { exp: number; data: DeskQuote[] }>;
+};
+
+function cache() {
+  g.__atriumQuotes ??= new Map();
+  return g.__atriumQuotes;
+}
 
 async function pull(url: string): Promise<string | null> {
   try {
