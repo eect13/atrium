@@ -1131,7 +1131,7 @@ export function FinanceMarkets() {
 
 function RelatedNews({ item }: { item: WatchItem }) {
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, "v4"],
+    queryKey: ["stock-news", item.symbol, item.name, "v5"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -1350,6 +1350,7 @@ function QuoteSheet({
       </div>
       <div className="rounded-lg bg-muted p-4">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">Expert</p>
+        <p className="mt-1 text-xs text-muted-foreground">CFA method — relative value and tape, not a DCF or a target.</p>
         <ul className="mt-2 space-y-1">
           {note.expert.map((s) => (
             <li key={s} className="text-sm leading-snug">

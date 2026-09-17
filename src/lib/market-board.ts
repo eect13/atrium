@@ -101,6 +101,8 @@ export const DIVIDENDS = new Set([
   "CNPF",
 ]);
 
+/** Universal banks in the official PSEi 30. CFA bank work is P/B and ROE, not a DCF of FCF. */
+export const BANK_TICKERS = new Set(["BDO", "BPI", "MBT", "CBC"]);
 export const BINANCE_PAIRS: Record<string, { gecko: string; ticker: string; name: string }> = {
   BTCUSDT: { gecko: "bitcoin", ticker: "BTC", name: "Bitcoin" },
   ETHUSDT: { gecko: "ethereum", ticker: "ETH", name: "Ethereum" },

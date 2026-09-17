@@ -118,6 +118,11 @@ export function sleeveWeight(tickers: readonly string[], rows: PseiWeight[] = PS
   return rows.filter((w) => set.has(w.ticker)).reduce((sum, w) => sum + w.psei, 0);
 }
 
+export function nameWeight(ticker: string, rows: PseiWeight[] = PSEI_WEIGHTS) {
+  const u = ticker.replace(/^\^/, "").replace(/\.PS$/i, "").trim().toUpperCase();
+  return rows.find((w) => w.ticker === u)?.psei;
+}
+
 export function topWeights(n = 5, rows: PseiWeight[] = PSEI_WEIGHTS) {
   return [...rows].sort((a, b) => b.psei - a.psei).slice(0, n);
 }

@@ -8,6 +8,7 @@ import {
   PSEI_WEIGHTS,
   sleeveWeight,
   tickerFromSecurityName,
+  nameWeight,
   topWeights,
   weightTake,
 } from "./psei-weight.ts";
@@ -27,6 +28,8 @@ test("ICT concentration and sleeves match the 16 Sep 2026 file", () => {
   assert.equal(sleeveWeight(["SM", "SMPH"]), 13.62);
   assert.ok(c.banks > 21 && c.banks < 22);
   assert.equal(topWeights(1)[0]?.ticker, "ICT");
+  assert.equal(nameWeight("BDO"), 7.63);
+  assert.equal(nameWeight("BDO.PS"), 7.63);
 });
 
 test("weightTake reads as official PSEi weights, not a target", () => {

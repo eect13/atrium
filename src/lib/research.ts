@@ -2,8 +2,8 @@ import { httpText } from "./http.ts";
 import { parseRss } from "./feeds.ts";
 import { cleanHeadline } from "./headline.ts";
 import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
-import { BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
-import { weightTake } from "./psei-weight.ts";
+import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
+import { nameWeight, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -72,11 +72,12 @@ function peFmt(n: number) {
 function peTake(pe?: number, fwd?: number) {
   if (pe == null || pe <= 0) return null;
   const tail = fwd && fwd > 0 ? `, forward ${peFmt(fwd)}` : "";
-  if (pe < 8) return `Trailing PE ${peFmt(pe)}${tail} — cheap vs a 15–20 market, or a value trap.`;
-  if (pe < 15) return `Trailing PE ${peFmt(pe)}${tail} — below a typical market multiple.`;
-  if (pe <= 22) return `Trailing PE ${peFmt(pe)}${tail} — in a typical market band.`;
-  if (pe <= 35) return `Trailing PE ${peFmt(pe)}${tail} — growth has to keep showing up.`;
-  return `Trailing PE ${peFmt(pe)}${tail} — rich. Only works if earnings compound.`;
+  const ey = ` Earnings yield ${(100 / pe).toFixed(1)}% (E/P).`;
+  if (pe < 8) return `Trailing PE ${peFmt(pe)}${tail} — cheap vs a 15–20 market, or a value trap.${ey}`;
+  if (pe < 15) return `Trailing PE ${peFmt(pe)}${tail} — below a typical market multiple.${ey}`;
+  if (pe <= 22) return `Trailing PE ${peFmt(pe)}${tail} — in a typical market band.${ey}`;
+  if (pe <= 35) return `Trailing PE ${peFmt(pe)}${tail} — growth has to keep showing up.${ey}`;
+  return `Trailing PE ${peFmt(pe)}${tail} — rich. Only works if earnings compound.${ey}`;
 }
 
 function yldTake(y?: number) {
@@ -228,19 +229,44 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
     expert.push(`${Math.round(Math.min(1, Math.max(0, pos)) * 100)}% of the 52-week range.`);
   }
+  const bank = inSleeve(BANK_TICKERS, code, ticker);
   if (q?.pb && q.pb > 0) {
-    expert.push(q.pb < 1 ? `P/B ${q.pb.toFixed(1)} — below book.` : `P/B ${q.pb.toFixed(1)}.`);
+    expert.push(
+      bank
+        ? `P/B ${q.pb.toFixed(2)} — CFA bank valuation starts at book (residual income), not a DCF of FCF. EM universal banks often sit 0.8–1.8×.`
+        : q.pb < 1
+          ? `P/B ${q.pb.toFixed(2)} — below book.`
+          : `P/B ${q.pb.toFixed(2)}.`,
+    );
+  } else if (bank && q?.kind === "stock") {
+    expert.push("Universal bank. CFA method is residual income / P/B: justified P/B = (ROE − g) / (r − g). No book multiple on this tape, so no justified multiple.");
   }
-  if (q?.volume && q.avgVolume && q.avgVolume > 0 && q.kind !== "stock") {
+  if (q?.volume && q.avgVolume && q.avgVolume > 0) {
     const r = q.volume / q.avgVolume;
-    if (r >= 1.8) expert.push(`Volume ${r.toFixed(1)}× the 10-day typical.`);
+    if (r >= 1.8) expert.push(`Volume ${r.toFixed(1)}× the 10-day typical — CFA tape confirmation.`);
     else if (r <= 0.5) expert.push(`Volume ${r.toFixed(1)}× typical — quiet tape.`);
+  }
+  if (inSleeve(REITS, code, ticker)) {
+    expert.push("REIT. CFA real-estate work is yield and NAV, not a manufacturing P/E.");
+  }
+  const wt = nameWeight(code) ?? nameWeight(ticker);
+  if (wt != null) {
+    expert.push(`${ticker} is ${wt.toFixed(2)}% of the PSEi (official free-float weights) — a systematic factor in any local-equity book.`);
+  }
+  if (bank) {
+    expert.push(`Financials sleeve (BDO, BPI, MBT, CBC) is ${sleeveWeight(["BDO", "BPI", "MBT", "CBC"]).toFixed(1)}% of the index.`);
   }
   if (!expert.length && !(code === PSEI_SYMBOL || ticker === "PSEi" || isPseiItem(row.item))) {
     expert.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
   }
-  if (code === PSEI_SYMBOL || ticker === "PSEi" || isPseiItem(row.item)) {
+  if (isPseiItem(row.item) || code === PSEI_SYMBOL || ticker === "PSEi") {
     expert.push(...weightTake());
+  } else if (q?.kind === "stock" && q.pe == null && !(q.pb && q.pb > 0)) {
+    if (!expert.some((l) => /tape and levels only/i.test(l))) {
+      expert.push("Yahoo dropped .PS fundamentals. No trailing PE or P/B on this tape. Relative value waits on EDGE. Not a DCF, not a target.");
+    }
+  } else if (q?.kind === "stock") {
+    expert.push("Relative value and tape only. Not a DCF, not a target.");
   }
 
   const suggestions = [...watch, ...risk, ...next];
@@ -422,23 +448,132 @@ export type NewsWindow = "1d" | "7d" | "30d";
 
 const GENERIC_NAME = /^(inc|corp|corporation|holdings?|plc|ltd|limited|group|the|and|of|ph|co|company|philippine|philippines)$/i;
 
+/** PH market / Unibank context — used when the ticker is a short collision (BDO, SM, ICT). */
+const PH_MARK =
+  /philippines?|philippine|\bpse\b|manila|peso|\bbsp\b|unibank|bilyonaryo|inquirer|philstar|businessworld|bworld|gmanews|gma news|abs-cbn|rappler|politiko|abante|manila bulletin|manila standard|businessmirror|philippine news agency|pna\.gov|pse\.com|edge\.pse/i;
+
+type IssuerNews = { names: string[]; minus: string[]; reject: RegExp };
+
+const ISSUER_NEWS: Record<string, IssuerNews> = {
+  BDO: {
+    names: ["BDO Unibank", "Banco de Oro"],
+    minus: ["Luxembourg", "BDO Zone", "biomass", "auditor"],
+    reject: /bdo zone|biomass|woody|luxembourg|bdo llp|appointed bdo|bdo as (?:the )?auditor|bowie county|vegreville|noble county|accountancy today|pembroke vct|bdo luxembourg|renewableenergymagazine|canadianbiomass|railwayage/i,
+  },
+  BPI: {
+    names: ["Bank of the Philippine Islands", "BPI Unibank"],
+    minus: ["France"],
+    reject: /banque|\bbpi sa\b|bpi france/i,
+  },
+  SM: {
+    names: ["SM Investments"],
+    minus: ["SM Entertainment"],
+    reject: /sm entertainment|sm town|sm entertainment/i,
+  },
+  SMPH: { names: ["SM Prime"], minus: [], reject: /$^/ },
+  ICT: {
+    names: ["ICTSI", "International Container Terminal"],
+    minus: ["ICT sector"],
+    reject: /information and communications|ict ministry|ict sector/i,
+  },
+  AC: { names: ["Ayala Corp", "Ayala Corporation"], minus: [], reject: /$^/ },
+  ALI: { names: ["Ayala Land"], minus: [], reject: /$^/ },
+  MER: { names: ["Meralco", "Manila Electric"], minus: [], reject: /$^/ },
+  MBT: { names: ["Metrobank", "Metropolitan Bank"], minus: [], reject: /$^/ },
+  TEL: { names: ["PLDT", "Philippine Long Distance"], minus: [], reject: /$^/ },
+  CBC: { names: ["China Banking", "China Bank"], minus: [], reject: /canadian broadcasting|\bcbc radio\b|\bcbc news\b/i },
+  JFC: { names: ["Jollibee"], minus: [], reject: /$^/ },
+  JGS: { names: ["JG Summit"], minus: [], reject: /$^/ },
+  RCR: { names: ["RL Commercial REIT"], minus: [], reject: /$^/ },
+  EMI: { names: ["Emperador"], minus: ["EMI Records"], reject: /\bemi records\b|\bemi music\b/i },
+  AREIT: { names: ["AREIT"], minus: [], reject: /$^/ },
+  URC: { names: ["Universal Robina"], minus: [], reject: /$^/ },
+  GLO: { names: ["Globe Telecom"], minus: [], reject: /$^/ },
+  MONDE: { names: ["Monde Nissin"], minus: [], reject: /$^/ },
+  LTG: { names: ["LT Group"], minus: [], reject: /$^/ },
+  GTCAP: { names: ["GT Capital"], minus: [], reject: /$^/ },
+  PGOLD: { names: ["Puregold"], minus: [], reject: /$^/ },
+  CNPF: { names: ["Century Pacific"], minus: [], reject: /$^/ },
+  MYNLD: { names: ["Maynilad"], minus: [], reject: /$^/ },
+  SMC: { names: ["San Miguel"], minus: [], reject: /sumitomo|\bsmbc\b/i },
+  DMC: { names: ["DMCI"], minus: [], reject: /$^/ },
+  ACEN: { names: ["ACEN"], minus: [], reject: /$^/ },
+  PLUS: { names: ["DigiPlus", "DigiPlus Interactive"], minus: [], reject: /plus size|google plus/i },
+  SCC: { names: ["Semirara"], minus: [], reject: /$^/ },
+  AEV: { names: ["Aboitiz Equity"], minus: [], reject: /$^/ },
+};
+
+function quoteTerm(s: string) {
+  const t = s.trim();
+  if (!t) return t;
+  if (t.startsWith('"') || !t.includes(" ")) return t;
+  return `"${t}"`;
+}
+
+export function newsTicker(item: { label: string; symbol: string }) {
+  return item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim().toUpperCase() || item.label.trim().toUpperCase();
+}
+
+export function issuerNews(item: { label: string; symbol: string; name?: string; kind?: string }): IssuerNews | null {
+  if (isPseiItem(item)) return null;
+  const t = newsTicker(item);
+  if (ISSUER_NEWS[t]) return ISSUER_NEWS[t];
+  if (item.kind && item.kind !== "stock") return null;
+  const name = (item.name ?? item.label).trim();
+  if (!name) return null;
+  return { names: [name, item.label].filter((s, i, a) => s && a.indexOf(s) === i), minus: [], reject: /$^/ };
+}
+
+/** Search terms for the issuer — never a bare 3-letter ticker as the whole query. */
+export function issuerSearchQuery(item: { label: string; symbol: string; name?: string; kind?: string }, siteLocked = false) {
+  if (isPseiItem(item)) return { q: `(PSEi OR "PSE index" OR "Philippine Stock Exchange")`, minus: "" };
+  const spec = issuerNews(item);
+  const ticker = newsTicker(item);
+  const name = (item.name ?? item.label).trim();
+  const minusOf = (rows: string[]) => rows.map((m) => (m.includes(" ") ? `-"${m}"` : `-${m}`)).join(" ");
+  if (spec) {
+    const names = spec.names.map(quoteTerm);
+    if (siteLocked) {
+      const bits = [ticker, ...names].filter((s, i, a) => s && a.indexOf(s) === i);
+      return { q: `(${bits.join(" OR ")})`, minus: minusOf(spec.minus) };
+    }
+    const bits = [...names];
+    if (ticker.length <= 3) {
+      bits.push(`(${ticker} (Philippines OR PSE OR Manila OR peso))`);
+    } else bits.push(ticker);
+    return { q: `(${[...new Set(bits)].join(" OR ")})`, minus: minusOf(spec.minus) };
+  }
+  const bits = [ticker, name].filter((s, i, a) => s && a.indexOf(s) === i);
+  const long = bits.filter((s) => s.length > 3 || s.includes(" "));
+  const use = long.length ? long : bits;
+  return { q: use.map(quoteTerm).join(" OR "), minus: "" };
+}
+
 export function relatedNeedles(item: { label: string; symbol: string; name?: string; kind: string }) {
   if (isPseiItem(item)) return ["psei", "pse index", "philippine stock exchange"];
+  const spec = issuerNews(item);
   const name = (item.name ?? item.label).trim();
-  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
   const out: string[] = [];
   const add = (s: string) => {
     const t = s.trim().toLowerCase();
     if (t && !out.includes(t)) out.push(t);
   };
-  if (sym) add(sym);
-  if (item.label) add(item.label);
+  for (const n of spec?.names ?? []) add(n);
   if (name) add(name);
   for (const part of name.split(/[\s,/&-]+/)) {
     const bit = part.replace(/[.]/g, "");
-    if (bit.length >= 3 && !GENERIC_NAME.test(bit)) add(bit);
+    if (bit.length >= 4 && !GENERIC_NAME.test(bit)) add(bit);
   }
   return out;
+}
+
+function wordHit(hay: string, token: string) {
+  const t = token.trim();
+  if (!t) return false;
+  if (t.length <= 3) {
+    return new RegExp(`(?:^|[^a-z0-9])${t.replace(/[^a-z0-9]/gi, '')}(?:[^a-z0-9]|$)`, 'i').test(hay);
+  }
+  return hay.includes(t.toLowerCase());
 }
 
 export function isRelatedStory(
@@ -449,29 +584,30 @@ export function isRelatedStory(
   if (isPseiItem(item)) {
     return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(hay);
   }
-  for (const n of relatedNeedles(item)) {
-    if (n.length <= 3) {
-      const re = new RegExp(`(?:^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i");
-      if (re.test(hay)) return true;
-    } else if (hay.includes(n)) return true;
+  const spec = issuerNews(item);
+  if (spec?.reject.test(hay)) return false;
+  for (const n of spec?.names ?? []) {
+    if (n.length >= 4 && hay.includes(n.toLowerCase())) return true;
   }
-  return false;
+  for (const n of relatedNeedles(item)) {
+    if (n.length >= 4 && hay.includes(n)) return true;
+  }
+  const ticker = newsTicker(item);
+  if (!wordHit(hay, ticker)) return false;
+  if (item.kind !== "stock") return true;
+  if (ticker.length >= 4) return true;
+  return PH_MARK.test(hay);
 }
 
 export function relatedNewsQuery(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
   const name = (item.name ?? item.label).trim();
   const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
-  let q = "";
-  if (isPseiItem(item)) q = `PSEi OR "PSE index" OR "Philippine Stock Exchange"`;
-  else if (item.kind === "crypto") q = `${item.label} OR ${name} crypto`;
-  else if (item.kind === "fx") q = `${item.label} peso forex`;
-  else if (item.kind === "cmdty") q = `${item.label} OR ${name} commodity`;
-  else if (item.kind === "global") q = `${sym} OR ${name}`;
-  else {
-    const bits = [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
-    q = bits.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" OR ");
-  }
-  return `${q} when:${window}`;
+  if (item.kind === "crypto") return `${item.label} OR ${name} crypto when:${window}`;
+  if (item.kind === "fx") return `${item.label} peso forex when:${window}`;
+  if (item.kind === "cmdty") return `${item.label} OR ${name} commodity when:${window}`;
+  if (item.kind === "global" && !isPseiItem(item)) return `${sym} OR ${name} when:${window}`;
+  const { q, minus } = issuerSearchQuery(item);
+  return `${q} ${minus} when:${window}`.replace(/\s+/g, " ").trim();
 }
 
 export function relatedNewsUrl(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
@@ -481,19 +617,15 @@ export function relatedNewsUrl(item: { label: string; symbol: string; name?: str
 }
 
 export function rumorNewsUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
-  const name = (item.name ?? item.label).trim();
-  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
-  const bits = isPseiItem(item)
-    ? ["PSEi", `"PSE index"`]
-    : [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
-  const q = bits.map((s) => (s.includes(" ") && !s.startsWith('"') ? `"${s}"` : s)).join(" OR ");
+  const { q, minus } = issuerSearchQuery(item, true);
   const locale = "hl=en-PH&gl=PH&ceid=PH:en";
   const rss = (query: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${window}`)}&${locale}`;
+  const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   return [
-    rss(`site:bilyonaryo.com (${q})`),
-    rss(`site:politiko.com.ph (${q})`),
-    rss(`site:abante.com.ph (${q})`),
-    rss(`(${q}) (in talks OR "sources say" OR rumored OR allegedly OR "people familiar")`),
+    rss(`site:bilyonaryo.com ${core}`),
+    rss(`site:politiko.com.ph ${core}`),
+    rss(`site:abante.com.ph ${core}`),
+    rss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR "people familiar")`),
   ];
 }
 

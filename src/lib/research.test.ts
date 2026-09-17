@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, isRelatedStory, relatedNewsUrl, rumorNewsUrl, rumorNewsUrls, researchPdf, storyLane } from "./research.ts";
+import { buildResearch, isRelatedStory, relatedNewsUrl, relatedNewsQuery, rumorNewsUrl, rumorNewsUrls, researchPdf, storyLane } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -45,9 +45,14 @@ test("research expert reads PE yield and 52-week box", () => {
     watching: true,
   };
   const note = buildResearch(row);
-  assert.match(note.expert.join(" "), /Trailing PE 9.2/);
-  assert.match(note.expert.join(" "), /Yield 4.5%/);
-  assert.match(note.expert.join(" "), /50% of the 52-week range/);
+  const expert = note.expert.join(" ");
+  assert.match(expert, /Trailing PE 9.2/);
+  assert.match(expert, /Earnings yield 10\.9%/);
+  assert.match(expert, /Yield 4.5%/);
+  assert.match(expert, /50% of the 52-week range/);
+  assert.match(expert, /justified P\/B/);
+  assert.match(expert, /7\.63%/);
+  assert.match(expert, /not a DCF/i);
 });
 
 test("research PDF is a real PDF", () => {
@@ -162,4 +167,29 @@ test("research expert on the PSEi index uses the 52-week box", () => {
   assert.match(note.expert.join(" "), /free-float/i);
   assert.match(note.expert.join(" "), /26\.83%/);
   assert.match(note.next.join(" "), /dropped \.PS/);
+});
+
+test("BDO news is Banco de Oro, not Luxembourg or biomass", () => {
+  const item = { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "BDO Unibank net income rises", src: "Inquirer" }, item), true);
+  assert.equal(isRelatedStory({ title: "Banco de Oro to open more branches", src: "BusinessWorld" }, item), true);
+  assert.equal(
+    isRelatedStory({ title: "BDO reportedly seeks more collateral as Villar lines up funding", src: "bilyonaryo.com" }, item),
+    true,
+  );
+  assert.equal(isRelatedStory({ title: "BDO Luxembourg appoints four new partners", src: "Luxembourg Times" }, item), false);
+  assert.equal(isRelatedStory({ title: "Bowie County, Texas Issued BDO Zone AA Rating for Woody Biomass", src: "Biomass Magazine" }, item), false);
+  assert.equal(isRelatedStory({ title: "BDO: High-growth firms demand increased R&D support", src: "Accountancy Today" }, item), false);
+  const q = decodeURIComponent(relatedNewsUrl(item));
+  assert.match(q, /BDO Unibank/);
+  assert.match(q, /Banco de Oro/);
+  assert.match(q, /-Luxembourg/);
+  assert.match(q, /BDO Zone/);
+  assert.doesNotMatch(relatedNewsQuery(item), /^BDO OR/);
+});
+
+test("ICT news wants ICTSI, not the ICT sector", () => {
+  const item = { label: "ICT", symbol: "ICT", name: "International Container Terminal Services", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "ICTSI port deal in talks — Bilyonaryo", src: "Bilyonaryo" }, item), true);
+  assert.equal(isRelatedStory({ title: "ICT ministry rolls out broadband", src: "Reuters" }, item), false);
 });
