@@ -1,5 +1,9 @@
 /** Yahoo Finance last + spark. Delayed, not for trading.
- *  Desktop Tauri runs this in the webview (tauri-start-stub), so pulls must use httpJson. */
+ *  Desktop Tauri runs this in the webview (tauri-start-stub), so pulls must use httpJson.
+ *
+ *  2026: v7/quote and quoteSummary need a crumb and now 401 without it.
+ *  Chart + spark still work. Philippine equities (.PS) return empty YHD shells;
+ *  the PSEi index (PSEI.PS) is the listing that still has a last. */
 
 import { httpJson, isTauri } from "./http.ts";
 
@@ -10,6 +14,7 @@ export type YahooLast = {
   currency: string;
   name?: string;
   volume?: number;
+  avgVolume?: number;
   high?: number;
   low?: number;
   spark?: number[];
@@ -21,6 +26,23 @@ export type YahooLast = {
   weekHigh?: number;
   weekLow?: number;
 };
+
+export const PSEI_SYMBOL = "PSEI.PS";
+
+/** Core Yahoo symbols the Markets tape always wants — index + a US benchmark + gold. */
+export const YAHOO_CORE_TAPE = [PSEI_SYMBOL, "^GSPC", "GC=F"] as const;
+
+export function isYahooIndex(symbol: string) {
+  const s = symbol.trim();
+  return s.startsWith("^") || /^PSEI\.PS$/i.test(s);
+}
+
+/** Map BDO.PS → BDO. Null for the PSEi index so it never overlays the listed PSE stock. */
+export function pseTickerFromYahoo(symbol: string): string | null {
+  if (!/\.PS$/i.test(symbol)) return null;
+  if (isYahooIndex(symbol)) return null;
+  return symbol.replace(/\.PS$/i, "").toUpperCase();
+}
 
 const FETCH_MS = 4_500;
 const UA =
@@ -60,6 +82,14 @@ function finitePos(n: unknown): number | undefined {
   return Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
+function isAuthFail(err: unknown) {
+  const s = String(err);
+  return s.includes("401") || /unauthorized/i.test(s);
+}
+
+/** v7/quote 401s without a crumb. Skip further quote pulls in this process once we see it. */
+let quoteOpen = true;
+
 async function pull(url: string) {
   if (isTauri()) {
     return httpJson(url, { accept: "application/json", "user-agent": UA });
@@ -95,6 +125,7 @@ function fromMeta(symbol: string, meta: Record<string, unknown>, spark?: number[
   const high = Number(meta.regularMarketDayHigh ?? meta.fiftyTwoWeekHigh);
   const low = Number(meta.regularMarketDayLow ?? meta.fiftyTwoWeekLow);
   const volume = Number(meta.regularMarketVolume);
+  const avgVolume = Number(meta.averageDailyVolume10Day ?? meta.averageDailyVolume3Month);
   const pe = Number(meta.trailingPE);
   const marketCap = Number(meta.marketCap);
   const yieldPctRaw = parseYieldPct(meta.trailingAnnualDividendYield, meta.dividendYield);
@@ -112,6 +143,7 @@ function fromMeta(symbol: string, meta: Record<string, unknown>, spark?: number[
     currency,
     name,
     volume: Number.isFinite(volume) && volume > 0 ? volume : undefined,
+    avgVolume: Number.isFinite(avgVolume) && avgVolume > 0 ? avgVolume : undefined,
     high: Number.isFinite(high) ? high : undefined,
     low: Number.isFinite(low) ? low : undefined,
     spark: spark && spark.length >= 2 ? downsample(spark) : undefined,
@@ -123,6 +155,10 @@ function fromMeta(symbol: string, meta: Record<string, unknown>, spark?: number[
     weekHigh,
     weekLow,
   };
+}
+
+export function parseYahooSpark(json: unknown): YahooLast[] {
+  return parseSparkPayload(json);
 }
 
 function parseSparkPayload(json: unknown): YahooLast[] {
@@ -174,10 +210,13 @@ export async function fetchYahooLast(symbols: string[]): Promise<YahooLast[]> {
       }),
     );
   }
-  const needFund = uniq.filter((s) => {
-    const row = found.get(s);
-    return !row || row.pe == null || row.marketCap == null;
-  });
+  const needFund = quoteOpen
+    ? uniq.filter((s) => {
+        if (isYahooIndex(s) || pseTickerFromYahoo(s)) return false;
+        const row = found.get(s);
+        return !row || row.pe == null || row.marketCap == null;
+      })
+    : [];
   if (needFund.length) {
     const extra = await fetchYahooQuote(needFund);
     for (const row of extra) {
@@ -206,17 +245,20 @@ export function parseYahooQuote(json: unknown): YahooLast[] {
 }
 
 export async function fetchYahooQuote(symbols: string[]): Promise<YahooLast[]> {
+  if (!quoteOpen) return [];
   const uniq = [...new Set(symbols.map((s) => s.trim()).filter(Boolean))];
   if (!uniq.length) return [];
   const found = new Map<string, YahooLast>();
   for (const group of chunk(uniq, 20)) {
+    if (!quoteOpen) break;
     const qs = group.map(encodeURIComponent).join(",");
     for (const host of HOSTS) {
       try {
         const json = await pull(`${host}/v7/finance/quote?symbols=${qs}&lang=en-US`);
         for (const row of parseYahooQuote(json)) found.set(row.symbol, row);
         break;
-      } catch {
+      } catch (err) {
+        if (isAuthFail(err)) quoteOpen = false;
         continue;
       }
     }
@@ -238,6 +280,7 @@ export function overlayYahoo(prev: YahooLast, extra: YahooLast): YahooLast {
     weekHigh: prev.weekHigh ?? extra.weekHigh,
     weekLow: prev.weekLow ?? extra.weekLow,
     volume: prev.volume ?? extra.volume,
+    avgVolume: prev.avgVolume ?? extra.avgVolume,
     name: prev.name ?? extra.name,
   };
 }
@@ -343,4 +386,3 @@ export async function searchYahooTickers(q: string): Promise<YahooSearchHit[]> {
   }
   return [];
 }
-

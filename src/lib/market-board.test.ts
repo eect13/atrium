@@ -170,6 +170,42 @@ test("Bluechips board is the official PSEi 30 and never IMI", () => {
   assert.equal(BLUECHIPS.size, 30);
 });
 
+test("seed PSEi 30 matches the 3 Aug 2026 review (FMETF 16 Sep 2026)", () => {
+  const live = [
+    "AC",
+    "ACEN",
+    "AEV",
+    "ALI",
+    "AREIT",
+    "BDO",
+    "BPI",
+    "CBC",
+    "CNPF",
+    "DMC",
+    "EMI",
+    "GLO",
+    "GTCAP",
+    "ICT",
+    "JFC",
+    "JGS",
+    "LTG",
+    "MBT",
+    "MER",
+    "MONDE",
+    "MYNLD",
+    "PGOLD",
+    "PLUS",
+    "RCR",
+    "SCC",
+    "SM",
+    "SMC",
+    "SMPH",
+    "TEL",
+    "URC",
+  ];
+  assert.deepEqual([...BLUECHIPS].toSorted(), live.toSorted());
+});
+
 test("findInstrument prefers an exact ticker", () => {
   const catalog = [
     { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" as const },

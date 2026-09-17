@@ -354,7 +354,7 @@ export function FinanceOptions() {
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Watcher layout. USDT last shows coins in dollars with PHP on the line below. Spark range is 1D–1Y — coins
-            from Binance, FX from Frankfurter, PSE from this desk's tape unless you pick Yahoo-only.
+            from Binance, FX from Frankfurter, PSE names from this desk's tape. Yahoo still feeds the PSEi index.
           </p>
           <div>
             <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Stock tape</p>

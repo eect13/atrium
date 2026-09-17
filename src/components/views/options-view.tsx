@@ -493,7 +493,7 @@ export function OptionsView() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Auto keeps PSE last on phisix and uses Yahoo for global last, sparks, and PE. Yahoo-only skips phisix.
+              Auto keeps PSE last on this desk. Yahoo still feeds the PSEi index, global last, sparks, and PE. Yahoo dropped .PS names, so both tapes keep Philippine last here.
             </p>
             <div className="flex flex-wrap gap-2">
               {STOCK_TAPES.map((t) => (

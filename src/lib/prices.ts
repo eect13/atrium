@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { QuoteCcy, WatchItem, WatchKind } from "./types";
 import { BINANCE_PAIRS, DEFAULT_GECKO_IDS } from "./market-board";
 import { sessionSpark } from "./sparks";
-import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast } from "./yahoo";
+import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast, isYahooIndex, pseTickerFromYahoo } from "./yahoo";
 import { WATCH_CATALOG } from "./types";
 import { SCREEN_FETCH } from "./screener";
 import { httpJson, isTauri } from "./http";
@@ -44,6 +44,7 @@ export type MarketQuote = {
   kind: WatchKind;
   name?: string;
   volume?: number;
+  avgVolume?: number;
   ccy: string;
   php?: number;
   usd?: number;
@@ -307,7 +308,7 @@ function asYahooQuote(row: YahooLast, fx: MarketSnapshot["fx"] | null): MarketQu
   const catalog = WATCH_CATALOG.find((w) => w.symbol === row.symbol && (w.kind === "global" || w.kind === "cmdty"));
   const kind = yahooKind(row.symbol);
   const ccy = row.currency || "USD";
-  const index = row.symbol.startsWith("^");
+  const index = isYahooIndex(row.symbol);
   let usd: number | undefined;
   let php: number | undefined;
   if (ccy === "USD") {
@@ -341,6 +342,7 @@ function asYahooQuote(row: YahooLast, fx: MarketSnapshot["fx"] | null): MarketQu
     php,
     usd,
     volume: row.volume,
+    avgVolume: row.avgVolume,
     high: row.high,
     low: row.low,
     pe: row.pe,
@@ -445,6 +447,7 @@ function overlayFund(target: MarketQuote, src: Partial<MarketQuote> | YahooLast)
     pb: target.pb ?? src.pb,
     weekHigh: target.weekHigh ?? src.weekHigh,
     weekLow: target.weekLow ?? src.weekLow,
+    avgVolume: target.avgVolume ?? src.avgVolume,
   };
 }
 
@@ -512,8 +515,8 @@ function assemble(
     return q;
   });
   for (const y of yahoo) {
-    const pseSym = y.id.replace(/\.PS$/i, "");
-    if (/\.PS$/i.test(y.id) && quotes[pseSym]?.kind === "stock") {
+    const pseSym = pseTickerFromYahoo(y.id);
+    if (pseSym && quotes[pseSym]?.kind === "stock") {
       quotes[pseSym] = overlayFund(quotes[pseSym]!, y);
       continue;
     }

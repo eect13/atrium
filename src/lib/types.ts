@@ -17,8 +17,8 @@ export type ScreenId = ScreenerId;
 export type StockTape = "auto" | "yahoo";
 
 export const STOCK_TAPES = [
-  { id: "auto" as const, label: "Auto", blurb: "PSE last from phisix. Global last, sparks, and PE from Yahoo." },
-  { id: "yahoo" as const, label: "Yahoo", blurb: "Last, sparks, and PE from Yahoo — including .PS names." },
+  { id: "auto" as const, label: "Auto", blurb: "PSE last from this desk. Yahoo for the PSEi index, global last, sparks, and PE." },
+  { id: "yahoo" as const, label: "Yahoo", blurb: "Same as Auto — Yahoo dropped .PS names, so PSE last stays on this desk." },
 ] as const;
 
 export function normalizeStockTape(raw?: string): StockTape {
@@ -290,6 +290,7 @@ export const WATCH_CATALOG: WatchItem[] = [
   { id: "eurphp", symbol: "EURPHP", label: "EUR/PHP", name: "Euro", kind: "fx" },
   { id: "jpyphp", symbol: "JPYPHP", label: "JPY/PHP", name: "Yen", kind: "fx" },
   { id: "gbpphp", symbol: "GBPPHP", label: "GBP/PHP", name: "Pound", kind: "fx" },
+  { id: "psei", symbol: "PSEI.PS", label: "PSEi", name: "PSEi INDEX", kind: "global" },
   { id: "spx", symbol: "^GSPC", label: "S&P 500", name: "S&P 500", kind: "global" },
   { id: "dji", symbol: "^DJI", label: "DJIA", name: "Dow Jones", kind: "global" },
   { id: "ixic", symbol: "^IXIC", label: "Nasdaq", name: "Nasdaq Composite", kind: "global" },

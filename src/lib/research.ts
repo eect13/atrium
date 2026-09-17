@@ -3,6 +3,7 @@ import { parseRss } from "./feeds.ts";
 import { cleanHeadline } from "./headline.ts";
 import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
+import { PSEI_SYMBOL } from "./yahoo.ts";
 
 export type ResearchNote = {
   ticker: string;
@@ -106,6 +107,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
 
   const tags: string[] = [];
   if (inSleeve(BLUECHIPS, code, ticker, row.item.id)) tags.push("PSEi");
+  if (code === PSEI_SYMBOL || ticker === "PSEi") tags.push("PSEi");
   if (inSleeve(REITS, code, ticker)) tags.push("REIT");
   if (inSleeve(DIVIDENDS, code, ticker)) tags.push("DivY");
   if (q?.kind === "crypto") tags.push("Crypto");
@@ -206,7 +208,11 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   } else if (q?.kind === "fx") {
     next.push("Peso cross. Session change is the whole signal.");
   } else if (q?.kind === "global") {
-    next.push("Yahoo last, delayed. Index levels are native units, not a peso conversion.");
+    next.push(
+      code === PSEI_SYMBOL
+        ? "Yahoo still publishes the PSEi index. The 30 names last on this desk — Yahoo dropped .PS listings."
+        : "Yahoo last, delayed. Index levels are native units, not a peso conversion.",
+    );
   } else if (q?.kind === "cmdty") {
     next.push("Yahoo futures last, delayed. Treat the session box as the only tape this desk has.");
   }
@@ -221,6 +227,11 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   }
   if (q?.pb && q.pb > 0) {
     expert.push(q.pb < 1 ? `P/B ${q.pb.toFixed(1)} — below book.` : `P/B ${q.pb.toFixed(1)}.`);
+  }
+  if (q?.volume && q.avgVolume && q.avgVolume > 0 && q.kind !== "stock") {
+    const r = q.volume / q.avgVolume;
+    if (r >= 1.8) expert.push(`Volume ${r.toFixed(1)}× the 10-day typical.`);
+    else if (r <= 0.5) expert.push(`Volume ${r.toFixed(1)}× typical — quiet tape.`);
   }
   if (!expert.length) expert.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
 
@@ -252,7 +263,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     asOf: `${stamped} ${z.tz.replace(/_/g, " ")}`,
     last: last != null ? moneyShown(last, ccy) : "-",
     change: ch == null ? "-" : `${ch >= 0 ? "+" : ""}${ch.toFixed(2)}%`,
-    volume: q ? (q.kind === "crypto" ? `Vol ${vol(q.volume ?? 0)}` : phpQuote(turnover(q))) : "-",
+    volume: q ? (q.kind === "crypto" ? `Vol ${vol(q.volume ?? 0)}` : turnover(q) ? phpQuote(turnover(q)) : "-") : "-",
     high: moneyShown(high, ccy),
     low: moneyShown(low, ccy),
     support: moneyShown(support, ccy),

@@ -67,6 +67,7 @@ import { buildResearch, downloadPdf, fetchRelatedStories, researchPdf } from "@/
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
+import { PSEI_SYMBOL } from "@/lib/yahoo";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
 
@@ -79,6 +80,8 @@ function fxToPhp(unit: (typeof FX_UNITS)[number], fx: { usdphp: number; eurphp: 
 }
 
 function asItem(q: MarketQuote, kind: WatchItem["kind"]): WatchItem {
+  const catalog = WATCH_CATALOG.find((w) => w.symbol === q.id || (kind === "stock" && w.symbol === q.label));
+  if (catalog) return catalog;
   return {
     id: kind === "stock" ? `pse-${q.id}` : q.id,
     symbol: q.id,
@@ -222,6 +225,7 @@ export function FinanceMarkets() {
     staleTime: 60_000,
   });
   const tape = [
+    quotes[PSEI_SYMBOL],
     quotes.BDO,
     quotes.ICT,
     quotes.SM,
@@ -231,6 +235,11 @@ export function FinanceMarkets() {
     quotes.bitcoin ?? quotes.BTC,
     quotes.ethereum ?? quotes.ETH,
   ].filter((q): q is MarketQuote => Boolean(q));
+  const psei = quotes[PSEI_SYMBOL];
+  const pseiWeek =
+    psei?.weekLow != null && psei.weekHigh != null && psei.weekHigh > psei.weekLow
+      ? Math.round(Math.min(1, Math.max(0, (psei.price - psei.weekLow) / (psei.weekHigh - psei.weekLow))) * 100)
+      : null;
 
   const watching = (item: WatchItem) => watch.some((w) => w.symbol === item.symbol || w.id === item.id);
   const watched = (item: WatchItem) => watch.find((w) => w.symbol === item.symbol || w.id === item.id);
@@ -244,6 +253,7 @@ export function FinanceMarkets() {
       out.push({ id, kind });
     };
     for (const w of watch) push(w.symbol, w.kind);
+    push(PSEI_SYMBOL, "global");
     if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
       for (const c of WATCH_CATALOG.filter((w) => w.kind === tab)) push(c.symbol, c.kind);
     }
@@ -667,6 +677,41 @@ export function FinanceMarkets() {
         </button>
       </div>
 
+      {psei ? (
+        <button
+          type="button"
+          className="mb-4 flex w-full items-center gap-3 rounded-md bg-card px-4 py-3 text-left shadow-[var(--shadow-border)]"
+          onClick={() => {
+            const item = asItem(psei, "global");
+            setOpen({ key: psei.id, item, q: psei, watching: watching(item) });
+          }}
+        >
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">PSEi</p>
+            <p className="font-display text-2xl tabular-nums">{moneyQuote(psei.price, psei.ccy)}</p>
+            <p className="text-xs text-muted-foreground">
+              {pseiWeek != null ? `${pseiWeek}% of 52w` : "Yahoo index"}
+              {psei.weekLow && psei.weekHigh
+                ? ` · ${moneyQuote(psei.weekLow, psei.ccy)}–${moneyQuote(psei.weekHigh, psei.ccy)}`
+                : ""}
+            </p>
+          </div>
+          <ChangePill value={psei.change} />
+          {marketPrefs.spark ? (
+            <Spark
+              values={remoteSparks[PSEI_SYMBOL] ?? psei.spark}
+              up={(psei.change ?? 0) >= 0}
+              className="ml-auto hidden h-10 w-28 sm:block"
+            />
+          ) : null}
+        </button>
+      ) : quotesPending ? (
+        <div className="mb-4 rounded-md bg-card px-4 py-3 shadow-[var(--shadow-border)]">
+          <Skeleton className="h-3 w-10" />
+          <Skeleton className="mt-2 h-7 w-28" />
+        </div>
+      ) : null}
+
       {marketPrefs.showTape ? (
         <div className="mb-4 flex gap-3 overflow-x-auto pb-1" aria-busy={quotesPending || undefined}>
           {tape.length ? (
@@ -845,8 +890,8 @@ export function FinanceMarkets() {
           {tab === "blue" ? (
             <p className="mt-3 px-5 text-xs text-muted-foreground">
               {indexQ.data?.source === "live"
-                ? `Official PSEi 30 · live from Wikipedia${indexQ.data.asOf ? ` · ${indexQ.data.asOf}` : ""}.`
-                : "Official PSEi 30 as of 3 Aug 2026 (PSE CN-2026-0035). Live will pull Wikipedia."}
+                ? `Official PSEi 30 · live from Wikipedia${indexQ.data.asOf ? ` · ${indexQ.data.asOf}` : ""}. Index last from Yahoo.`
+                : "Official PSEi 30 as of 3 Aug 2026 (PSE CN-2026-0035). Index last from Yahoo. Live will pull Wikipedia."}
             </p>
           ) : null}
           <p className="mt-3 px-5 text-xs text-muted-foreground">
@@ -854,7 +899,7 @@ export function FinanceMarkets() {
               ? "Yahoo list of up to 100 names, then PE, cap, volume, and yield on this desk. Delayed, not a full-market screen, not for trading."
               : tab === "global" || tab === "cmdty"
                 ? "Last from Yahoo Finance. Delayed, not for trading. Commodities stay in dollars unless you turn on peso convert."
-                : `Spark range is on the board — ${SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use Binance, FX uses Frankfurter, PSE uses this desk's tape. Not for trading.`}
+                : `Spark range is on the board — ${SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use Binance, FX uses Frankfurter, PSE names use this desk's tape. PSEi last from Yahoo. Not for trading.`}
           </p>
           {markets.isError || markets.data?.failed ? (
             <button type="button" className="mt-2 px-5 text-xs underline" onClick={() => void markets.refetch()}>

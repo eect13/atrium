@@ -83,7 +83,6 @@ test("related news query is ticker-aware", () => {
   assert.match(crypto, /gl=US/);
 });
 
-
 test("isRelatedStory keeps Lopez and drops noise", () => {
   const item = { label: "LPZ", symbol: "LPZ", name: "Lopez Holdings Corporation", kind: "stock" };
   assert.equal(
@@ -98,4 +97,45 @@ test("rumor news query is Bilyonaryo-scoped", () => {
   const url = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
   assert.match(decodeURIComponent(url), /site:bilyonaryo.com/);
   assert.match(decodeURIComponent(url), /BDO Unibank/);
+});
+
+test("research expert reads volume vs typical on a US name", () => {
+  const row: BoardRow = {
+    key: "cost",
+    item: { id: "cost", symbol: "COST", label: "COST", name: "Costco", kind: "global" },
+    q: {
+      price: 940,
+      change: 1.1,
+      kind: "global",
+      ccy: "USD",
+      volume: 4_800_000,
+      avgVolume: 2_000_000,
+      pe: 52,
+      weekLow: 800,
+      weekHigh: 1000,
+    },
+    watching: false,
+  };
+  const note = buildResearch(row);
+  assert.match(note.expert.join(" "), /2\.4× the 10-day typical/);
+});
+
+test("research expert on the PSEi index uses the 52-week box", () => {
+  const row: BoardRow = {
+    key: "psei",
+    item: { id: "psei", symbol: "PSEI.PS", label: "PSEi", name: "PSEi INDEX", kind: "global" },
+    q: {
+      price: 5958.64,
+      change: 0.7,
+      kind: "global",
+      ccy: "PHP",
+      weekLow: 5902,
+      weekHigh: 7552.2,
+    },
+    watching: false,
+  };
+  const note = buildResearch(row);
+  assert.match(note.index, /PSEi/);
+  assert.match(note.expert.join(" "), /of the 52-week range/);
+  assert.match(note.next.join(" "), /dropped \.PS/);
 });

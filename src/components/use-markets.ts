@@ -6,6 +6,7 @@ import { rememberTape } from "@/lib/sparks";
 import { useAtrium } from "@/lib/store";
 import { WATCH_CATALOG, type QuoteCcy } from "@/lib/types";
 import { regionOf } from "@/lib/region";
+import { YAHOO_CORE_TAPE } from "@/lib/yahoo";
 
 const MARKET_SNAP = "atrium.markets.snap";
 
@@ -40,17 +41,12 @@ export function useMarkets() {
   const boardQuery = useAtrium((s) => s.boardQuery);
   const searching = boardQuery.trim().length > 0;
   const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
-  const wantYahoo =
-    marketsOn &&
-    (searching ||
-      tab === "global" ||
-      tab === "cmdty" ||
-      watch.some((w) => w.kind === "global" || w.kind === "cmdty" || w.kind === "stock"));
+  const wantYahoo = marketsOn;
   const yahoo = wantYahoo
     ? [
         ...new Set([
+          ...YAHOO_CORE_TAPE,
           ...watch.filter((w) => w.kind === "global" || w.kind === "cmdty").map((w) => w.symbol),
-          ...watch.filter((w) => w.kind === "stock").map((w) => `${w.symbol.replace(/\.PS$/i, "")}.PS`),
           ...(tab === "global" || searching
             ? WATCH_CATALOG.filter((w) => w.kind === "global").map((w) => w.symbol)
             : []),
@@ -63,7 +59,6 @@ export function useMarkets() {
   const screener = marketsOn && tab === "screen" ? screen : undefined;
   const yahooRegion = regionOf(region).yahoo;
   const wantPse =
-    stockTape !== "yahoo" &&
     marketsOn &&
     (searching ||
       tab === "all" ||

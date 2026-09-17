@@ -152,6 +152,7 @@ export type TapeQuote = {
   usd?: number;
   spark?: number[];
   volume?: number;
+  avgVolume?: number;
   name?: string;
   high?: number;
   low?: number;
