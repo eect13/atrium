@@ -74,7 +74,7 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.2.18 (personal dashboard)";
+const UA = "Atrium/1.2.19 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
@@ -116,6 +116,25 @@ type MetRow = {
   };
 };
 
+async function getWeather(url: URL, ms: number, tries = 2): Promise<Response | null> {
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(ms) });
+      if (res.status === 429 && i + 1 < tries) {
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+        continue;
+      }
+      return res;
+    } catch {
+      if (i + 1 < tries) continue;
+      return null;
+    }
+  }
+  return null;
+}
+
+const weatherInflight = new Map<string, Promise<WeatherPayload>>();
+
 async function fromAirQuality(lat: number, lon: number): Promise<number | undefined> {
   const url = new URL("https://air-quality-api.open-meteo.com/v1/air-quality");
   url.searchParams.set("latitude", String(lat));
@@ -123,8 +142,8 @@ async function fromAirQuality(lat: number, lon: number): Promise<number | undefi
   url.searchParams.set("current", "us_aqi");
   url.searchParams.set("timezone", deskZone().tz);
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
-    if (!res.ok) return undefined;
+    const res = await getWeather(url, FETCH_MS);
+    if (!res?.ok) return undefined;
     const json = (await res.json()) as { current?: { us_aqi?: number } };
     const n = json.current?.us_aqi;
     return typeof n === "number" && Number.isFinite(n) ? n : undefined;
@@ -149,11 +168,10 @@ async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload |
   url.searchParams.set("timezone", deskZone().tz);
   url.searchParams.set("forecast_days", "7");
   url.searchParams.set("forecast_hours", "24");
-  url.searchParams.set("models", "best_match");
   url.searchParams.set("cell_selection", "nearest");
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
-    if (!res.ok) return null;
+    const res = await getWeather(url, FETCH_MS);
+    if (!res?.ok) return null;
     const json = (await res.json()) as WeatherPayload & { error?: boolean };
     if (json.error || !json.current || !json.daily) return null;
     return json;
@@ -264,13 +282,19 @@ export const fetchWeather = createServerFn({ method: "POST" })
     const key = cacheKey(data.lat, data.lon);
     const hit = cache.get(key);
     if (hit && hit.exp > Date.now()) return hit.data;
-    const payload = await firstWeather(data.lat, data.lon);
-    if (payload && !payload.error) {
-      cache.set(key, { exp: Date.now() + CACHE_MS, staleExp: Date.now() + STALE_MS, data: payload });
-      return payload;
-    }
-    if (hit && hit.staleExp > Date.now()) return hit.data;
-    return { error: true };
+    const pending = weatherInflight.get(key);
+    if (pending) return pending;
+    const run = (async (): Promise<WeatherPayload> => {
+      const payload = await firstWeather(data.lat, data.lon);
+      if (payload && !payload.error) {
+        cache.set(key, { exp: Date.now() + CACHE_MS, staleExp: Date.now() + STALE_MS, data: payload });
+        return payload;
+      }
+      if (hit && hit.staleExp > Date.now()) return hit.data;
+      return { error: true };
+    })().finally(() => weatherInflight.delete(key));
+    weatherInflight.set(key, run);
+    return run;
   });
 
 export type PlaceHit = { city: string; lat: number; lon: number; detail?: string };

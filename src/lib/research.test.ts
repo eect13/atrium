@@ -306,6 +306,52 @@ test("CFA desk splits valuation tape index and gap", () => {
   assert.match(note.tape.join(" "), /52-week range/);
   assert.match(note.indexFactor.join(" "), /7\.63%/);
   assert.match(note.gap.join(" "), /not a DCF/i);
+  assert.equal(note.metrics.roe, "12.72%");
+  assert.equal(note.metrics.nim, "4.20%");
+  assert.match(note.valuation.join(" "), /H1 2026/);
+  assert.match(note.cfaMethod, /Residual income/);
+});
+
+test("BDO with a book multiple gets a worked P/B identity, not a target", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: {
+      price: 138,
+      change: 0.4,
+      kind: "stock",
+      ccy: "PHP",
+      php: 138,
+      pe: 7.05,
+      pb: 0.93,
+      yieldPct: 3.85,
+      forwardPe: 6.59,
+    },
+    watching: true,
+  };
+  const note = buildResearch(row);
+  assert.equal(note.metrics.pe, "7.05");
+  assert.equal(note.metrics.pb, "0.93");
+  assert.equal(note.metrics.roe, "12.72%");
+  assert.equal(note.metrics.cet1, "13.10%");
+  assert.match(note.valuation.join(" "), /justified P\/B 1\.10/);
+  assert.match(note.valuation.join(" "), /tape 0\.93/);
+  assert.match(note.gap.join(" "), /public tape/);
+  const body = new TextDecoder().decode(researchPdf(note));
+  assert.match(body, /ROE 12.72%/);
+});
+
+test("MBT filing does not invent a NIM", () => {
+  const row: BoardRow = {
+    key: "mbt",
+    item: { id: "mbt", symbol: "MBT", label: "MBT", name: "Metrobank", kind: "stock" },
+    q: { price: 70, change: 0.2, kind: "stock", ccy: "PHP", php: 70 },
+    watching: false,
+  };
+  const note = buildResearch(row);
+  assert.equal(note.metrics.roe, "11.98%");
+  assert.equal(note.metrics.nim, "—");
+  assert.doesNotMatch(note.valuation.join(" "), /NIM /);
 });
 test("InsiderPH BDO copy is this issuer, ads and charts are not desk copy", () => {
   const item = { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" };

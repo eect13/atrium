@@ -5,6 +5,7 @@ import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 import { nameWeight, PSEI_WEIGHTS, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
+import { bankFiling, justifiedPb } from "./pse-fundamentals.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -37,7 +38,7 @@ export type ResearchNote = {
   tape: string[];
   indexFactor: string[];
   gap: string[];
-  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; vol: string };
+  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; vol: string; roe: string; nim: string; npl: string; cet1: string };
 };
 
 function ascii(s: string) {
@@ -73,7 +74,10 @@ function moneyShown(n: number | undefined, ccy: string) {
 }
 
 function peFmt(n: number) {
-  return n >= 100 ? n.toFixed(0) : n.toFixed(1);
+  if (n >= 100) return n.toFixed(0);
+  const two = n.toFixed(2);
+  if (n < 20 && !two.endsWith("0")) return two;
+  return n.toFixed(1);
 }
 
 function peTake(pe?: number, fwd?: number) {
@@ -229,7 +233,11 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   }
   next.push("Read the related headlines before you size anything.");
 
-  const cfaMethod = "Relative value and tape. Not a DCF, not a target.";
+  const bank = inSleeve(BANK_TICKERS, code, ticker);
+  const filing = bank ? bankFiling(code) ?? bankFiling(ticker) : undefined;
+  const cfaMethod = bank
+    ? "Residual income / P/B and tape. Last-reported bank ratios, not a live print. Not a DCF, not a target."
+    : "Relative value and tape. Not a DCF, not a target.";
   const issuerLine = issuerDisplay({
     label: ticker,
     symbol: code,
@@ -244,7 +252,6 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
 
   if (peLine) valuation.push(peLine);
   if (yLine) valuation.push(yLine);
-  const bank = inSleeve(BANK_TICKERS, code, ticker);
   if (q?.pb && q.pb > 0) {
     valuation.push(
       bank
@@ -255,6 +262,23 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     );
   } else if (bank && q?.kind === "stock") {
     valuation.push("Universal bank. CFA method is residual income / P/B: justified P/B = (ROE − g) / (r − g). No book multiple on this tape, so no justified multiple.");
+  }
+  if (filing) {
+    const bits = [`ROE ${filing.roe.toFixed(2)}%`];
+    if (filing.nim != null) bits.push(`NIM ${filing.nim.toFixed(2)}%`);
+    bits.push(`NPL ${filing.npl.toFixed(2)}%`, `CET1 ${filing.cet1.toFixed(2)}%`);
+    valuation.push(`Last reported ${filing.asOf} (${filing.asOfDate}): ${bits.join(" · ")}. ${filing.source}.`);
+    const just = q?.pb && q.pb > 0 ? justifiedPb(filing.roe) : null;
+    if (just != null && q?.pb && q.pb > 0) {
+      valuation.push(
+        `Worked identity at r 12% / g 5% (labeled, not a target): justified P/B ${just.toFixed(2)} vs tape ${q.pb.toFixed(2)}.`,
+      );
+    }
+    if (q?.roe && q.roe > 0 && Math.abs(q.roe - filing.roe) >= 0.15) {
+      valuation.push(`Public-tape TTM ROE ${q.roe.toFixed(2)}% vs last-reported ${filing.asOf} ${filing.roe.toFixed(2)}%.`);
+    }
+  } else if (q?.roe && q.roe > 0 && q?.kind === "stock") {
+    valuation.push(`Public-tape TTM ROE ${q.roe.toFixed(2)}%.`);
   }
   if (inSleeve(REITS, code, ticker)) {
     valuation.push("REIT. CFA real-estate work is yield and NAV, not a manufacturing P/E.");
@@ -289,10 +313,14 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     /* index take already on the sheet */
   } else if (q?.kind === "stock" && q.pe == null && !(q.pb && q.pb > 0)) {
     if (!gap.some((l) => /tape and levels only/i.test(l))) {
-      gap.push("Yahoo dropped .PS fundamentals. No trailing PE or P/B on this tape. Relative value waits on EDGE. Not a DCF, not a target.");
+      gap.push("Yahoo dropped .PS fundamentals. Public multiples are still empty on this tape. Last-reported bank ratios are filings, not a live print. Not a DCF, not a target.");
     }
   } else if (q?.kind === "stock") {
-    gap.push("Relative value and tape only. Not a DCF, not a target.");
+    gap.push(
+      q.pe || (q.pb && q.pb > 0)
+        ? "Multiples from the public tape (not Yahoo .PS). Bank ratios are last reported. Not a DCF, not a target."
+        : "Relative value and tape only. Not a DCF, not a target.",
+    );
   }
 
   const expert = [...valuation, ...tape, ...indexFactor, ...gap];
@@ -310,6 +338,10 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     wt: wt != null ? `${wt.toFixed(2)}%` : "—",
     week: weekPct ?? "—",
     vol: volRatio ?? "—",
+    roe: filing?.roe != null ? `${filing.roe.toFixed(2)}%` : q?.roe && q.roe > 0 ? `${q.roe.toFixed(2)}%` : "—",
+    nim: filing?.nim != null ? `${filing.nim.toFixed(2)}%` : "—",
+    npl: filing?.npl != null ? `${filing.npl.toFixed(2)}%` : "—",
+    cet1: filing?.cet1 != null ? `${filing.cet1.toFixed(2)}%` : "—",
   };
 
   const suggestions = [...watch, ...risk, ...next];
@@ -402,6 +434,10 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     { text: `Bias  ${note.bias}    Range  ${note.rangePos}`, size: 12, bold: true, gap: 18 },
     { text: "SNAPSHOT", size: 9, bold: true, gap: 12 },
     { text: `High ${note.high}    Low ${note.low}`, size: 10, gap: 12 },
+    { text: `PE ${note.metrics.pe}    E/P ${note.metrics.ep}    P/B ${note.metrics.pb}    Yld ${note.metrics.yld}`, size: 10, gap: 12 },
+    ...(note.metrics.roe !== "—"
+      ? [{ text: `ROE ${note.metrics.roe}    NIM ${note.metrics.nim}    NPL ${note.metrics.npl}    CET1 ${note.metrics.cet1}`, size: 10, gap: 12 } as PdfLine]
+      : []),
     { text: `Support ${note.support}    Pivot ${note.pivot}    Resistance ${note.resistance}`, size: 10, gap: 18 },
     { text: "STANDPOINT", size: 9, bold: true, gap: 14 },
     ...note.thesis.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),

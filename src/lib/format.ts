@@ -145,7 +145,8 @@ export function hourInTZ(d: Date = new Date()) {
 }
 
 export function addDays(d: Date, n: number) {
-  return new Date(d.getTime() + n * 86_400_000);
+  const p = manilaParts(d);
+  return fromManila(p.year, p.month, p.day + n, p.hour, p.minute);
 }
 
 export function sameDay(a: string | Date, b: string | Date) {

@@ -163,6 +163,7 @@ export type TapeQuote = {
   yieldPct?: number;
   forwardPe?: number;
   pb?: number;
+  roe?: number;
   weekHigh?: number;
   weekLow?: number;
 };

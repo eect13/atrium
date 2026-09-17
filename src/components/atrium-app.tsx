@@ -22,6 +22,7 @@ import { AtriumBadge } from "@/components/atrium-mark";
 import { ThemeSync, ThemeToggle } from "@/components/theme-toggle";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 const DesktopLayer = lazy(() =>
   import("@/components/desktop-layer").then((m) => ({ default: m.DesktopLayer })),
@@ -145,7 +146,30 @@ async function pullFeeds(list: Feed[]) {
 }
 
 function ViewFallback() {
-  return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  const region = useAtrium((s) => s.profile.region);
+  const z = deskZone();
+  const today = new Date();
+  return (
+    <div className="p-1">
+      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Today</p>
+      <p className="mt-1 font-display text-2xl font-medium tracking-tight">
+        {today.toLocaleDateString(z.locale, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          timeZone: z.tz,
+        })}
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {today.toLocaleDateString(z.locale, { year: "numeric", timeZone: z.tz })}
+        {` · ${regionOf(region).name}`}
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Skeleton className="h-28 rounded-lg" />
+        <Skeleton className="h-28 rounded-lg" />
+      </div>
+    </div>
+  );
 }
 
 function DeskClock() {
@@ -332,6 +356,13 @@ export function AtriumApp() {
   }, [cmd]);
 
   useEffect(() => rememberMainWindow(), []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void import("@/components/views/dashboard-view");
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, []);
 
   useEffect(() => {
     const ac = new AbortController();

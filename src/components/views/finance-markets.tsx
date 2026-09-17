@@ -63,6 +63,7 @@ import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
+import { fetchPseStats, overlayStats } from "@/lib/pse-fundamentals";
 import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, type RelatedStory } from "@/lib/research";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
 import { mixStories } from "@/lib/headline";
@@ -1285,8 +1286,19 @@ function QuoteSheet({
   const [qty, setQty] = useState(held?.qty != null ? String(held.qty) : "");
   const [avg, setAvg] = useState(held?.avg != null ? String(held.avg) : "");
   const [pdfHref, setPdfHref] = useState<string | null>(null);
-  const note = buildResearch(row);
-  const shown = displayLast(row.q, { cryptoUsdt });
+  const ticker = (row.item.symbol || row.item.label).replace(/^\^/, "").replace(/\.PS$/i, "");
+  const statsQ = useQuery({
+    queryKey: ["pse-stats", ticker],
+    queryFn: () => fetchPseStats({ data: { ticker } }),
+    enabled: row.item.kind === "stock" && /^[A-Z][A-Z0-9]{1,5}$/i.test(ticker),
+    staleTime: 6 * 60 * 60_000,
+    gcTime: 24 * 60 * 60_000,
+    retry: 1,
+  });
+  const q = row.q ? overlayStats(row.q, statsQ.data) : row.q;
+  const sheetRow = q !== row.q && q ? { ...row, q } : row;
+  const note = buildResearch(sheetRow);
+  const shown = displayLast(sheetRow.q, { cryptoUsdt });
   const phpUnder = dualPhp && shown?.php != null && shown.ccy !== "PHP" ? phpQuote(shown.php) : null;
   const qtyN = parseNum(qty);
   const avgN = parseNum(avg);
@@ -1326,6 +1338,9 @@ function QuoteSheet({
       <div className="rounded-lg bg-muted p-4">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">CFA desk</p>
         <p className="mt-1 text-xs text-muted-foreground">{note.cfaMethod}</p>
+        {statsQ.data?.source ? (
+          <p className="mt-1 text-xs text-muted-foreground">PE / P/B / yield from the public tape. Bank ratios last reported.</p>
+        ) : null}
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(
             [
@@ -1333,11 +1348,17 @@ function QuoteSheet({
               ["E/P", note.metrics.ep],
               ["P/B", note.metrics.pb],
               ["Yield", note.metrics.yld],
+              ["ROE", note.metrics.roe],
+              ["NIM", note.metrics.nim],
+              ["NPL", note.metrics.npl],
+              ["CET1", note.metrics.cet1],
               ["PSEi wt", note.metrics.wt],
               ["52w", note.metrics.week],
               ["Vol", note.metrics.vol],
             ] as const
-          ).map(([k, v]) => (
+          )
+            .filter(([k, v]) => v !== "—" || (k !== "ROE" && k !== "NIM" && k !== "NPL" && k !== "CET1"))
+            .map(([k, v]) => (
             <div key={k}>
               <p className="text-xs uppercase tracking-widest text-muted-foreground">{k}</p>
               <p className="text-sm tabular-nums">{v}</p>
@@ -1380,14 +1401,14 @@ function QuoteSheet({
             {note.volume}
             {note.change !== "-" ? ` · ${note.change}` : ""}
           </p>
-          {row.q?.pe || row.q?.marketCap || row.q?.yieldPct || row.q?.forwardPe || row.q?.pb ? (
+          {sheetRow.q?.pe || sheetRow.q?.marketCap || sheetRow.q?.yieldPct || sheetRow.q?.forwardPe || sheetRow.q?.pb ? (
             <p className="mt-1 text-xs text-muted-foreground">
               {[
-                peLabel(row.q?.pe),
-                row.q?.forwardPe ? `Fwd ${row.q.forwardPe >= 100 ? row.q.forwardPe.toFixed(0) : row.q.forwardPe.toFixed(1)}` : "",
-                row.q?.marketCap ? capLabel(row.q.marketCap) : "",
-                yldLabel(row.q?.yieldPct),
-                row.q?.pb ? `P/B ${row.q.pb.toFixed(1)}` : "",
+                peLabel(sheetRow.q?.pe),
+                sheetRow.q?.forwardPe ? `Fwd ${sheetRow.q.forwardPe >= 100 ? sheetRow.q.forwardPe.toFixed(0) : sheetRow.q.forwardPe.toFixed(1)}` : "",
+                sheetRow.q?.marketCap ? capLabel(sheetRow.q.marketCap) : "",
+                yldLabel(sheetRow.q?.yieldPct),
+                sheetRow.q?.pb ? `P/B ${sheetRow.q.pb.toFixed(2)}` : "",
               ]
                 .filter(Boolean)
                 .join(" · ")}

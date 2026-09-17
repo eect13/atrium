@@ -16,7 +16,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/books.test.ts src/lib/dash.test.ts src/lib/desk-search.test.ts src/lib/desk.test.ts src/lib/feeds.test.ts src/lib/format.test.ts src/lib/issuer.test.ts src/lib/market-board.test.ts src/lib/native-float.test.ts src/lib/pse-index.test.ts src/lib/psei-weight.test.ts src/lib/profile-desk.test.ts src/lib/quotes.test.ts src/lib/rain.test.ts src/lib/region.test.ts src/lib/research.test.ts src/lib/screener.test.ts src/lib/sparks.test.ts src/lib/weather.test.ts src/lib/yahoo.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/books.test.ts src/lib/dash.test.ts src/lib/desk-search.test.ts src/lib/desk.test.ts src/lib/feeds.test.ts src/lib/format.test.ts src/lib/issuer.test.ts src/lib/market-board.test.ts src/lib/native-float.test.ts src/lib/pse-fundamentals.test.ts src/lib/pse-index.test.ts src/lib/psei-weight.test.ts src/lib/profile-desk.test.ts src/lib/quotes.test.ts src/lib/rain.test.ts src/lib/region.test.ts src/lib/research.test.ts src/lib/screener.test.ts src/lib/sparks.test.ts src/lib/weather.test.ts src/lib/yahoo.test.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "deploy": "node scripts/deploy.mjs",
@@ -102,6 +102,6 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0"
   },
-  "version": "1.2.18",
+  "version": "1.2.19",
   "description": "Atrium — personal command center (Asia/Manila, atrium.v1)."
 }
