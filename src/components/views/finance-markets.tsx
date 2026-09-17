@@ -63,7 +63,7 @@ import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
-import { buildResearch, downloadPdf, fetchRelatedStories, researchPdf, type RelatedStory } from "@/lib/research";
+import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, type RelatedStory } from "@/lib/research";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
@@ -1130,8 +1130,9 @@ export function FinanceMarkets() {
 }
 
 function RelatedNews({ item }: { item: WatchItem }) {
+  const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, "v5"],
+    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v6"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -1141,37 +1142,47 @@ function RelatedNews({ item }: { item: WatchItem }) {
   const facts = items.filter((s) => s.lane !== "rumor");
   const rumors = items.filter((s) => s.lane === "rumor");
 
-  function lane(title: string, rows: RelatedStory[]) {
-    if (!rows.length) return null;
+  function lane(title: string, rows: RelatedStory[], empty: string) {
     return (
       <div>
-        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{title}</p>
-        <div className="mt-2 space-y-2">
-          {rows.map((n) => (
-            <a
-              key={`${n.link}-${n.title}`}
-              href={n.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-sm leading-snug hover:underline"
-            >
-              <span className="block">{n.title}</span>
-              <span className="text-xs text-muted-foreground">
-                {n.src}
-                {n.date
-                  ? ` · ${new Date(n.date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
-                  : ""}
-              </span>
-            </a>
-          ))}
-        </div>
+        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+          {title}
+          {rows.length ? ` · ${rows.length}` : ""}
+        </p>
+        {rows.length ? (
+          <div className="mt-2 space-y-2">
+            {rows.map((n) => (
+              <a
+                key={`${n.link}-${n.title}`}
+                href={n.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-sm leading-snug hover:underline"
+              >
+                <span className="block">{n.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {n.src}
+                  {n.date
+                    ? ` · ${new Date(n.date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                    : ""}
+                </span>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">{empty}</p>
+        )}
       </div>
     );
   }
 
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Latest news</p>
+      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Facts vs rumors</p>
+      <p className="mt-1 text-sm">{issuer.line}</p>
+      <p className="text-xs text-muted-foreground">
+        Matched to {issuer.ticker} — this issuer, not a ticker collision. Latest five when the wires have copy.
+      </p>
       {news.isPending && !items.length ? (
         <div className="mt-2 space-y-2" aria-busy>
           <Skeleton className="h-4 w-full" />
@@ -1186,12 +1197,10 @@ function RelatedNews({ item }: { item: WatchItem }) {
         >
           Couldn’t load related news — retry
         </button>
-      ) : !items.length ? (
-        <p className="mt-2 text-sm text-muted-foreground">No related stories right now.</p>
       ) : (
-        <div className="mt-2 space-y-4">
-          {lane("Facts", facts)}
-          {lane("Rumors", rumors)}
+        <div className="mt-3 space-y-4">
+          {lane("Facts", facts, "No related fact copy on the wires right now.")}
+          {lane("Rumors", rumors, "No rumor copy on the wires right now.")}
         </div>
       )}
     </div>
@@ -1286,7 +1295,10 @@ function QuoteSheet({
     <div className="space-y-3">
       <div className="flex items-center gap-3">
         <TickMark label={row.item.label} />
-        <p className="text-sm text-muted-foreground">{row.item.name ?? row.item.kind}</p>
+        <div>
+          <p className="text-sm text-muted-foreground">{note.issuerLine || row.item.name || row.item.kind}</p>
+          <p className="text-xs text-muted-foreground">{note.index}</p>
+        </div>
       </div>
       <div className="flex items-end justify-between gap-3">
         <div>
@@ -1349,15 +1361,47 @@ function QuoteSheet({
         <p className="mt-1 text-xs text-muted-foreground">{note.index}</p>
       </div>
       <div className="rounded-lg bg-muted p-4">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">Expert</p>
-        <p className="mt-1 text-xs text-muted-foreground">CFA method — relative value and tape, not a DCF or a target.</p>
-        <ul className="mt-2 space-y-1">
-          {note.expert.map((s) => (
-            <li key={s} className="text-sm leading-snug">
-              {s}
-            </li>
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">CFA desk</p>
+        <p className="mt-1 text-xs text-muted-foreground">{note.cfaMethod}</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(
+            [
+              ["PE", note.metrics.pe],
+              ["E/P", note.metrics.ep],
+              ["P/B", note.metrics.pb],
+              ["Yld", note.metrics.yld],
+              ["Wt", note.metrics.wt],
+              ["52w", note.metrics.week],
+              ["Vol", note.metrics.vol],
+            ] as const
+          ).map(([k, v]) => (
+            <div key={k}>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">{k}</p>
+              <p className="text-sm tabular-nums">{v}</p>
+            </div>
           ))}
-        </ul>
+        </div>
+        {(
+          [
+            { title: "Valuation", items: note.valuation },
+            { title: "Tape", items: note.tape },
+            { title: "Index", items: note.indexFactor },
+            { title: "Gap", items: note.gap },
+          ] as const
+        )
+          .filter((g) => g.items.length)
+          .map((g) => (
+            <div key={g.title} className="mt-3">
+              <p className="text-xs text-muted-foreground">{g.title}</p>
+              <ul className="mt-1 space-y-1">
+                {g.items.map((line) => (
+                  <li key={line} className="text-sm leading-snug">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
       </div>
       {isPseiItem(row.item) ? <WeightingCard /> : null}
       <div>

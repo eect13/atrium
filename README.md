@@ -2,7 +2,7 @@
 
 Personal command center. Times and quotes are Asia/Manila. Data stays on this device (`atrium.v1`).
 
-**Version 1.2.16**
+**Version 1.2.17**
 
 ## Use
 
@@ -10,7 +10,7 @@ Personal command center. Times and quotes are Asia/Manila. Data stays on this de
 - Dashboard: locked by default. Unlock to drag cards or cycle width. Reset restores the factory layout. Today is a glance — pin a city on the Weather tab
 - Weather: dedicated tab for city or ZIP and Use my location. AccuWeather-style board — RealFeel, UV, US AQI, sunrise/sunset, hourly, 7-day. No map. Toggle the module in Options. ZIP 10001 is New York even on a Philippines desk
 - Calendar: Month / Week / Day / Agenda. Floating calendar is adaptive (month + day when roomy, compact when tight) with a remembered Auto / Month / Compact toggle
-- Finance: Markets first (official PSEi 30, Yahoo PSEi index last, official free-float weights from First Metro's public file, Yahoo screener with PE/cap filters, sparks, research PDF with an Expert take) and Books (cash, bank, wallet, card). Open a ticker for Facts vs Rumors (Bilyonaryo, Politiko, Abante, “in talks”) — BDO is Banco de Oro / BDO Unibank, not Luxembourg or biomass. Expert is CFA method: relative value (PE, E/P, P/B, yield), index weight, tape — not a DCF or a target. Add any name from the plus button. Stock tape in Options: Auto and Yahoo both keep PSE last on this desk — Yahoo dropped .PS listings
+- Finance: Markets first (official PSEi 30, Yahoo PSEi index last, official free-float weights from First Metro's public file, Yahoo screener with PE/cap filters, sparks, research PDF with an Expert take) and Books (cash, bank, wallet, card). Open a ticker for Facts vs Rumors (Bilyonaryo, Politiko, Abante, Manila Times, Tribune, “in talks”) — matched to the legal name (BDO is Banco de Oro / BDO Unibank, not Luxembourg or biomass). Latest five facts and five rumors when the wires have copy. CFA desk: relative value (PE, E/P, P/B, yield), bank residual income, index weight, tape, honest gaps — not a DCF or a target. Add any name from the plus button. Stock tape in Options: Auto and Yahoo both keep PSE last on this desk — Yahoo dropped .PS listings
 - Quotes: optional module. Topic chips, live search, Exact author toggle. Live public lines, shuffled on Random — desk copies only if the feed is empty
 - Notes: Windows Sticky Notes baseline — colored pads, title + body, new/delete/color, list + board, pin to float — plus format (B/I/U/S/bullets), pictures, pencil with undo. Float, color, and delete sit on the title bar and only appear when the pointer is near (always on a phone). Color is a clamped palette plus an HSL pad — no system color wheel. Delete asks first. Windows menu Notes Open floats every pad on a 3-col grid, Close unpins them — same as Weather
 - News: tagged briefing with search. Sources start off — tap Use starter feeds, or pick outlets. Whatever you leave on is restored next open
@@ -41,7 +41,7 @@ Preferred layout on Eric’s PC:
 apk.bat
 ```
 
-Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output: `deploy/android/atrium-v1.2.16-arm64-release.apk`.
+Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output: `deploy/android/atrium-v1.2.17-arm64-release.apk`.
 
 ### Dev
 

@@ -3,7 +3,7 @@ import { parseRss } from "./feeds.ts";
 import { cleanHeadline } from "./headline.ts";
 import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
-import { nameWeight, sleeveWeight, weightTake } from "./psei-weight.ts";
+import { nameWeight, PSEI_WEIGHTS, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -31,6 +31,13 @@ export type ResearchNote = {
   next: string[];
   expert: string[];
   suggestions: string[];
+  cfaMethod: string;
+  issuerLine: string;
+  valuation: string[];
+  tape: string[];
+  indexFactor: string[];
+  gap: string[];
+  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; vol: string };
 };
 
 function ascii(s: string) {
@@ -222,16 +229,24 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   }
   next.push("Read the related headlines before you size anything.");
 
-  const expert: string[] = [];
-  if (peLine) expert.push(peLine);
-  if (yLine) expert.push(yLine);
-  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
-    const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
-    expert.push(`${Math.round(Math.min(1, Math.max(0, pos)) * 100)}% of the 52-week range.`);
-  }
+  const cfaMethod = "Relative value and tape. Not a DCF, not a target.";
+  const issuerLine = issuerDisplay({
+    label: ticker,
+    symbol: code,
+    name: row.item.name,
+    kind: row.item.kind,
+  }).line;
+
+  const valuation: string[] = [];
+  const tape: string[] = [];
+  const indexFactor: string[] = [];
+  const gap: string[] = [];
+
+  if (peLine) valuation.push(peLine);
+  if (yLine) valuation.push(yLine);
   const bank = inSleeve(BANK_TICKERS, code, ticker);
   if (q?.pb && q.pb > 0) {
-    expert.push(
+    valuation.push(
       bank
         ? `P/B ${q.pb.toFixed(2)} — CFA bank valuation starts at book (residual income), not a DCF of FCF. EM universal banks often sit 0.8–1.8×.`
         : q.pb < 1
@@ -239,35 +254,63 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
           : `P/B ${q.pb.toFixed(2)}.`,
     );
   } else if (bank && q?.kind === "stock") {
-    expert.push("Universal bank. CFA method is residual income / P/B: justified P/B = (ROE − g) / (r − g). No book multiple on this tape, so no justified multiple.");
+    valuation.push("Universal bank. CFA method is residual income / P/B: justified P/B = (ROE − g) / (r − g). No book multiple on this tape, so no justified multiple.");
+  }
+  if (inSleeve(REITS, code, ticker)) {
+    valuation.push("REIT. CFA real-estate work is yield and NAV, not a manufacturing P/E.");
+  }
+
+  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
+    const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
+    tape.push(`${Math.round(Math.min(1, Math.max(0, pos)) * 100)}% of the 52-week range.`);
   }
   if (q?.volume && q.avgVolume && q.avgVolume > 0) {
     const r = q.volume / q.avgVolume;
-    if (r >= 1.8) expert.push(`Volume ${r.toFixed(1)}× the 10-day typical — CFA tape confirmation.`);
-    else if (r <= 0.5) expert.push(`Volume ${r.toFixed(1)}× typical — quiet tape.`);
+    if (r >= 1.8) tape.push(`Volume ${r.toFixed(1)}× the 10-day typical — CFA tape confirmation.`);
+    else if (r <= 0.5) tape.push(`Volume ${r.toFixed(1)}× typical — quiet tape.`);
+    else tape.push(`Volume ${r.toFixed(1)}× the 10-day typical.`);
   }
-  if (inSleeve(REITS, code, ticker)) {
-    expert.push("REIT. CFA real-estate work is yield and NAV, not a manufacturing P/E.");
-  }
+
   const wt = nameWeight(code) ?? nameWeight(ticker);
   if (wt != null) {
-    expert.push(`${ticker} is ${wt.toFixed(2)}% of the PSEi (official free-float weights) — a systematic factor in any local-equity book.`);
+    indexFactor.push(`${ticker} is ${wt.toFixed(2)}% of the PSEi (official free-float weights) — a systematic factor in any local-equity book.`);
   }
   if (bank) {
-    expert.push(`Financials sleeve (BDO, BPI, MBT, CBC) is ${sleeveWeight(["BDO", "BPI", "MBT", "CBC"]).toFixed(1)}% of the index.`);
-  }
-  if (!expert.length && !(code === PSEI_SYMBOL || ticker === "PSEi" || isPseiItem(row.item))) {
-    expert.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
+    indexFactor.push(`Financials sleeve (BDO, BPI, MBT, CBC) is ${sleeveWeight(["BDO", "BPI", "MBT", "CBC"]).toFixed(1)}% of the index.`);
   }
   if (isPseiItem(row.item) || code === PSEI_SYMBOL || ticker === "PSEi") {
-    expert.push(...weightTake());
+    indexFactor.push(...weightTake());
+  }
+
+  if (!valuation.length && !tape.length && !indexFactor.length && !(code === PSEI_SYMBOL || ticker === "PSEi" || isPseiItem(row.item))) {
+    gap.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
+  }
+  if (isPseiItem(row.item) || code === PSEI_SYMBOL || ticker === "PSEi") {
+    /* index take already on the sheet */
   } else if (q?.kind === "stock" && q.pe == null && !(q.pb && q.pb > 0)) {
-    if (!expert.some((l) => /tape and levels only/i.test(l))) {
-      expert.push("Yahoo dropped .PS fundamentals. No trailing PE or P/B on this tape. Relative value waits on EDGE. Not a DCF, not a target.");
+    if (!gap.some((l) => /tape and levels only/i.test(l))) {
+      gap.push("Yahoo dropped .PS fundamentals. No trailing PE or P/B on this tape. Relative value waits on EDGE. Not a DCF, not a target.");
     }
   } else if (q?.kind === "stock") {
-    expert.push("Relative value and tape only. Not a DCF, not a target.");
+    gap.push("Relative value and tape only. Not a DCF, not a target.");
   }
+
+  const expert = [...valuation, ...tape, ...indexFactor, ...gap];
+
+  let weekPct: string | null = null;
+  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
+    weekPct = `${Math.round(Math.min(1, Math.max(0, (last - q.weekLow) / (q.weekHigh - q.weekLow))) * 100)}%`;
+  }
+  const volRatio = q?.volume && q.avgVolume && q.avgVolume > 0 ? `${(q.volume / q.avgVolume).toFixed(1)}×` : null;
+  const metrics = {
+    pe: q?.pe && q.pe > 0 ? peFmt(q.pe) : "—",
+    ep: q?.pe && q.pe > 0 ? `${(100 / q.pe).toFixed(1)}%` : "—",
+    pb: q?.pb && q.pb > 0 ? q.pb.toFixed(2) : "—",
+    yld: q?.yieldPct && q.yieldPct > 0 ? `${q.yieldPct.toFixed(1)}%` : "—",
+    wt: wt != null ? `${wt.toFixed(2)}%` : "—",
+    week: weekPct ?? "—",
+    vol: volRatio ?? "—",
+  };
 
   const suggestions = [...watch, ...risk, ...next];
 
@@ -314,6 +357,13 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     next,
     expert,
     suggestions,
+    cfaMethod,
+    issuerLine,
+    valuation,
+    tape,
+    indexFactor,
+    gap,
+    metrics,
   };
 }
 
@@ -345,6 +395,7 @@ function pageOps(lines: PdfLine[], startY: number) {
 export function researchPdf(note: ResearchNote): Uint8Array {
   const lines: PdfLine[] = [
     { text: `${note.ticker}  ${note.name}`, size: 18, bold: true, gap: 16 },
+    { text: note.issuerLine, size: 9, gap: 8, gray: true },
     { text: note.asOf, size: 9, gap: 8, gray: true },
     { text: `Sleeve  ${note.index}`, size: 10, gap: 16 },
     { text: `Last ${note.last}    ${note.change}    ${note.volume}`, size: 11, gap: 10 },
@@ -357,7 +408,7 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     ...note.technical.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
     ...((note.expert ?? []).length
       ? [
-          { text: "EXPERT", size: 9, bold: true, gap: 14 } as PdfLine,
+          { text: "CFA DESK / EXPERT", size: 9, bold: true, gap: 14 } as PdfLine,
           ...(note.expert ?? []).slice(0, 6).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
@@ -444,9 +495,9 @@ export function downloadPdf(filename: string, bytes: Uint8Array) {
   return url;
 }
 
-export type NewsWindow = "1d" | "7d" | "30d";
+export type NewsWindow = "1d" | "7d" | "30d" | "1y";
 
-const GENERIC_NAME = /^(inc|corp|corporation|holdings?|plc|ltd|limited|group|the|and|of|ph|co|company|philippine|philippines)$/i;
+const GENERIC_NAME = /^(inc|corp|corporation|holdings?|plc|ltd|limited|group|the|and|of|ph|co|company|philippine|philippines|investments?|services?|bank|islands?|interactive|foods?|mining|power|water|food|equity|ventures?|capital|commercial|container|terminal|electric|metropolitan|trust|international|prime|index)$/i;
 
 /** PH market / Unibank context — used when the ticker is a short collision (BDO, SM, ICT). */
 const PH_MARK =
@@ -458,50 +509,87 @@ const ISSUER_NEWS: Record<string, IssuerNews> = {
   BDO: {
     names: ["BDO Unibank", "Banco de Oro"],
     minus: ["Luxembourg", "BDO Zone", "biomass", "auditor"],
-    reject: /bdo zone|biomass|woody|luxembourg|bdo llp|appointed bdo|bdo as (?:the )?auditor|bowie county|vegreville|noble county|accountancy today|pembroke vct|bdo luxembourg|renewableenergymagazine|canadianbiomass|railwayage/i,
+    reject: /bdo zone|biomass|woody|luxembourg|bdo llp|appointed bdo|bdo as (?:the )?auditor|bowie county|vegreville|noble county|accountancy today|pembroke vct|bdo luxembourg|renewableenergymagazine|canadianbiomass|railwayage|bdo exec average|tops bdo exec/i,
   },
   BPI: {
     names: ["Bank of the Philippine Islands", "BPI Unibank"],
     minus: ["France"],
-    reject: /banque|\bbpi sa\b|bpi france/i,
+    reject: /banque|\bbpi sa\b|bpi france|bpi group france/i,
   },
   SM: {
-    names: ["SM Investments"],
+    names: ["SM Investments", "SMIC"],
     minus: ["SM Entertainment"],
-    reject: /sm entertainment|sm town|sm entertainment/i,
+    reject: /sm entertainment|sm town|hybe|k-pop|sm entertainment/i,
   },
-  SMPH: { names: ["SM Prime"], minus: [], reject: /$^/ },
+  SMPH: { names: ["SM Prime", "SM Prime Holdings"], minus: [], reject: /$^/ },
   ICT: {
     names: ["ICTSI", "International Container Terminal"],
     minus: ["ICT sector"],
-    reject: /information and communications|ict ministry|ict sector/i,
+    reject: /information and communications|ict ministry|ict sector|ict department|converge ict/i,
   },
-  AC: { names: ["Ayala Corp", "Ayala Corporation"], minus: [], reject: /$^/ },
-  ALI: { names: ["Ayala Land"], minus: [], reject: /$^/ },
-  MER: { names: ["Meralco", "Manila Electric"], minus: [], reject: /$^/ },
+  AC: {
+    names: ["Ayala Corp", "Ayala Corporation"],
+    minus: ["Air Canada"],
+    reject: /air canada|\bac\/dc\b|\bacer\b/i,
+  },
+  ALI: {
+    names: ["Ayala Land"],
+    minus: ["Alibaba"],
+    reject: /alibaba|ali express|aliexpress/i,
+  },
+  MER: {
+    names: ["Meralco", "Manila Electric"],
+    minus: ["Merrill"],
+    reject: /merrill lynch|\bmercedes\b|\bmerck\b/i,
+  },
   MBT: { names: ["Metrobank", "Metropolitan Bank"], minus: [], reject: /$^/ },
-  TEL: { names: ["PLDT", "Philippine Long Distance"], minus: [], reject: /$^/ },
-  CBC: { names: ["China Banking", "China Bank"], minus: [], reject: /canadian broadcasting|\bcbc radio\b|\bcbc news\b/i },
+  TEL: {
+    names: ["PLDT", "Philippine Long Distance"],
+    minus: [],
+    reject: /tel aviv|telecom italia/i,
+  },
+  CBC: {
+    names: ["China Banking", "China Bank"],
+    minus: ["CBC News"],
+    reject: /canadian broadcasting|\bcbc radio\b|\bcbc news\b|\bcbc\.ca\b/i,
+  },
   JFC: { names: ["Jollibee"], minus: [], reject: /$^/ },
   JGS: { names: ["JG Summit"], minus: [], reject: /$^/ },
   RCR: { names: ["RL Commercial REIT"], minus: [], reject: /$^/ },
-  EMI: { names: ["Emperador"], minus: ["EMI Records"], reject: /\bemi records\b|\bemi music\b/i },
+  EMI: {
+    names: ["Emperador"],
+    minus: ["EMI Records"],
+    reject: /\bemi records\b|\bemi music\b|\bemi group\b/i,
+  },
   AREIT: { names: ["AREIT"], minus: [], reject: /$^/ },
   URC: { names: ["Universal Robina"], minus: [], reject: /$^/ },
-  GLO: { names: ["Globe Telecom"], minus: [], reject: /$^/ },
+  GLO: {
+    names: ["Globe Telecom"],
+    minus: [],
+    reject: /globacom|\bglo nigeria\b/i,
+  },
   MONDE: { names: ["Monde Nissin"], minus: [], reject: /$^/ },
   LTG: { names: ["LT Group"], minus: [], reject: /$^/ },
   GTCAP: { names: ["GT Capital"], minus: [], reject: /$^/ },
   PGOLD: { names: ["Puregold"], minus: [], reject: /$^/ },
   CNPF: { names: ["Century Pacific"], minus: [], reject: /$^/ },
   MYNLD: { names: ["Maynilad"], minus: [], reject: /$^/ },
-  SMC: { names: ["San Miguel"], minus: [], reject: /sumitomo|\bsmbc\b/i },
+  SMC: {
+    names: ["San Miguel"],
+    minus: ["Sumitomo"],
+    reject: /sumitomo|\bsmbc\b/i,
+  },
   DMC: { names: ["DMCI"], minus: [], reject: /$^/ },
   ACEN: { names: ["ACEN"], minus: [], reject: /$^/ },
-  PLUS: { names: ["DigiPlus", "DigiPlus Interactive"], minus: [], reject: /plus size|google plus/i },
+  PLUS: {
+    names: ["DigiPlus", "DigiPlus Interactive"],
+    minus: ["Google Plus"],
+    reject: /plus size|google plus|\bgoogle\+\b/i,
+  },
   SCC: { names: ["Semirara"], minus: [], reject: /$^/ },
   AEV: { names: ["Aboitiz Equity"], minus: [], reject: /$^/ },
 };
+
 
 function quoteTerm(s: string) {
   const t = s.trim();
@@ -514,14 +602,50 @@ export function newsTicker(item: { label: string; symbol: string }) {
   return item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim().toUpperCase() || item.label.trim().toUpperCase();
 }
 
+function uniqNames(rows: string[]) {
+  const out: string[] = [];
+  for (const n of rows) {
+    const t = n.trim();
+    if (!t) continue;
+    if (out.some((x) => x.toLowerCase() === t.toLowerCase())) continue;
+    out.push(t);
+  }
+  return out;
+}
+
 export function issuerNews(item: { label: string; symbol: string; name?: string; kind?: string }): IssuerNews | null {
   if (isPseiItem(item)) return null;
   const t = newsTicker(item);
-  if (ISSUER_NEWS[t]) return ISSUER_NEWS[t];
+  const official = PSEI_WEIGHTS.find((w) => w.ticker === t)?.name;
+  const extra = [official, item.name, item.label].filter((x): x is string => {
+    const n = x?.trim() ?? "";
+    return n.length > 3 || n.includes(" ");
+  });
+  if (ISSUER_NEWS[t]) {
+    return { ...ISSUER_NEWS[t], names: uniqNames([...ISSUER_NEWS[t].names, ...extra]) };
+  }
   if (item.kind && item.kind !== "stock") return null;
   const name = (item.name ?? item.label).trim();
   if (!name) return null;
-  return { names: [name, item.label].filter((s, i, a) => s && a.indexOf(s) === i), minus: [], reject: /$^/ };
+  return { names: uniqNames([name, extra.find((n) => n !== name) ?? "", official ?? ""]), minus: [], reject: /$^/ };
+}
+
+/** Legal / trade names the CFA desk and harvest use for this ticker. */
+export function issuerDisplay(item: { label: string; symbol: string; name?: string; kind?: string }) {
+  if (isPseiItem(item)) {
+    return {
+      ticker: "PSEi",
+      legal: "PSE index",
+      aliases: ["Philippine Stock Exchange"],
+      line: "PSE index · Philippine Stock Exchange",
+    };
+  }
+  const ticker = newsTicker(item);
+  const spec = issuerNews(item);
+  const names = spec?.names?.length ? spec.names : [(item.name ?? item.label).trim()].filter(Boolean);
+  const legal = names[0] || ticker;
+  const aliases = names.slice(1).filter((n) => n.toLowerCase() !== legal.toLowerCase());
+  return { ticker, legal, aliases, line: [legal, ...aliases].join(" · ") };
 }
 
 /** Search terms for the issuer — never a bare 3-letter ticker as the whole query. */
@@ -562,7 +686,7 @@ export function relatedNeedles(item: { label: string; symbol: string; name?: str
   if (name) add(name);
   for (const part of name.split(/[\s,/&-]+/)) {
     const bit = part.replace(/[.]/g, "");
-    if (bit.length >= 4 && !GENERIC_NAME.test(bit)) add(bit);
+    if (bit.length >= 5 && !GENERIC_NAME.test(bit)) add(bit);
   }
   return out;
 }
@@ -580,6 +704,7 @@ export function isRelatedStory(
   story: { title: string; desc?: string; src?: string },
   item: { label: string; symbol: string; name?: string; kind: string },
 ) {
+  const titleHay = `${story.title} ${story.src ?? ""}`.toLowerCase();
   const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`.toLowerCase();
   if (isPseiItem(item)) {
     return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(hay);
@@ -593,10 +718,11 @@ export function isRelatedStory(
     if (n.length >= 4 && hay.includes(n)) return true;
   }
   const ticker = newsTicker(item);
-  if (!wordHit(hay, ticker)) return false;
+  // Short tickers must hit the TITLE — RSS descriptions often dump other headlines.
+  if (!wordHit(titleHay, ticker)) return false;
   if (item.kind !== "stock") return true;
   if (ticker.length >= 4) return true;
-  return PH_MARK.test(hay);
+  return PH_MARK.test(titleHay);
 }
 
 export function relatedNewsQuery(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
@@ -616,17 +742,36 @@ export function relatedNewsUrl(item: { label: string; symbol: string; name?: str
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
 }
 
-export function rumorNewsUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
-  const { q, minus } = issuerSearchQuery(item, true);
+export const NEWS_LANE_KEEP = 10;
+
+function googlePhRss(query: string, window: NewsWindow) {
   const locale = "hl=en-PH&gl=PH&ceid=PH:en";
-  const rss = (query: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${window}`)}&${locale}`;
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${window}`)}&${locale}`;
+}
+
+export function rumorSiteUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
+  const { q, minus } = issuerSearchQuery(item, true);
   const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   return [
-    rss(`site:bilyonaryo.com ${core}`),
-    rss(`site:politiko.com.ph ${core}`),
-    rss(`site:abante.com.ph ${core}`),
-    rss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR "people familiar")`),
+    googlePhRss(`site:bilyonaryo.com ${core}`, window),
+    googlePhRss(`site:politiko.com.ph ${core}`, window),
+    googlePhRss(`site:abante.com.ph ${core}`, window),
+    googlePhRss(`site:manilatimes.net ${core}`, window),
+    googlePhRss(`site:tribune.net.ph ${core}`, window),
   ];
+}
+
+export function rumorTalkUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
+  const { q, minus } = issuerSearchQuery(item, true);
+  const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
+  return [
+    googlePhRss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR "people familiar" OR mulling OR eyeing OR reportedly)`, window),
+    googlePhRss(`${core} ("block sale" OR "stake sale" OR takeover OR "merger talks" OR "advanced talks")`, window),
+  ];
+}
+
+export function rumorNewsUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
+  return [...rumorSiteUrls(item, window), ...rumorTalkUrls(item, window)];
 }
 
 export function rumorNewsUrl(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
@@ -645,7 +790,7 @@ export type RelatedStory = {
 };
 
 const RUMOR_COPY =
-  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|allegedly|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|advanced talks/i;
+  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|allegedly|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|advanced talks|block sale|stake sale|takeover talk|merger talks|being eyed|exploring a (?:deal|stake|bid)|reportedly/i;
 const FACT_COPY =
   /pse\.com\.ph|edge\.pse|businessworld|bworldonline|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
 
@@ -686,11 +831,17 @@ function mergeStories(rows: RelatedStory[]) {
   return out.sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || ""));
 }
 
+export function pickNewsLanes(related: RelatedStory[]) {
+  const facts = related.filter((s) => s.lane !== "rumor").slice(0, NEWS_LANE_KEEP);
+  const rumors = related.filter((s) => s.lane === "rumor").slice(0, NEWS_LANE_KEEP);
+  return { facts, rumors, stories: mergeStories([...facts, ...rumors]) };
+}
+
 export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
   const urls: string[] = [];
-  for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
+  for (const window of ["1d", "7d", "30d", "1y"] as const) urls.push(relatedNewsUrl(item, window));
   if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
-    urls.push(...rumorNewsUrls(item, "7d"), rumorNewsUrl(item, "30d"));
+    urls.push(...rumorNewsUrls(item, "30d"), ...rumorSiteUrls(item, "1y"), ...rumorTalkUrls(item, "1y"));
   }
   const gathered = (
     await Promise.all(
@@ -704,9 +855,7 @@ export async function harvestRelatedStories(item: { label: string; symbol: strin
     )
   ).flat();
   const related = mergeStories(gathered.filter((s) => isRelatedStory(s, item)));
-  const facts = related.filter((s) => s.lane !== "rumor").slice(0, 8);
-  const rumors = related.filter((s) => s.lane === "rumor").slice(0, 8);
-  return mergeStories([...facts, ...rumors]);
+  return pickNewsLanes(related).stories;
 }
 
 const relatedItem = z.object({

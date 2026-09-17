@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, isRelatedStory, relatedNewsUrl, relatedNewsQuery, rumorNewsUrl, rumorNewsUrls, researchPdf, storyLane } from "./research.ts";
+import { buildResearch, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -113,7 +113,7 @@ test("storyLane splits facts from rumor copy", () => {
 
 test("rumor news harvests several gossip wires", () => {
   const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
-  assert.equal(urls.length, 4);
+  assert.ok(urls.length >= 6);
   const joined = urls.map((u) => decodeURIComponent(u)).join(" ");
   assert.match(joined, /site:bilyonaryo.com/);
   assert.match(joined, /site:politiko.com.ph/);
@@ -122,6 +122,8 @@ test("rumor news harvests several gossip wires", () => {
   assert.match(joined, /BDO Unibank/);
   const first = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
   assert.match(decodeURIComponent(first), /site:bilyonaryo.com/);
+  const year = rumorSiteUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" }, "1y");
+  assert.ok(year.some((u) => decodeURIComponent(u).includes("when:1y")));
   const psei = rumorNewsUrl({ label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" });
   assert.match(decodeURIComponent(psei), /PSEi/);
 });
@@ -180,6 +182,13 @@ test("BDO news is Banco de Oro, not Luxembourg or biomass", () => {
   assert.equal(isRelatedStory({ title: "BDO Luxembourg appoints four new partners", src: "Luxembourg Times" }, item), false);
   assert.equal(isRelatedStory({ title: "Bowie County, Texas Issued BDO Zone AA Rating for Woody Biomass", src: "Biomass Magazine" }, item), false);
   assert.equal(isRelatedStory({ title: "BDO: High-growth firms demand increased R&D support", src: "Accountancy Today" }, item), false);
+  assert.equal(
+    isRelatedStory(
+      { title: "Peso sinks while BSP officials hit a bonus jackpot", desc: "BDO shares and other banks also in the roundup", src: "bilyonaryo.com" },
+      item,
+    ),
+    false,
+  );
   const q = decodeURIComponent(relatedNewsUrl(item));
   assert.match(q, /BDO Unibank/);
   assert.match(q, /Banco de Oro/);
@@ -192,4 +201,103 @@ test("ICT news wants ICTSI, not the ICT sector", () => {
   const item = { label: "ICT", symbol: "ICT", name: "International Container Terminal Services", kind: "stock" };
   assert.equal(isRelatedStory({ title: "ICTSI port deal in talks — Bilyonaryo", src: "Bilyonaryo" }, item), true);
   assert.equal(isRelatedStory({ title: "ICT ministry rolls out broadband", src: "Reuters" }, item), false);
+  assert.equal(isRelatedStory({ title: "Musk’s SpaceX, Uy’s Converge ICT in talks for PH broadband satellite venture", src: "Inquirer" }, item), false);
+});
+
+test("issuer display uses legal names, not a ticker collision", () => {
+  const bdo = issuerDisplay({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
+  assert.equal(bdo.ticker, "BDO");
+  assert.match(bdo.line, /BDO Unibank/);
+  assert.match(bdo.line, /Banco de Oro/);
+  const q = issuerSearchQuery({ label: "SM", symbol: "SM", name: "SM Investments", kind: "stock" });
+  assert.match(q.q, /SM Investments/);
+  assert.doesNotMatch(q.q, /^\(SM OR/);
+  assert.match(q.minus, /SM Entertainment/);
+});
+
+test("short tickers reject the foreign collision", () => {
+  const sm = { label: "SM", symbol: "SM", name: "SM Investments", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "SM Investments raises dividend", src: "Inquirer" }, sm), true);
+  assert.equal(isRelatedStory({ title: "SM Entertainment unveils SM Town concert", src: "Reuters" }, sm), false);
+  const ac = { label: "AC", symbol: "AC", name: "Ayala Corp", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "Ayala Corp posts higher profit", src: "BusinessWorld" }, ac), true);
+  assert.equal(isRelatedStory({ title: "Air Canada expands Asia routes", src: "Reuters" }, ac), false);
+  const cbc = { label: "CBC", symbol: "CBC", name: "China Bank", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "China Bank net income rises", src: "Inquirer" }, cbc), true);
+  assert.equal(isRelatedStory({ title: "CBC News covers the election", src: "CBC News" }, cbc), false);
+  const plus = { label: "PLUS", symbol: "PLUS", name: "DigiPlus Interactive", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "DigiPlus Interactive GGR jumps", src: "BusinessWorld" }, plus), true);
+  assert.equal(isRelatedStory({ title: "Google Plus shuts down leftovers", src: "TechCrunch" }, plus), false);
+  const mer = { label: "MER", symbol: "MER", name: "Meralco", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "Meralco rate reset", src: "Inquirer" }, mer), true);
+  assert.equal(isRelatedStory({ title: "Merrill Lynch raises target", src: "Bloomberg" }, mer), false);
+  const ali = { label: "ALI", symbol: "ALI", name: "Ayala Land", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "Ayala Land launches estate", src: "Inquirer" }, ali), true);
+  assert.equal(isRelatedStory({ title: "Alibaba cloud outage", src: "Reuters" }, ali), false);
+});
+
+test("rumor harvest covers gossip wires and talk copy", () => {
+  const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  assert.ok(urls.length >= 6);
+  const joined = urls.map((u) => decodeURIComponent(u)).join(" ");
+  assert.match(joined, /site:bilyonaryo.com/);
+  assert.match(joined, /site:politiko.com.ph/);
+  assert.match(joined, /site:abante.com.ph/);
+  assert.match(joined, /site:manilatimes.net/);
+  assert.match(joined, /site:tribune.net.ph/);
+  assert.match(joined, /merger talks/);
+  assert.match(joined, /BDO Unibank/);
+});
+
+test("pickNewsLanes keeps at least five facts and five rumors when the wires have copy", () => {
+  assert.equal(NEWS_LANE_KEEP, 10);
+  const facts = Array.from({ length: 12 }, (_, i) => ({
+    title: `BDO Unibank fact ${i}`,
+    link: `https://inquirer.net/bdo-${i}`,
+    desc: "",
+    date: `2026-09-0${(i % 9) + 1}T00:00:00Z`,
+    src: "Inquirer",
+    lane: "fact" as const,
+  }));
+  const rumors = Array.from({ length: 12 }, (_, i) => ({
+    title: `BDO Unibank in talks ${i} — Bilyonaryo`,
+    link: `https://bilyonaryo.com/bdo-${i}`,
+    desc: "",
+    date: `2026-09-0${(i % 9) + 1}T00:00:00Z`,
+    src: "Bilyonaryo",
+    lane: "rumor" as const,
+  }));
+  const picked = pickNewsLanes([...facts, ...rumors]);
+  assert.equal(picked.facts.length, 10);
+  assert.equal(picked.rumors.length, 10);
+  assert.ok(picked.facts.length >= 5);
+  assert.ok(picked.rumors.length >= 5);
+});
+
+test("CFA desk splits valuation tape index and gap", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: {
+      price: 120,
+      change: 1.4,
+      kind: "stock",
+      ccy: "PHP",
+      php: 120,
+      pe: 9.2,
+      yieldPct: 4.5,
+      weekLow: 100,
+      weekHigh: 140,
+    },
+    watching: true,
+  };
+  const note = buildResearch(row);
+  assert.match(note.cfaMethod, /not a DCF/i);
+  assert.match(note.issuerLine, /Banco de Oro/);
+  assert.equal(note.metrics.pe, "9.2");
+  assert.equal(note.metrics.ep, "10.9%");
+  assert.match(note.valuation.join(" "), /Trailing PE 9.2/);
+  assert.match(note.tape.join(" "), /52-week range/);
+  assert.match(note.indexFactor.join(" "), /7\.63%/);
+  assert.match(note.gap.join(" "), /not a DCF/i);
 });
