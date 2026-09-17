@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, isRelatedStory, relatedNewsUrl, rumorNewsUrl, researchPdf, storyLane } from "./research.ts";
+import { buildResearch, isRelatedStory, relatedNewsUrl, rumorNewsUrl, rumorNewsUrls, researchPdf, storyLane } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -102,13 +102,21 @@ test("isRelatedStory keeps Lopez and drops noise", () => {
 test("storyLane splits facts from rumor copy", () => {
   assert.equal(storyLane({ title: "PSEi closes higher", src: "BusinessWorld" }), "fact");
   assert.equal(storyLane({ title: "ICT in talks for a port deal — sources say", src: "Bilyonaryo" }), "rumor");
+  assert.equal(storyLane({ title: "BDO mulling a stake — Politiko", src: "Politiko" }), "rumor");
   assert.equal(storyLane({ title: "Markets wrap", src: "Google News" }), "wire");
 });
 
-test("rumor news query is Bilyonaryo-scoped", () => {
-  const url = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
-  assert.match(decodeURIComponent(url), /site:bilyonaryo.com/);
-  assert.match(decodeURIComponent(url), /BDO Unibank/);
+test("rumor news harvests several gossip wires", () => {
+  const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  assert.equal(urls.length, 4);
+  const joined = urls.map((u) => decodeURIComponent(u)).join(" ");
+  assert.match(joined, /site:bilyonaryo.com/);
+  assert.match(joined, /site:politiko.com.ph/);
+  assert.match(joined, /site:abante.com.ph/);
+  assert.match(joined, /people familiar/);
+  assert.match(joined, /BDO Unibank/);
+  const first = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  assert.match(decodeURIComponent(first), /site:bilyonaryo.com/);
   const psei = rumorNewsUrl({ label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" });
   assert.match(decodeURIComponent(psei), /PSEi/);
 });

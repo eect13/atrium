@@ -64,7 +64,7 @@ import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
 import { buildResearch, downloadPdf, fetchRelatedStories, researchPdf, type RelatedStory } from "@/lib/research";
-import { concentration, PSEI_FORMULA, topWeights } from "@/lib/psei-weight";
+import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
@@ -1199,14 +1199,27 @@ function RelatedNews({ item }: { item: WatchItem }) {
 }
 
 function WeightingCard() {
-  const c = concentration();
+  const file = useQuery({
+    queryKey: ["psei-weights", "v1"],
+    queryFn: () => fetchPseiWeights({ data: {} }),
+    staleTime: 6 * 60 * 60_000,
+    gcTime: 24 * 60 * 60_000,
+    retry: 1,
+  });
+  const rows = file.data?.rows ?? PSEI_WEIGHTS;
+  const asOf = file.data?.asOf ?? PSEI_WEIGHT_AS_OF;
+  const c = concentration(rows);
+  const stamped = asOf.replace(/(\d{4})-(\d{2})-(\d{2})/, (_, y, mo, d) => `${Number(d)} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mo) - 1]} ${y}`);
   return (
     <div className="rounded-lg bg-muted p-4">
       <p className="text-xs uppercase tracking-widest text-muted-foreground">Weighting</p>
       <p className="mt-2 text-sm">Free-float market-cap of 30 · {PSEI_FORMULA}</p>
-      <p className="mt-1 text-xs text-muted-foreground">FMETF 16 Sep 2026 proxy. ICT {c.ict.toFixed(2)}% of the index.</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Official PSEi weights as of {stamped}
+        {file.data?.source === "live" ? " · live file" : ""}. ICT {c.ict.toFixed(2)}% of the index.
+      </p>
       <ul className="mt-2 space-y-1">
-        {topWeights(5).map((w) => (
+        {topWeights(5, rows).map((w) => (
           <li key={w.ticker} className="flex items-baseline justify-between gap-3 text-sm">
             <span>{w.ticker}</span>
             <span className="tabular-nums text-muted-foreground">{w.psei.toFixed(2)}%</span>

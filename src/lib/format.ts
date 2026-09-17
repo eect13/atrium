@@ -417,7 +417,7 @@ export const NOTE_COLORS = [
   "#2c2d30",
 ];
 
-/** Normalize a CSS color to `#rrggbb` for `<input type="color">`. */
+/** Normalize a CSS color to `#rrggbb`. */
 export function hexColor(raw: string): string {
   const s = (raw ?? "").trim();
   if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
@@ -428,6 +428,55 @@ export function hexColor(raw: string): string {
     return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
   }
   return NOTE_COLORS[0]!;
+}
+
+export function hexToHsv(raw: string): { h: number; s: number; v: number } {
+  const hex = hexColor(raw).slice(1);
+  const r = Number.parseInt(hex.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(hex.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(hex.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let hue = 0;
+  if (d !== 0) {
+    if (max === r) hue = ((g - b) / d) % 6;
+    else if (max === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60;
+    if (hue < 0) hue += 360;
+  }
+  return { h: hue, s: max === 0 ? 0 : d / max, v: max };
+}
+
+export function hsvToHex(h: number, s: number, v: number): string {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) {
+    r = c;
+    g = x;
+  } else if (h < 120) {
+    r = x;
+    g = c;
+  } else if (h < 180) {
+    g = c;
+    b = x;
+  } else if (h < 240) {
+    g = x;
+    b = c;
+  } else if (h < 300) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+  const to = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`;
 }
 
 /** Body ink that holds contrast on a sticky-note paper color. */

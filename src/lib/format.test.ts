@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fromManila, moneyShort, monthCells, notePlain, staleTagline } from "./format.ts";
+import { fromManila, hexToHsv, hsvToHex, moneyShort, monthCells, notePlain, staleTagline } from "./format.ts";
 
 test("moneyShort compact last for large notionals", () => {
   assert.equal(moneyShort(4_850_048, "PHP"), "₱4.85M");
@@ -20,6 +20,13 @@ test("staleTagline folds the old desk copy", () => {
   assert.equal(staleTagline("Local-first desk"), "");
   assert.equal(staleTagline("Local-first · Asia/Manila"), "");
   assert.equal(staleTagline("  my desk  "), "my desk");
+});
+
+test("hsvToHex round-trips a paper color", () => {
+  const hsv = hexToHsv("#cfd2d6");
+  assert.equal(hsvToHex(hsv.h, hsv.s, hsv.v), "#cfd2d6");
+  assert.equal(hsvToHex(0, 0, 1), "#ffffff");
+  assert.equal(hsvToHex(0, 0, 0), "#000000");
 });
 
 test("monthCells fills a week-aligned grid", () => {

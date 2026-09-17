@@ -480,14 +480,25 @@ export function relatedNewsUrl(item: { label: string; symbol: string; name?: str
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
 }
 
-export function rumorNewsUrl(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
+export function rumorNewsUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
   const name = (item.name ?? item.label).trim();
   const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
   const bits = isPseiItem(item)
     ? ["PSEi", `"PSE index"`]
     : [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
-  const q = `site:bilyonaryo.com (${bits.map((s) => (s.includes(" ") && !s.startsWith('"') ? `"${s}"` : s)).join(" OR ")}) when:${window}`;
-  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-PH&gl=PH&ceid=PH:en`;
+  const q = bits.map((s) => (s.includes(" ") && !s.startsWith('"') ? `"${s}"` : s)).join(" OR ");
+  const locale = "hl=en-PH&gl=PH&ceid=PH:en";
+  const rss = (query: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${window}`)}&${locale}`;
+  return [
+    rss(`site:bilyonaryo.com (${q})`),
+    rss(`site:politiko.com.ph (${q})`),
+    rss(`site:abante.com.ph (${q})`),
+    rss(`(${q}) (in talks OR "sources say" OR rumored OR allegedly OR "people familiar")`),
+  ];
+}
+
+export function rumorNewsUrl(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
+  return rumorNewsUrls(item, window)[0]!;
 }
 
 export type StoryLane = "fact" | "rumor" | "wire";
@@ -502,7 +513,7 @@ export type RelatedStory = {
 };
 
 const RUMOR_COPY =
-  /bilyonaryo|in talks|sources? say|rumou?r\b|unconfirmed|allegedly|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar/i;
+  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|allegedly|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|advanced talks/i;
 const FACT_COPY =
   /pse\.com\.ph|edge\.pse|businessworld|bworldonline|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
 
@@ -547,7 +558,7 @@ export async function harvestRelatedStories(item: { label: string; symbol: strin
   const urls: string[] = [];
   for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
   if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
-    urls.push(rumorNewsUrl(item, "7d"), rumorNewsUrl(item, "30d"));
+    urls.push(...rumorNewsUrls(item, "7d"), rumorNewsUrl(item, "30d"));
   }
   const gathered = (
     await Promise.all(

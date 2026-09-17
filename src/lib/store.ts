@@ -500,23 +500,21 @@ export const useAtrium = create<State>()(
         })),
       pinAllNotes: () =>
         set((s) => {
-          if (!s.notes.some((n) => !n.pinned)) return s;
+          if (!s.notes.length) return s;
           let z = nextZ(s);
-          let i = s.notes.filter((n) => n.pinned).length;
+          const pinned = s.notes.map((n) => {
+            if (n.pinned) return n;
+            const zz = z;
+            z += 1;
+            return { ...n, pinned: true, z: zz };
+          });
+          let i = 0;
           return {
-            notes: s.notes.map((n) => {
-              if (n.pinned) return n;
-              const saved =
-                n.fx != null
-                  ? { x: n.fx, y: n.fy ?? n.y, w: n.fw ?? n.w, h: n.fh ?? n.h }
-                  : undefined;
-              const box = saved
-                ? restoreBox(saved, { w: n.w, h: n.h }, i)
-                : arrangeNoteBox({ w: n.w, h: n.h }, i);
+            notes: pinned.map((n) => {
+              if (!n.pinned) return n;
+              const box = arrangeNoteBox({ w: n.w, h: n.h }, i);
               i += 1;
-              const zz = z;
-              z += 1;
-              return { ...n, pinned: true, z: zz, ...box };
+              return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
             }),
           };
         }),

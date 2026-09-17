@@ -1,13 +1,21 @@
-/** PSEi free-float methodology + FMETF 16 Sep 2026 illustrative weights.
- *  FMETF is the liquid proxy for the 30, not the official index file. */
+/** Official PSEi free-float weights.
+ *  PSE does not post a public weight file. First Metro's underlying table
+ *  lists the official PSEi weight next to the FMETF fund weight — that PSEi
+ *  column is the public official file. Seed is 16 Sep 2026; live fetch overlays. */
+
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { httpText } from "./http.ts";
 
 export const PSEI_WEIGHT_AS_OF = "2026-09-16";
 export const PSEI_FORMULA = "Σ(P × S × F) / Divisor";
+export const PSEI_WEIGHT_URL = "https://etf.atrfami.com.ph/exchange-traded-funds";
 
 export type PseiWeight = { ticker: string; name: string; psei: number; fmetf: number };
+export type PseiWeightFile = { asOf: string; rows: PseiWeight[]; source: "live" | "seed" };
 
-/** Official First Metro underlying table, 16 Sep 2026 — PSEi weight + FMETF weight. */
-export const FMETF_WEIGHTS: PseiWeight[] = [
+/** Seed: First Metro underlying table, 16 Sep 2026 — PSEi weight column. */
+export const PSEI_WEIGHTS: PseiWeight[] = [
   { ticker: "ICT", name: "International Container Terminal Services", psei: 26.83, fmetf: 26.81 },
   { ticker: "SM", name: "SM Investments", psei: 8.44, fmetf: 8.4 },
   { ticker: "BDO", name: "BDO Unibank", psei: 7.63, fmetf: 7.6 },
@@ -40,32 +48,115 @@ export const FMETF_WEIGHTS: PseiWeight[] = [
   { ticker: "SCC", name: "Semirara Mining and Power", psei: 0.48, fmetf: 0.5 },
 ];
 
-export function sleeveWeight(tickers: readonly string[]) {
+/** @deprecated Use PSEI_WEIGHTS — kept so older imports keep working. */
+export const FMETF_WEIGHTS = PSEI_WEIGHTS;
+
+const NAME_TICKER: [RegExp, string][] = [
+  [/INTERNATIONAL CONTAINER/, "ICT"],
+  [/SM INVESTMENTS/, "SM"],
+  [/SM PRIME/, "SMPH"],
+  [/BDO UNIBANK/, "BDO"],
+  [/BANK OF THE PHILIPPINE/, "BPI"],
+  [/AYALA CORPORATION/, "AC"],
+  [/AYALA LAND/, "ALI"],
+  [/MANILA ELECTRIC/, "MER"],
+  [/METROPOLITAN BANK/, "MBT"],
+  [/ABOITIZ EQUITY/, "AEV"],
+  [/PHILIPPINE LONG DISTANCE|\bPLDT\b/, "TEL"],
+  [/CHINA BANKING/, "CBC"],
+  [/JOLLIBEE/, "JFC"],
+  [/JG SUMMIT/, "JGS"],
+  [/RL COMMERCIAL/, "RCR"],
+  [/EMPERADOR/, "EMI"],
+  [/\bAREIT\b/, "AREIT"],
+  [/UNIVERSAL ROBINA/, "URC"],
+  [/GLOBE TELECOM/, "GLO"],
+  [/MONDE NISSIN/, "MONDE"],
+  [/LT GROUP/, "LTG"],
+  [/GT CAPITAL/, "GTCAP"],
+  [/PUREGOLD/, "PGOLD"],
+  [/CENTURY PACIFIC/, "CNPF"],
+  [/MAYNILAD/, "MYNLD"],
+  [/SAN MIGUEL/, "SMC"],
+  [/\bDMCI\b/, "DMC"],
+  [/\bACEN\b/, "ACEN"],
+  [/DIGIPLUS/, "PLUS"],
+  [/SEMIRARA/, "SCC"],
+];
+
+export function tickerFromSecurityName(name: string) {
+  const u = name.toUpperCase();
+  for (const [re, ticker] of NAME_TICKER) {
+    if (re.test(u)) return ticker;
+  }
+  return null;
+}
+
+export function parsePseiWeightTable(html: string): PseiWeightFile | null {
+  const asOfMatch = html.match(/as of\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  const asOf = asOfMatch
+    ? `${asOfMatch[3]}-${asOfMatch[1]!.padStart(2, "0")}-${asOfMatch[2]!.padStart(2, "0")}`
+    : PSEI_WEIGHT_AS_OF;
+  const rows: PseiWeight[] = [];
+  const re = /<tr>\s*<td>([^<]+)<\/td>\s*<td>([0-9.]+)<\/td>\s*<td>([0-9.]+)<\/td>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const ticker = tickerFromSecurityName(m[1]!.trim());
+    const psei = Number(m[2]);
+    const fmetf = Number(m[3]);
+    if (!ticker || !Number.isFinite(psei) || !Number.isFinite(fmetf)) continue;
+    if (rows.some((r) => r.ticker === ticker)) continue;
+    rows.push({ ticker, name: m[1]!.trim(), psei, fmetf });
+  }
+  if (rows.length < 25) return null;
+  rows.sort((a, b) => b.psei - a.psei);
+  return { asOf, rows, source: "live" };
+}
+
+export function sleeveWeight(tickers: readonly string[], rows: PseiWeight[] = PSEI_WEIGHTS) {
   const set = new Set(tickers);
-  return FMETF_WEIGHTS.filter((w) => set.has(w.ticker)).reduce((sum, w) => sum + w.psei, 0);
+  return rows.filter((w) => set.has(w.ticker)).reduce((sum, w) => sum + w.psei, 0);
 }
 
-export function topWeights(n = 5) {
-  return FMETF_WEIGHTS.slice(0, n);
+export function topWeights(n = 5, rows: PseiWeight[] = PSEI_WEIGHTS) {
+  return [...rows].sort((a, b) => b.psei - a.psei).slice(0, n);
 }
 
-export function concentration() {
-  const ict = FMETF_WEIGHTS[0]?.psei ?? 0;
-  const top5 = topWeights(5).reduce((sum, w) => sum + w.psei, 0);
-  const sm = sleeveWeight(["SM", "SMPH"]);
-  const banks = sleeveWeight(["BDO", "BPI", "MBT", "CBC"]);
-  const ayala = sleeveWeight(["AC", "ALI", "GLO", "AREIT"]);
+export function concentration(rows: PseiWeight[] = PSEI_WEIGHTS) {
+  const sorted = [...rows].sort((a, b) => b.psei - a.psei);
+  const ict = sorted.find((w) => w.ticker === "ICT")?.psei ?? sorted[0]?.psei ?? 0;
+  const top5 = topWeights(5, sorted).reduce((sum, w) => sum + w.psei, 0);
+  const sm = sleeveWeight(["SM", "SMPH"], rows);
+  const banks = sleeveWeight(["BDO", "BPI", "MBT", "CBC"], rows);
+  const ayala = sleeveWeight(["AC", "ALI", "GLO", "AREIT"], rows);
   return { ict, top5, sm, banks, ayala };
 }
 
 /** CFA-style take for the Expert card — methodology, not a price target. */
-export function weightTake() {
-  const c = concentration();
+export function weightTake(rows: PseiWeight[] = PSEI_WEIGHTS, asOf = PSEI_WEIGHT_AS_OF) {
+  const c = concentration(rows);
+  const date = asOf.replace(/(\d{4})-(\d{2})-(\d{2})/, (_, y, mo, d) => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${Number(d)} ${months[Number(mo) - 1]} ${y}`;
+  });
   return [
-    `Free-float market-cap of 30 names: ${PSEI_FORMULA}. FMETF as of 16 Sep 2026 is the liquid proxy — not the official index file.`,
+    `Free-float market-cap of 30 names: ${PSEI_FORMULA}. Official PSEi weights as of ${date} (First Metro public file of the index weights — not the fund).`,
     `ICT is ${c.ict.toFixed(2)}% of the index. That is single-name concentration a classic 15% cap no longer fully contains.`,
     `Top five (ICT, SM, BDO, BPI, SMPH) are ${c.top5.toFixed(1)}%. SM group ${c.sm.toFixed(1)}%. Banks (BDO, BPI, MBT, CBC) ${c.banks.toFixed(1)}%. Ayala (AC, ALI, GLO, AREIT) ${c.ayala.toFixed(1)}%.`,
     `Feb 2027 CN-2026-0033: MTAR 15% to enter / 10% to stay, 98% cumulative cap filter, 15% free-float exception for PHP 250B+ names.`,
     `Yahoo prints the index last. It does not publish a PE on PSE names. This is methodology, not a target.`,
   ];
 }
+
+export const fetchPseiWeights = createServerFn({ method: "POST" })
+  .validator(z.object({}).optional())
+  .handler(async (): Promise<PseiWeightFile> => {
+  try {
+    const html = await httpText(PSEI_WEIGHT_URL);
+    const parsed = parsePseiWeightTable(html);
+    if (parsed && parsed.rows.length >= 25) return parsed;
+  } catch {
+    /* seed */
+  }
+  return { asOf: PSEI_WEIGHT_AS_OF, rows: PSEI_WEIGHTS, source: "seed" };
+});
