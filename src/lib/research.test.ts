@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane } from "./research.ts";
+import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -118,6 +118,7 @@ test("rumor news harvests several gossip wires", () => {
   assert.match(joined, /site:bilyonaryo.com/);
   assert.match(joined, /site:politiko.com.ph/);
   assert.match(joined, /site:abante.com.ph/);
+  assert.match(joined, /site:insiderph.com/);
   assert.match(joined, /people familiar/);
   assert.match(joined, /BDO Unibank/);
   const first = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
@@ -202,6 +203,7 @@ test("ICT news wants ICTSI, not the ICT sector", () => {
   assert.equal(isRelatedStory({ title: "ICTSI port deal in talks — Bilyonaryo", src: "Bilyonaryo" }, item), true);
   assert.equal(isRelatedStory({ title: "ICT ministry rolls out broadband", src: "Reuters" }, item), false);
   assert.equal(isRelatedStory({ title: "Musk’s SpaceX, Uy’s Converge ICT in talks for PH broadband satellite venture", src: "Inquirer" }, item), false);
+  assert.equal(isRelatedStory({ title: "PH-Israel partnership on ICT, defense up for talks in Duterte’s visit", src: "Philippine News Agency" }, item), false);
 });
 
 test("issuer display uses legal names, not a ticker collision", () => {
@@ -244,13 +246,17 @@ test("rumor harvest covers gossip wires and talk copy", () => {
   assert.match(joined, /site:politiko.com.ph/);
   assert.match(joined, /site:abante.com.ph/);
   assert.match(joined, /site:manilatimes.net/);
-  assert.match(joined, /site:tribune.net.ph/);
+  assert.match(joined, /site:insiderph.com/);
   assert.match(joined, /merger talks/);
   assert.match(joined, /BDO Unibank/);
+  const fill = rumorFillUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" }).map((u) => decodeURIComponent(u)).join(" ");
+  assert.match(fill, /site:philstar.com/);
+  assert.match(fill, /site:tribune.net.ph/);
 });
 
 test("pickNewsLanes keeps at least five facts and five rumors when the wires have copy", () => {
-  assert.equal(NEWS_LANE_KEEP, 10);
+  assert.equal(NEWS_LANE_KEEP, 8);
+  assert.equal(NEWS_LANE_MIN, 5);
   const facts = Array.from({ length: 12 }, (_, i) => ({
     title: `BDO Unibank fact ${i}`,
     link: `https://inquirer.net/bdo-${i}`,
@@ -268,8 +274,8 @@ test("pickNewsLanes keeps at least five facts and five rumors when the wires hav
     lane: "rumor" as const,
   }));
   const picked = pickNewsLanes([...facts, ...rumors]);
-  assert.equal(picked.facts.length, 10);
-  assert.equal(picked.rumors.length, 10);
+  assert.equal(picked.facts.length, 8);
+  assert.equal(picked.rumors.length, 8);
   assert.ok(picked.facts.length >= 5);
   assert.ok(picked.rumors.length >= 5);
 });
@@ -300,4 +306,46 @@ test("CFA desk splits valuation tape index and gap", () => {
   assert.match(note.tape.join(" "), /52-week range/);
   assert.match(note.indexFactor.join(" "), /7\.63%/);
   assert.match(note.gap.join(" "), /not a DCF/i);
+});
+test("InsiderPH BDO copy is this issuer, ads and charts are not desk copy", () => {
+  const item = { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" };
+  assert.equal(isRelatedStory({ title: "BDO Unibank net income rises", src: "InsiderPH" }, item), true);
+  assert.equal(isRelatedStory({ title: "SM Group’s BDO raises P115B in 4 days", src: "InsiderPH" }, item), true);
+  assert.equal(isDeskStory({ title: "BDO Stock Price and Chart — PSE:BDO", src: "TradingView" }), false);
+  assert.equal(isDeskStory({ title: "Live better with BDO credit cards", src: "The Manila Times" }), false);
+  assert.equal(isDeskStory({ title: "All transactions no fees, kaya BDO Pay Mo Na!", src: "The Manila Times" }), false);
+  assert.equal(isDeskStory({ title: "BDO Unibank net income rises", src: "Inquirer" }), true);
+  assert.equal(isDeskStory({ title: "Rappler. . BDO Unibank account holders reportedly lost thousands. Full story: https://www.rappler.com/x", src: "facebook.com" }), false);
+  assert.equal(storyLane({ title: "BDO eyeing P5 billion from sustainability bonds", src: "Philstar.com" }), "rumor");
+  assert.equal(storyLane({ title: "BDO clients lose money due to alleged online banking hack", src: "Rappler" }), "rumor");
+});
+
+test("collapseNearDup keeps the latest of the same bond print", () => {
+  const rows = [
+    { title: "BDO raises P132 billion from sustainability bonds", link: "https://philstar.com/a", desc: "", date: "2026-07-29T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
+    { title: "BDO raises P132B from bond offering", link: "https://manilatimes.net/b", desc: "", date: "2026-07-29T00:00:00Z", src: "The Manila Times", lane: "wire" as const },
+    { title: "BDO Q2 net income slips 1.43%", link: "https://bworldonline.com/c", desc: "", date: "2026-07-28T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
+  ];
+  const out = collapseNearDup(rows);
+  assert.equal(out.length, 2);
+  assert.match(out[0].title, /P132/);
+});
+
+test("fillRumorLane promotes talk copy so the rumor lane can hit five", () => {
+  const rumors = [
+    { title: "BDO reportedly seeks more collateral", link: "https://bilyonaryo.com/1", desc: "", date: "2026-09-17T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
+    { title: "Cebu Pacific gets BDO backing", link: "https://bilyonaryo.com/2", desc: "", date: "2026-07-21T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
+  ];
+  const facts = [
+    { title: "BDO eyeing P5 billion from sustainability bonds", link: "https://philstar.com/1", desc: "", date: "2026-07-10T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
+    { title: "BDO to sell 70% stake in Dominion Holdings", link: "https://inquirer.net/1", desc: "", date: "2026-01-21T00:00:00Z", src: "Inquirer.net", lane: "fact" as const },
+    { title: "Smooth elections could draw foreign funds — BDO Capital", link: "https://bworldonline.com/1", desc: "", date: "2026-09-02T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
+    { title: "BDO posts record P87.2 billion profit in 2025", link: "https://philstar.com/2", desc: "", date: "2026-02-28T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
+    { title: "BDO Q1 profit climbs to P20.1 billion", link: "https://bworldonline.com/2", desc: "", date: "2026-04-24T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
+  ];
+  const filled = fillRumorLane([...facts, ...rumors]);
+  assert.ok(filled.rumors.length >= 5);
+  assert.ok(filled.facts.length >= 1);
+  assert.ok(filled.rumors.some((r) => /eyeing/i.test(r.title)));
+  assert.ok(filled.facts.some((r) => /profit/i.test(r.title)));
 });

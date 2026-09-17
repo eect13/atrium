@@ -501,7 +501,7 @@ const GENERIC_NAME = /^(inc|corp|corporation|holdings?|plc|ltd|limited|group|the
 
 /** PH market / Unibank context — used when the ticker is a short collision (BDO, SM, ICT). */
 const PH_MARK =
-  /philippines?|philippine|\bpse\b|manila|peso|\bbsp\b|unibank|bilyonaryo|inquirer|philstar|businessworld|bworld|gmanews|gma news|abs-cbn|rappler|politiko|abante|manila bulletin|manila standard|businessmirror|philippine news agency|pna\.gov|pse\.com|edge\.pse/i;
+  /philippines?|philippine|\bpse\b|manila|peso|\bbsp\b|unibank|bilyonaryo|inquirer|philstar|businessworld|bworld|gmanews|gma news|abs-cbn|rappler|politiko|abante|manila bulletin|manila standard|businessmirror|philippine news agency|pna\.gov|pse\.com|edge\.pse|insiderph|insider ph|manilatimes|manila times|tribune\.net|onenews|dealroom|fintechnews|mb\.com/i;
 
 type IssuerNews = { names: string[]; minus: string[]; reject: RegExp };
 
@@ -525,7 +525,7 @@ const ISSUER_NEWS: Record<string, IssuerNews> = {
   ICT: {
     names: ["ICTSI", "International Container Terminal"],
     minus: ["ICT sector"],
-    reject: /information and communications|ict ministry|ict sector|ict department|converge ict/i,
+    reject: /information and communications|ict ministry|ict sector|ict department|converge ict|\bon ict\b|partnership on ict|ict, defense/i,
   },
   AC: {
     names: ["Ayala Corp", "Ayala Corporation"],
@@ -742,7 +742,8 @@ export function relatedNewsUrl(item: { label: string; symbol: string; name?: str
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
 }
 
-export const NEWS_LANE_KEEP = 10;
+export const NEWS_LANE_KEEP = 8;
+export const NEWS_LANE_MIN = 5;
 
 function googlePhRss(query: string, window: NewsWindow) {
   const locale = "hl=en-PH&gl=PH&ceid=PH:en";
@@ -756,8 +757,8 @@ export function rumorSiteUrls(item: { label: string; symbol: string; name?: stri
     googlePhRss(`site:bilyonaryo.com ${core}`, window),
     googlePhRss(`site:politiko.com.ph ${core}`, window),
     googlePhRss(`site:abante.com.ph ${core}`, window),
+    googlePhRss(`site:insiderph.com ${core}`, window),
     googlePhRss(`site:manilatimes.net ${core}`, window),
-    googlePhRss(`site:tribune.net.ph ${core}`, window),
   ];
 }
 
@@ -765,8 +766,21 @@ export function rumorTalkUrls(item: { label: string; symbol: string; name?: stri
   const { q, minus } = issuerSearchQuery(item, true);
   const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   return [
-    googlePhRss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR "people familiar" OR mulling OR eyeing OR reportedly)`, window),
-    googlePhRss(`${core} ("block sale" OR "stake sale" OR takeover OR "merger talks" OR "advanced talks")`, window),
+    googlePhRss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR alleged OR "people familiar" OR mulling OR eyeing OR reportedly)`, window),
+    googlePhRss(`${core} ("block sale" OR "stake sale" OR takeover OR "merger talks" OR "advanced talks" OR "eyes up to")`, window),
+  ];
+}
+
+export function rumorFillUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "1y") {
+  const { q, minus } = issuerSearchQuery(item, true);
+  const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
+  const legal = issuerNews(item)?.names?.[0] ?? item.name ?? item.label;
+  return [
+    googlePhRss(`site:philstar.com ${core}`, window),
+    googlePhRss(`site:inquirer.net ${core}`, window),
+    googlePhRss(`site:manilastandard.net ${core}`, window),
+    googlePhRss(`site:tribune.net.ph ${core}`, window),
+    googlePhRss(`${quoteTerm(legal)} (reportedly OR rumored OR eyeing OR mulling OR allegedly OR alleged OR "in talks" OR "people familiar")`, window),
   ];
 }
 
@@ -790,7 +804,7 @@ export type RelatedStory = {
 };
 
 const RUMOR_COPY =
-  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|allegedly|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|advanced talks|block sale|stake sale|takeover talk|merger talks|being eyed|exploring a (?:deal|stake|bid)|reportedly/i;
+  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|\balleged(?:ly)?\b|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|\beyeing\b|eyes up to|advanced talks|block sale|stake sale|takeover talk|merger talks|being eyed|exploring a (?:deal|stake|bid)|reportedly/i;
 const FACT_COPY =
   /pse\.com\.ph|edge\.pse|businessworld|bworldonline|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
 
@@ -831,19 +845,76 @@ function mergeStories(rows: RelatedStory[]) {
   return out.sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || ""));
 }
 
+const DESK_JUNK =
+  /tradingview|stock price and chart|live better with|pay mo na|credit cards|referral campaign|anniversary raffle|easy,\s*simple and secure banking|deeper ties with filipinos|facebook into ofw|^winning\s*\||named best digital wallet|ofws chart future|summit point|holds nerve|golf tournament|\buaap\b|\bpba\b|basketball championship/i;
+
+export function isDeskStory(story: { title: string; src?: string }) {
+  const hay = `${story.title} ${story.src ?? ""}`;
+  if (DESK_JUNK.test(hay)) return false;
+  if (/facebook\.com|twitter\.com|\bx\.com\b/i.test(story.src ?? "")) return false;
+  if (/full story:\s*https?:\/\//i.test(story.title)) return false;
+  return true;
+}
+
+const FP_STOP = new Set(["the", "from", "with", "for", "and", "its", "has", "was", "are"]);
+
+export function storyFingerprint(title: string) {
+  const t = title.toLowerCase().replace(/\s*[-—|].*$/, "");
+  const nums = [...t.matchAll(/\d+(?:\.\d+)?/g)].map((m) => m[0]).join("-");
+  const words = t
+    .replace(/[^a-z]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !FP_STOP.has(w));
+  if (nums && words[0]) return `${words[0]}#${nums}`;
+  return `${words.slice(0, 2).join(" ")}#`;
+}
+
+export function collapseNearDup(rows: RelatedStory[]) {
+  const seen = new Set<string>();
+  const out: RelatedStory[] = [];
+  for (const row of rows) {
+    const fp = storyFingerprint(row.title);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    out.push(row);
+  }
+  return out;
+}
+
 export function pickNewsLanes(related: RelatedStory[]) {
   const facts = related.filter((s) => s.lane !== "rumor").slice(0, NEWS_LANE_KEEP);
   const rumors = related.filter((s) => s.lane === "rumor").slice(0, NEWS_LANE_KEEP);
   return { facts, rumors, stories: mergeStories([...facts, ...rumors]) };
 }
 
-export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
-  const urls: string[] = [];
-  for (const window of ["1d", "7d", "30d", "1y"] as const) urls.push(relatedNewsUrl(item, window));
-  if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
-    urls.push(...rumorNewsUrls(item, "30d"), ...rumorSiteUrls(item, "1y"), ...rumorTalkUrls(item, "1y"));
+const SOFT_TALK =
+  /in talks|sources? say|rumou?r|\balleged(?:ly)?\b|\beyeing\b|eyes up to|mulling|reportedly|people familiar|tipped|unconfirmed|may (?:buy|sell|raise)|to sell \d|could draw|block sale|stake sale|takeover|merger talks/i;
+
+export function fillRumorLane(related: RelatedStory[], min = NEWS_LANE_MIN) {
+  const rumors = related.filter((s) => s.lane === "rumor");
+  const facts = related.filter((s) => s.lane !== "rumor");
+  if (rumors.length >= min) return pickNewsLanes(related);
+  const need = min - rumors.length;
+  const promoted: RelatedStory[] = [];
+  const rest: RelatedStory[] = [];
+  for (const s of facts) {
+    if (promoted.length < need && SOFT_TALK.test(`${s.title} ${s.desc ?? ""} ${s.src}`)) {
+      promoted.push({ ...s, lane: "rumor" });
+    } else rest.push(s);
   }
-  const gathered = (
+  return pickNewsLanes([...rest, ...rumors, ...promoted]);
+}
+
+function prepRelated(
+  gathered: RelatedStory[],
+  item: { label: string; symbol: string; name?: string; kind: string },
+) {
+  return collapseNearDup(mergeStories(gathered.filter((s) => isRelatedStory(s, item) && isDeskStory(s))));
+}
+
+async function pullStories(urls: string[]) {
+  return (
     await Promise.all(
       urls.map(async (url) => {
         try {
@@ -854,8 +925,23 @@ export async function harvestRelatedStories(item: { label: string; symbol: strin
       }),
     )
   ).flat();
-  const related = mergeStories(gathered.filter((s) => isRelatedStory(s, item)));
-  return pickNewsLanes(related).stories;
+}
+
+export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
+  const urls: string[] = [];
+  for (const window of ["1d", "7d", "1y"] as const) urls.push(relatedNewsUrl(item, window));
+  if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
+    urls.push(...rumorNewsUrls(item, "1y"));
+  }
+  let gathered = await pullStories(urls);
+  let related = prepRelated(gathered, item);
+  let picked = fillRumorLane(related);
+  if (picked.rumors.length < NEWS_LANE_MIN && (item.kind === "stock" || isPseiItem(item))) {
+    gathered = [...gathered, ...(await pullStories(rumorFillUrls(item, "1y")))];
+    related = prepRelated(gathered, item);
+    picked = fillRumorLane(related);
+  }
+  return picked.stories;
 }
 
 const relatedItem = z.object({

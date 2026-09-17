@@ -1132,7 +1132,7 @@ export function FinanceMarkets() {
 function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v6"],
+    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v7"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -1145,7 +1145,7 @@ function RelatedNews({ item }: { item: WatchItem }) {
   function lane(title: string, rows: RelatedStory[], empty: string) {
     return (
       <div>
-        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
           {title}
           {rows.length ? ` · ${rows.length}` : ""}
         </p>
@@ -1177,17 +1177,27 @@ function RelatedNews({ item }: { item: WatchItem }) {
   }
 
   return (
-    <div>
-      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Facts vs rumors</p>
-      <p className="mt-1 text-sm">{issuer.line}</p>
+    <div className="rounded-lg bg-muted p-4">
+      <p className="text-xs uppercase tracking-widest text-muted-foreground">Facts vs rumors</p>
+      <p className="mt-1 text-sm">
+        {issuer.ticker} · {issuer.legal}
+        {issuer.aliases.length ? ` · ${issuer.aliases.join(" · ")}` : ""}
+      </p>
       <p className="text-xs text-muted-foreground">
-        Matched to {issuer.ticker} — this issuer, not a ticker collision. Latest five when the wires have copy.
+        Matched to {issuer.legal}, not a ticker collision. Latest five facts and five rumors when the wires have copy.
       </p>
       {news.isPending && !items.length ? (
-        <div className="mt-2 space-y-2" aria-busy>
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-5/6" />
-          <Skeleton className="h-4 w-2/3" />
+        <div className="mt-3 grid gap-4 sm:grid-cols-2" aria-busy>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
         </div>
       ) : news.isError ? (
         <button
@@ -1198,9 +1208,9 @@ function RelatedNews({ item }: { item: WatchItem }) {
           Couldn’t load related news — retry
         </button>
       ) : (
-        <div className="mt-3 space-y-4">
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
           {lane("Facts", facts, "No related fact copy on the wires right now.")}
-          {lane("Rumors", rumors, "No rumor copy on the wires right now.")}
+          {lane("Rumors & talk", rumors, "Gossip is thin on this name — no rumor copy matched.")}
         </div>
       )}
     </div>
@@ -1313,6 +1323,51 @@ function QuoteSheet({
         {row.q?.spark && row.q.spark.length > 2 ? ` · ${row.q.spark.length} pts` : ""}
       </p>
       {showVol && volLabel(row.q) ? <p className="text-sm text-muted-foreground">{volLabel(row.q)}</p> : null}
+      <div className="rounded-lg bg-muted p-4">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">CFA desk</p>
+        <p className="mt-1 text-xs text-muted-foreground">{note.cfaMethod}</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(
+            [
+              ["PE", note.metrics.pe],
+              ["E/P", note.metrics.ep],
+              ["P/B", note.metrics.pb],
+              ["Yield", note.metrics.yld],
+              ["PSEi wt", note.metrics.wt],
+              ["52w", note.metrics.week],
+              ["Vol", note.metrics.vol],
+            ] as const
+          ).map(([k, v]) => (
+            <div key={k}>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">{k}</p>
+              <p className="text-sm tabular-nums">{v}</p>
+            </div>
+          ))}
+        </div>
+        {(
+          [
+            { title: "Valuation", items: note.valuation },
+            { title: "Tape", items: note.tape },
+            { title: "Index", items: note.indexFactor },
+            { title: "Gap", items: note.gap },
+          ] as const
+        )
+          .filter((g) => g.items.length)
+          .map((g) => (
+            <div key={g.title} className="mt-3">
+              <p className="text-xs text-muted-foreground">{g.title}</p>
+              <ul className="mt-1 space-y-1">
+                {g.items.map((line) => (
+                  <li key={line} className="text-sm leading-snug">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+      </div>
+      {isPseiItem(row.item) ? <WeightingCard /> : null}
+      <RelatedNews item={row.item} />
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-lg bg-muted p-4">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Snapshot</p>
@@ -1360,50 +1415,6 @@ function QuoteSheet({
         <p className="mt-2 text-sm">{note.thesis[0]}</p>
         <p className="mt-1 text-xs text-muted-foreground">{note.index}</p>
       </div>
-      <div className="rounded-lg bg-muted p-4">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">CFA desk</p>
-        <p className="mt-1 text-xs text-muted-foreground">{note.cfaMethod}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(
-            [
-              ["PE", note.metrics.pe],
-              ["E/P", note.metrics.ep],
-              ["P/B", note.metrics.pb],
-              ["Yld", note.metrics.yld],
-              ["Wt", note.metrics.wt],
-              ["52w", note.metrics.week],
-              ["Vol", note.metrics.vol],
-            ] as const
-          ).map(([k, v]) => (
-            <div key={k}>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">{k}</p>
-              <p className="text-sm tabular-nums">{v}</p>
-            </div>
-          ))}
-        </div>
-        {(
-          [
-            { title: "Valuation", items: note.valuation },
-            { title: "Tape", items: note.tape },
-            { title: "Index", items: note.indexFactor },
-            { title: "Gap", items: note.gap },
-          ] as const
-        )
-          .filter((g) => g.items.length)
-          .map((g) => (
-            <div key={g.title} className="mt-3">
-              <p className="text-xs text-muted-foreground">{g.title}</p>
-              <ul className="mt-1 space-y-1">
-                {g.items.map((line) => (
-                  <li key={line} className="text-sm leading-snug">
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-      </div>
-      {isPseiItem(row.item) ? <WeightingCard /> : null}
       <div>
         <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Suggestions</p>
         <div className="mt-2 space-y-3">
@@ -1498,7 +1509,6 @@ function QuoteSheet({
           ) : null}
         </div>
       ) : null}
-      <RelatedNews item={row.item} />
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" className="min-h-11" onClick={onStar}>
           <Star className={cn("size-4", starred && "fill-primary text-primary")} />
