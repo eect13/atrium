@@ -10,8 +10,13 @@ import {
   CloudRain,
   CloudSnow,
   CloudSun,
+  Droplets,
+  Gauge,
   LocateFixed,
   Sun,
+  Sunrise,
+  Sunset,
+  Wind,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PlaceField } from "@/components/place-field";
@@ -21,7 +26,7 @@ import { locateMe, locationBlockedCopy } from "@/lib/locate";
 import { rainSoon } from "@/lib/rain";
 import { regionOf } from "@/lib/region";
 import { useAtrium } from "@/lib/store";
-import { fetchWeather, hasWeatherPin, wmo, type WeatherPayload, type WmoKind } from "@/lib/weather";
+import { fetchWeather, hasWeatherPin, wmo, aqiBand, solarDay, sunClock, uvBand, type WeatherPayload, type WmoKind } from "@/lib/weather";
 
 const WMO_ICON: Record<WmoKind, typeof Sun> = {
   sun: Sun,
@@ -34,7 +39,7 @@ const WMO_ICON: Record<WmoKind, typeof Sun> = {
   storm: CloudLightning,
 };
 
-const WEATHER_SNAP = "atrium.weather.snap";
+const WEATHER_SNAP = "atrium.weather.snap.12";
 
 function hourLabel(hour: number) {
   const ap = hour >= 12 ? "pm" : "am";
@@ -322,6 +327,199 @@ export function WeatherGlance({
       </div>
       <HoursStrip hours={hours} />
       <DaysStrip daily={daily} fallback={current.weather_code} count={days} />
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  icon: typeof Sun;
+}) {
+  return (
+    <div className="rounded-lg bg-muted px-3 py-3">
+      <p className="flex items-center gap-1.5 text-xs uppercase tracking-[0.06em] text-muted-foreground">
+        <Icon className="size-3.5" aria-hidden />
+        {label}
+      </p>
+      <p className="mt-1 font-display text-xl tabular-nums leading-tight">{value}</p>
+      {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** AccuWeather-style board for the Weather tab — UV, AQI, sun, hourly, 7-day. */
+export function WeatherBoard() {
+  const profile = useAtrium((s) => s.profile);
+  const weather = useWeather();
+  const hasPin = hasWeatherPin(profile);
+
+  if (!hasPin) return null;
+
+  if (weather.isPending && !weather.data) {
+    return (
+      <div aria-busy aria-live="polite">
+        <Skeleton className="h-24 w-40" />
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} className="h-20 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const payload = weather.data;
+  if (weather.isError || payload?.error || !payload?.current || !payload.daily) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">Weather unavailable.</p>
+        <button type="button" className="min-h-11 text-sm underline" onClick={() => void weather.refetch()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const daily = payload.daily;
+  const current = payload.current;
+  const sky = wmo(current.weather_code);
+  const Icon = WMO_ICON[sky.kind];
+  const nowKey = isoDate();
+  const nowHour = hourInTZ();
+  const hourly = payload.hourly;
+  const start = hourly
+    ? hourly.time.findIndex((t) => t.startsWith(nowKey) && Number(t.slice(11, 13)) >= nowHour)
+    : -1;
+  const hours =
+    hourly && start >= 0
+      ? hourly.time.slice(start, start + 12).map((t, i) => ({
+          t,
+          temp: hourly.temperature_2m[start + i]!,
+          rain: hourly.precipitation_probability?.[start + i],
+          uv: hourly.uv_index?.[start + i],
+        }))
+      : [];
+  const rainLine = rainSoon(hours);
+  const uvNow = hours[0]?.uv ?? current.uv_index ?? daily.uv_index_max?.[0];
+  const uv = uvNow != null ? uvBand(uvNow) : null;
+  const aqi = current.us_aqi != null ? aqiBand(current.us_aqi) : null;
+  const todayRain = daily.precipitation_probability_max?.[0];
+  const sun =
+    typeof profile.lat === "number" && typeof profile.lon === "number"
+      ? solarDay(profile.lat, profile.lon)
+      : { sunrise: daily.sunrise?.[0], sunset: daily.sunset?.[0] };
+
+  return (
+    <div>
+      <div className="flex items-start gap-4">
+        <Icon className="mt-1 size-14 shrink-0 text-ring sm:size-16" aria-hidden />
+        <div className="min-w-0">
+          <p className="font-display text-5xl tabular-nums leading-none sm:text-6xl">{Math.round(current.temperature_2m)}°</p>
+          <p className="mt-2 text-sm font-medium">{sky.label}</p>
+          <p className="text-sm text-muted-foreground">
+            RealFeel {Math.round(current.apparent_temperature ?? current.temperature_2m)}°
+          </p>
+          {rainLine ? <p className="mt-1 text-sm text-muted-foreground">{rainLine}</p> : null}
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="UV" value={uv ? String(Math.round(uv.n)) : "—"} hint={uv?.label} icon={Sun} />
+        <Stat label="Air" value={aqi ? String(Math.round(aqi.n)) : "—"} hint={aqi ? `AQI · ${aqi.label}` : "AQI"} icon={Gauge} />
+        <Stat label="Sunrise" value={sunClock(sun.sunrise ?? daily.sunrise?.[0])} icon={Sunrise} />
+        <Stat label="Sunset" value={sunClock(sun.sunset ?? daily.sunset?.[0])} icon={Sunset} />
+        <Stat
+          label="Wind"
+          value={`${Math.round(current.wind_speed_10m)} km/h`}
+          icon={Wind}
+        />
+        <Stat
+          label="Humidity"
+          value={current.relative_humidity_2m != null ? `${Math.round(current.relative_humidity_2m)}%` : "—"}
+          icon={Droplets}
+        />
+        <Stat
+          label="Rain"
+          value={todayRain != null ? `${Math.round(todayRain)}%` : "—"}
+          hint="Chance today"
+          icon={CloudRain}
+        />
+        <Stat
+          label="High / Low"
+          value={`${Math.round(daily.temperature_2m_max[0] ?? current.temperature_2m)}° / ${Math.round(daily.temperature_2m_min[0] ?? current.temperature_2m)}°`}
+          icon={CloudSun}
+        />
+      </div>
+
+      {hours.length ? (
+        <div className="mt-6">
+          <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">Hourly</p>
+          <div className="mt-2 flex gap-1 overflow-x-auto">
+            {hours.map((h, i) => (
+              <div
+                key={h.t}
+                className="min-w-12 flex-1 rounded-md bg-muted px-1 py-2 text-center text-xs text-muted-foreground"
+              >
+                {i === 0 ? "Now" : hourLabel(Number(h.t.slice(11, 13)))}
+                <strong className="mt-1 block text-sm text-foreground tabular-nums">{Math.round(h.temp)}°</strong>
+                {h.rain != null && h.rain > 0 ? <span className="tabular-nums">{Math.round(h.rain)}%</span> : <span>—</span>}
+                {h.uv != null ? <span className="mt-0.5 block tabular-nums">UV {Math.round(h.uv)}</span> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-6">
+        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">7-day</p>
+        <div className="mt-1">
+          {daily.time.slice(0, 7).map((t, i) => {
+            const daySky = wmo(daily.weather_code?.[i] ?? current.weather_code);
+            const DayIcon = WMO_ICON[daySky.kind];
+            const uvMax = daily.uv_index_max?.[i];
+            const rain = daily.precipitation_probability_max?.[i];
+            return (
+              <div key={t} className="flex min-h-11 items-center gap-2 border-b border-border py-2 last:border-0">
+                <span className="w-14 shrink-0 text-sm">
+                  {i === 0
+                    ? "Today"
+                    : manilaAt(t, 12).toLocaleDateString(deskZone().locale, {
+                        weekday: "short",
+                        timeZone: deskZone().tz,
+                      })}
+                </span>
+                <DayIcon className="size-4 shrink-0 text-ring" aria-hidden />
+                <span className="min-w-0 grow truncate text-sm text-muted-foreground">{daySky.label}</span>
+                {rain != null && rain > 0 ? (
+                  <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{Math.round(rain)}%</span>
+                ) : (
+                  <span className="w-10 shrink-0" />
+                )}
+                {uvMax != null ? (
+                  <span className="hidden w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:block">
+                    UV {Math.round(uvMax)}
+                  </span>
+                ) : null}
+                <span className="w-16 shrink-0 text-right text-sm tabular-nums">
+                  {Math.round(daily.temperature_2m_max[i]!)}°
+                  <span className="text-muted-foreground">
+                    {" / "}
+                    {Math.round(daily.temperature_2m_min?.[i] ?? daily.temperature_2m_max[i]!)}°
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="mt-4 text-xs text-muted-foreground">Open-Meteo forecast and US AQI. Stays on this device.</p>
     </div>
   );
 }

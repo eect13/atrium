@@ -15,6 +15,8 @@ export type ResizeEdge = "n" | "s" | "e" | "w";
 export type ResizeHandle = ResizeCorner | ResizeEdge;
 export type DeskBox = { x: number; y: number; w: number; h: number };
 export const WIDGET_KINDS = ["weather", "agenda", "calendar", "quote", "finance", "news"] as const;
+/** Six pads on the desk — Windows menu Notes picker matches this cap. */
+export const MAX_PINNED_NOTES = 6;
 
 export function isNarrow(width = typeof window === "undefined" ? 1280 : window.innerWidth) {
   return width < MD;
@@ -90,6 +92,17 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   const { minX, minY } = deskMin();
   const step = isNarrow() ? 12 : 28;
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
+}
+
+/** Tile up to six note pads in a 3×2 grid (cascade on a phone). */
+export function arrangeNoteBox(size: { w: number; h: number }, index = 0): DeskBox {
+  if (typeof window === "undefined" || isNarrow()) return placeWindow(size, index);
+  const cols = 3;
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  const { minX, minY } = deskMin();
+  const gap = 12;
+  return fitBox(minX + 8 + col * (size.w + gap), minY + 8 + row * (size.h + gap), size.w, size.h);
 }
 
 export function normalizeWinBox(raw?: unknown): Partial<Record<(typeof WIDGET_KINDS)[number], DeskBox>> {

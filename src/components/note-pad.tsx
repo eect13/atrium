@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bold,
   Eraser,
   ImagePlus,
   Italic,
   List,
-  MoreHorizontal,
   Pencil,
-  Pin,
   Strikethrough,
   Underline,
   Undo2,
@@ -207,46 +205,6 @@ export function NoteFormat({
   );
 }
 
-export function NoteMore({
-  ink,
-  children,
-}: {
-  ink: string;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const ac = new AbortController();
-    window.addEventListener("pointerdown", (e) => {
-      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
-    }, { signal: ac.signal });
-    return () => ac.abort();
-  }, [open]);
-  return (
-    <div ref={root} className="relative z-[4]" onPointerDown={(e) => e.stopPropagation()} data-no-drag>
-      <Tip label="More">
-        <button
-          type="button"
-          aria-label="Note menu"
-          aria-expanded={open}
-          className="flex size-8 items-center justify-center rounded-sm opacity-0 hover:bg-black/10 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-70"
-          style={{ color: ink }}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <MoreHorizontal className="size-3.5" />
-        </button>
-      </Tip>
-      {open ? (
-        <div data-desk-menu className="absolute right-0 top-9 z-30 min-w-36 rounded-md bg-card p-1 text-card-foreground shadow-[var(--shadow-float)]">
-          {children}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function NotePhotos({
   photos,
   onRemove,
@@ -286,23 +244,6 @@ export async function addNotePhotos(current: NotePhoto[] | undefined, files: Fil
 export function noteInkColor(note: StickyNote) {
   return inkOnPaper(note.color);
 }
-
-export function MenuRow({
-  onClick,
-  children,
-}: {
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button type="button" className="flex min-h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-muted" onClick={onClick}>
-      {children}
-    </button>
-  );
-}
-
-export { Pin };
-
 
 export function useInkRedo() {
   const [redo, setRedo] = useState<Record<string, NonNullable<StickyNote["ink"]>>>({});

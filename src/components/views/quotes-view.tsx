@@ -5,7 +5,7 @@ import { Quote, Shuffle, Star } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Chip } from "@/components/views/finance-chip";
-import { FloatBtn } from "@/components/widgets";
+import { FloatBtn } from "@/components/desk-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";

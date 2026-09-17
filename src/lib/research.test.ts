@@ -24,6 +24,30 @@ test("research note marks non-index names", () => {
   assert.equal(note.bias, "Bearish");
   assert.match(note.thesis.join(" "), /Not a PSEi/);
   assert.equal(note.ticker, "IMI");
+  assert.match(note.expert.join(" "), /tape and levels only/);
+});
+
+test("research expert reads PE yield and 52-week box", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: {
+      price: 120,
+      change: 1.4,
+      kind: "stock",
+      ccy: "PHP",
+      php: 120,
+      pe: 9.2,
+      yieldPct: 4.5,
+      weekLow: 100,
+      weekHigh: 140,
+    },
+    watching: true,
+  };
+  const note = buildResearch(row);
+  assert.match(note.expert.join(" "), /Trailing PE 9.2/);
+  assert.match(note.expert.join(" "), /Yield 4.5%/);
+  assert.match(note.expert.join(" "), /50% of the 52-week range/);
 });
 
 test("research PDF is a real PDF", () => {
@@ -44,6 +68,7 @@ test("research PDF is a real PDF", () => {
   const body = new TextDecoder().decode(bytes);
   assert.match(body, /PSEi/);
   assert.match(body, /STANDPOINT/);
+  assert.match(body, /EXPERT/);
   assert.match(body, /WATCH/);
   assert.match(body, /RISK/);
   assert.match(body, /ATRIUM RESEARCH/);

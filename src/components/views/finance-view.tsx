@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FloatBtn } from "@/components/widgets";
+import { FloatBtn } from "@/components/desk-chrome";
 import { useAtrium } from "@/lib/store";
 import { FinanceBooks } from "./finance-books";
 import { Chip } from "./finance-chip";

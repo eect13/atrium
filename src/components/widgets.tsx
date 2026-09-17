@@ -3,10 +3,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AppWindow,
   Eye,
   EyeOff,
-  House,
   Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,21 +29,17 @@ import {
   pct,
   sameDay,
 } from "@/lib/format";
-import { useAfterPaint } from "@/lib/boot";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
-import { fetchMarkets, VS_PARAM, type MarketSnapshot } from "@/lib/prices";
-import { rememberTape, sessionSpark, tapeSpark } from "@/lib/sparks";
+import { sessionSpark, tapeSpark } from "@/lib/sparks";
 import { useAtrium } from "@/lib/store";
 import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types";
-import { WATCH_CATALOG } from "@/lib/types";
-import { regionOf } from "@/lib/region";
 import { cn } from "@/lib/utils";
-import { WeatherGlance, useWeather } from "@/components/weather-panel";
+import { WeatherGlance } from "@/components/weather-panel";
+import { useMarkets } from "@/components/use-markets";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const HOUR_PX = 48;
 const DAY_START = 7;
@@ -54,27 +48,6 @@ const DAY_END = 21;
 function hourLabel(hour: number) {
   const ap = hour >= 12 ? "pm" : "am";
   return `${hour % 12 || 12}${ap}`;
-}
-
-const MARKET_SNAP = "atrium.markets.snap";
-
-function readSnap<T>(key: string): T | undefined {
-  if (typeof localStorage === "undefined") return undefined;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeSnap(key: string, value: unknown) {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* quota */
-  }
 }
 
 export function WeatherBody() {
@@ -573,98 +546,6 @@ export function QuoteBody() {
   );
 }
 
-export function useMarkets() {
-  const watch = useAtrium((s) => s.watch);
-  const quoteCcy = useAtrium((s) => s.quoteCcy);
-  const financeOn = useAtrium((s) => s.modules.finance);
-  const marketsOn = useAtrium((s) => s.marketPrefs.showMarkets !== false);
-  const tab = useAtrium((s) => s.marketPrefs.tab);
-  const screen = useAtrium((s) => s.marketPrefs.screen);
-  const stockTape = useAtrium((s) => s.marketPrefs.stockTape ?? "auto");
-  const region = useAtrium((s) => s.profile.region);
-  const boardQuery = useAtrium((s) => s.boardQuery);
-  const searching = boardQuery.trim().length > 0;
-  const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
-  const wantYahoo =
-    marketsOn &&
-    (searching ||
-      tab === "global" ||
-      tab === "cmdty" ||
-      watch.some((w) => w.kind === "global" || w.kind === "cmdty" || w.kind === "stock"));
-  const yahoo = wantYahoo
-    ? [
-        ...new Set([
-          ...watch.filter((w) => w.kind === "global" || w.kind === "cmdty").map((w) => w.symbol),
-          ...watch.filter((w) => w.kind === "stock").map((w) => `${w.symbol.replace(/\.PS$/i, "")}.PS`),
-          ...(tab === "global" || searching
-            ? WATCH_CATALOG.filter((w) => w.kind === "global").map((w) => w.symbol)
-            : []),
-          ...(tab === "cmdty" || searching
-            ? WATCH_CATALOG.filter((w) => w.kind === "cmdty").map((w) => w.symbol)
-            : []),
-        ]),
-      ]
-    : [];
-  const screener = marketsOn && tab === "screen" ? screen : undefined;
-  const yahooRegion = regionOf(region).yahoo;
-  const wantPse =
-    stockTape !== "yahoo" &&
-    marketsOn &&
-    (searching ||
-      tab === "all" ||
-      tab === "blue" ||
-      tab === "reit" ||
-      tab === "div" ||
-      tab === "watcher" ||
-      tab === "starred" ||
-      watch.some((w) => w.kind === "stock"));
-  const wantCrypto =
-    marketsOn &&
-    (searching ||
-      tab === "crypto" ||
-      tab === "watcher" ||
-      tab === "starred" ||
-      tab === "all" ||
-      watch.some((w) => w.kind === "crypto"));
-  return useQuery({
-    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, screener, yahooRegion, stockTape],
-    queryFn: async () => {
-      const data = await fetchMarkets({
-        data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, screener, yahooRegion },
-      });
-      writeSnap(MARKET_SNAP, { ids, quoteCcy, data });
-      if (data.quotes) rememberTape(data.quotes);
-      return data;
-    },
-    staleTime: 30_000,
-    gcTime: 10 * 60_000,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
-    retry: 1,
-    enabled: financeOn,
-    placeholderData: (prev) => {
-      if (prev) return prev;
-      const snap = readSnap<{ ids: string[]; quoteCcy: QuoteCcy; data: MarketSnapshot }>(MARKET_SNAP);
-      if (!snap?.data?.quotes) return undefined;
-      if (snap.quoteCcy !== quoteCcy) return undefined;
-      return snap.data;
-    },
-  });
-}
-
-export function WarmQueries() {
-  const financeOn = useAtrium((s) => s.modules.finance);
-  const marketsOn = useAtrium((s) => s.marketPrefs.showMarkets !== false);
-  useWeather();
-  useMarkets();
-  const pseReady = useAfterPaint(1400, financeOn && marketsOn);
-  useEffect(() => {
-    if (!pseReady) return;
-    void fetch("/api/pse").catch(() => undefined);
-  }, [pseReady]);
-  return null;
-}
-
 export function FinancePeek() {
   const { txs, accounts, watch, books, setBooks, setView, setBoardFocus, setMarketPrefs, marketPrefs } = useAtrium(
     useShallow((s) => ({
@@ -909,145 +790,4 @@ export function WidgetBody({
   if (kind === "quote") return <QuoteBody />;
   if (kind === "finance") return <FinancePeek />;
   return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} />;
-}
-
-export function FloatBtn({ kind }: { kind: WidgetKind }) {
-  const openWindow = useAtrium((s) => s.openWindow);
-  const on = useAtrium((s) => s.windows.some((w) => w.kind === kind));
-  const label = on ? "On desk" : "Float";
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
-            on && "text-foreground",
-          )}
-          aria-label={label}
-          onClick={() => openWindow(kind)}
-        >
-          <AppWindow className="size-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-export function DeskMenu() {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules } = useAtrium(
-    useShallow((s) => ({
-      openWindow: s.openWindow,
-      windows: s.windows,
-      closeWindow: s.closeWindow,
-      closeAllWindows: s.closeAllWindows,
-      homeWindows: s.homeWindows,
-      modules: s.modules,
-    })),
-  );
-  const items: { kind: WidgetKind; label: string }[] = [
-    ...(modules.weather !== false ? [{ kind: "weather" as const, label: "Weather" }] : []),
-    { kind: "calendar", label: "Calendar" },
-    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: "Quote" }] : []),
-    ...(modules.finance ? [{ kind: "finance" as const, label: "Finance" }] : []),
-    ...(modules.news ? [{ kind: "news" as const, label: "News" }] : []),
-  ];
-
-  useEffect(() => {
-    if (!open) return;
-    const ac = new AbortController();
-    window.addEventListener(
-      "pointerdown",
-      (e) => {
-        if (!root.current?.contains(e.target as Node)) setOpen(false);
-      },
-      { signal: ac.signal },
-    );
-    window.addEventListener(
-      "keydown",
-      (e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setOpen(false);
-      },
-      { signal: ac.signal, capture: true },
-    );
-    return () => ac.abort();
-  }, [open]);
-  return (
-    <div ref={root} className="relative">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
-            aria-label="Windows"
-            aria-expanded={open}
-            aria-haspopup="menu"
-            onClick={() => setOpen((o) => !o)}
-          >
-            <AppWindow className="size-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Windows</TooltipContent>
-      </Tooltip>
-      {open ? (
-        <div
-          role="menu"
-          data-desk-menu=""
-          className="absolute right-0 top-11 z-50 w-52 rounded-lg bg-card p-2 text-card-foreground shadow-[var(--shadow-float)]"
-        >
-          {items.map((item) => {
-            const win = windows.find((w) => w.kind === item.kind);
-            return (
-              <button
-                key={item.kind}
-                type="button"
-                role="menuitem"
-                className="flex h-11 w-full items-center justify-between rounded-md px-2 text-sm hover:bg-muted"
-                onClick={() => {
-                  if (win) closeWindow(win.id);
-                  else openWindow(item.kind);
-                }}
-              >
-                <span>{item.label}</span>
-                <span className="text-xs text-muted-foreground">{win ? "Close" : "Open"}</span>
-              </button>
-            );
-          })}
-          {windows.length > 0 ? (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="mt-1 flex h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => {
-                  homeWindows();
-                  setOpen(false);
-                }}
-              >
-                <House className="size-3.5" />
-                Bring windows home
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="flex h-11 w-full items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => {
-                  closeAllWindows();
-                  setOpen(false);
-                }}
-              >
-                Close all windows
-              </button>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
 }

@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { GripHorizontal, Pin, PinOff, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { NoteColor } from "@/components/note-color";
+import { NoteTools } from "@/components/note-chrome";
 import { NoteInk } from "@/components/note-ink";
-import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
+import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { inkOnPaper, noteTitle } from "@/lib/format";
 import { closeThisWindow, setNativeAlwaysOnTop, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
@@ -70,13 +70,14 @@ function Chrome({
 }
 
 export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }) {
-  const { notes, windows, updateNote, updateWindow, unpinNote, closeWindow } = useAtrium(
+  const { notes, windows, updateNote, updateWindow, unpinNote, removeNote, closeWindow } = useAtrium(
     useShallow((s) => ({
       notes: s.notes,
       windows: s.windows,
       updateNote: s.updateNote,
       updateWindow: s.updateWindow,
       unpinNote: s.unpinNote,
+      removeNote: s.removeNote,
       closeWindow: s.closeWindow,
     })),
   );
@@ -127,15 +128,14 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
           onPin={togglePin}
           onClose={() => void dismiss(() => unpinNote(note.id))}
           extra={
-            <NoteMore ink={ink}>
-              <div className="px-1 py-1">
-                <NoteColor color={note.color} onChange={(color) => updateNote(note.id, { color })} ink={ink} />
-              </div>
-              <MenuRow onClick={() => void dismiss(() => unpinNote(note.id))}>
-                <PinOff className="size-3.5" />
-                Board
-              </MenuRow>
-            </NoteMore>
+            <NoteTools
+              ink={ink}
+              color={note.color}
+              pinned
+              onColor={(color) => updateNote(note.id, { color })}
+              onFloat={() => void dismiss(() => unpinNote(note.id))}
+              onDelete={() => void dismiss(() => removeNote(note.id))}
+            />
           }
         />
         <div className="relative min-h-0 flex-1 overflow-hidden">

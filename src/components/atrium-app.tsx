@@ -50,7 +50,10 @@ const QuotesView = lazy(() =>
 const WeatherView = lazy(() =>
   import("@/components/views/weather-view").then((m) => ({ default: m.WeatherView })),
 );
-import { DeskMenu, WarmQueries } from "@/components/widgets";
+const WarmQueries = lazy(() =>
+  import("@/components/warm-queries").then((m) => ({ default: m.WarmQueries })),
+);
+import { DeskMenu } from "@/components/desk-chrome";
 import { resolveCommand, suggestCommands } from "@/lib/desk-search";
 import { fetchFeed } from "@/lib/feeds";
 import { mixStories } from "@/lib/headline";
@@ -493,7 +496,9 @@ export function AtriumApp() {
   return (
     <div className="flex h-dvh max-h-dvh overflow-hidden bg-background text-foreground">
       <ThemeSync />
-      <WarmQueries />
+      <Suspense fallback={null}>
+        <WarmQueries />
+      </Suspense>
       <aside
         className={cn(
           "relative z-50 hidden shrink-0 flex-col border-r border-border bg-sidebar lg:flex",

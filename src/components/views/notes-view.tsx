@@ -2,23 +2,21 @@
 
 import { useRef, useState } from "react";
 import { LayoutGrid, LayoutList, PinOff } from "lucide-react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { AddColorWheel, NoteColor } from "@/components/note-color";
+import { AddColorWheel } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
+import { NoteTools } from "@/components/note-chrome";
 import {
-  MenuRow,
   NoteEditor,
   NoteFormat,
-  NoteMore,
   NotePhotos,
-  Pin,
   addNotePhotos,
   useInkRedo,
 } from "@/components/note-pad";
 import { ResizeHandles } from "@/components/float-window";
-import { Button } from "@/components/ui/button";
-import { resizeFrom, type ResizeHandle } from "@/lib/desk";
-import { inkOnPaper, NOTE_COLORS, notePlain, noteTitle, uid } from "@/lib/format";
+import { MAX_PINNED_NOTES, resizeFrom, type ResizeHandle } from "@/lib/desk";
+import { inkOnPaper, NOTE_COLORS, noteTitle, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
 import { Chip } from "./finance-chip";
@@ -43,6 +41,14 @@ export function NotesView() {
   const boardNotes = notes.filter((n) => !n.pinned);
   const pinned = notes.filter((n) => n.pinned);
   const layout = notesLayout === "list" ? "list" : "board";
+
+  function tryPin(id: string) {
+    if (pinned.length >= MAX_PINNED_NOTES) {
+      toast("Six notes on the desk — unpin one first.");
+      return;
+    }
+    pinNote(id);
+  }
 
   function spawn(color: string) {
     addNote({
@@ -113,17 +119,14 @@ export function NotesView() {
                 />
                 <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />
                 <NoteEditor note={n} ink={ink} drawing={false} onUpdate={(patch) => updateNote(n.id, patch)} />
-                <div className="flex items-center justify-between gap-2 px-2 pb-2 text-xs" style={{ color: ink, opacity: 0.75 }}>
-                  <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
-                  <div className="flex">
-                    <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={() => pinNote(n.id)}>
-                      <Pin className="size-3.5" />
-                      Float
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: ink }} onClick={() => removeNote(n.id)}>
-                      Delete
-                    </Button>
-                  </div>
+                <div className="flex items-center justify-end px-1 pb-1" style={{ color: ink }}>
+                  <NoteTools
+                    ink={ink}
+                    color={n.color}
+                    onColor={(color) => updateNote(n.id, { color })}
+                    onFloat={() => tryPin(n.id)}
+                    onDelete={() => removeNote(n.id)}
+                  />
                 </div>
               </article>
             );
@@ -152,7 +155,7 @@ export function NotesView() {
               onMove={(x, y) => updateNote(n.id, { x, y })}
               onResize={(w, h) => updateNote(n.id, { w, h })}
               onUpdate={(patch) => updateNote(n.id, patch)}
-              onPin={() => pinNote(n.id)}
+              onPin={() => tryPin(n.id)}
               onDelete={() => removeNote(n.id)}
             />
           ))}
@@ -171,15 +174,22 @@ export function NotesView() {
             <PinOff className="size-3.5" />
             Floating on desk
           </h3>
-          {pinned.map((n) => (
-            <div key={n.id} className="flex items-center gap-2 border-b border-border py-2">
-              <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} />
-              <span className="min-w-0 grow truncate text-sm font-medium">{noteTitle(n)}</span>
-              <Button variant="ghost" size="sm" onClick={() => unpinNote(n.id)}>
-                Unpin
-              </Button>
-            </div>
-          ))}
+          {pinned.map((n) => {
+            const ink = inkOnPaper(n.color);
+            return (
+              <div key={n.id} className="flex items-center gap-2 border-b border-border py-1">
+                <span className="min-w-0 grow truncate text-sm font-medium">{noteTitle(n)}</span>
+                <NoteTools
+                  ink={ink}
+                  color={n.color}
+                  pinned
+                  onColor={(color) => updateNote(n.id, { color })}
+                  onFloat={() => unpinNote(n.id)}
+                  onDelete={() => removeNote(n.id)}
+                />
+              </div>
+            );
+          })}
           <p className="mt-2 hidden text-xs text-muted-foreground lg:block">
             Drag the bar at the top. Corners resize. Close or unpin to send it back.
           </p>
@@ -289,16 +299,13 @@ function BoardNote({
         }}
       >
         <span className="min-w-0 grow truncate px-1.5 text-xs font-semibold opacity-80">{noteTitle(note)}</span>
-        <NoteMore ink={ink}>
-          <div className="px-1 py-1">
-            <NoteColor color={note.color} onChange={(color) => onUpdate({ color })} ink={ink} />
-          </div>
-          <MenuRow onClick={onPin}>
-            <Pin className="size-3.5" />
-            Float
-          </MenuRow>
-          <MenuRow onClick={onDelete}>Delete</MenuRow>
-        </NoteMore>
+        <NoteTools
+          ink={ink}
+          color={note.color}
+          onColor={(color) => onUpdate({ color })}
+          onFloat={onPin}
+          onDelete={onDelete}
+        />
       </header>
       <div className="relative min-h-0 flex-1">
         <NoteInk

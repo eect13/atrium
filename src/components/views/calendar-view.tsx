@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { CalendarPeek, FloatBtn } from "@/components/widgets";
+import { CalendarPeek } from "@/components/widgets";
+import { FloatBtn } from "@/components/desk-chrome";
 import { redirectToLoginIfRequired } from "@/lib/app-data";
 import {
   addDays,

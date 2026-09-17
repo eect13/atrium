@@ -43,7 +43,7 @@ import {
   type TxKind,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { useMarkets } from "@/components/widgets";
+import { useMarkets } from "@/components/use-markets";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 
 function kindLabel(kind: AccountKind) {

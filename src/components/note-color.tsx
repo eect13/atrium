@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Palette } from "lucide-react";
 import { hexColor, NOTE_COLORS } from "@/lib/format";
+import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export function NoteColor({
@@ -33,15 +34,17 @@ export function NoteColor({
 
   return (
     <div ref={root} className="relative" onPointerDown={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        aria-label="Note color"
-        aria-expanded={open}
-        className="flex size-9 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Palette className="size-3.5" />
-      </button>
+      <Tip label="Color">
+        <button
+          type="button"
+          aria-label="Note color"
+          aria-expanded={open}
+          className="flex size-9 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Palette className="size-3.5" />
+        </button>
+      </Tip>
       {open ? (
         <div className="absolute left-0 top-10 z-30 flex items-center gap-1 rounded-md bg-card p-1.5 shadow-[var(--shadow-float)]">
           {NOTE_COLORS.map((c) => (

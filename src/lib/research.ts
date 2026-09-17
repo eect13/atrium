@@ -25,6 +25,7 @@ export type ResearchNote = {
   watch: string[];
   risk: string[];
   next: string[];
+  expert: string[];
   suggestions: string[];
 };
 
@@ -58,6 +59,27 @@ function wrap(text: string, width: number) {
 function moneyShown(n: number | undefined, ccy: string) {
   if (n == null || !Number.isFinite(n)) return "-";
   return moneyQuote(n, ccy);
+}
+
+function peFmt(n: number) {
+  return n >= 100 ? n.toFixed(0) : n.toFixed(1);
+}
+
+function peTake(pe?: number, fwd?: number) {
+  if (pe == null || pe <= 0) return null;
+  const tail = fwd && fwd > 0 ? `, forward ${peFmt(fwd)}` : "";
+  if (pe < 8) return `Trailing PE ${peFmt(pe)}${tail} — cheap vs a 15–20 market, or a value trap.`;
+  if (pe < 15) return `Trailing PE ${peFmt(pe)}${tail} — below a typical market multiple.`;
+  if (pe <= 22) return `Trailing PE ${peFmt(pe)}${tail} — in a typical market band.`;
+  if (pe <= 35) return `Trailing PE ${peFmt(pe)}${tail} — growth has to keep showing up.`;
+  return `Trailing PE ${peFmt(pe)}${tail} — rich. Only works if earnings compound.`;
+}
+
+function yldTake(y?: number) {
+  if (y == null || y <= 0) return null;
+  if (y >= 8) return `Yield ${y.toFixed(1)}% — high. Check if the dividend is covered.`;
+  if (y >= 4) return `Yield ${y.toFixed(1)}% — income sleeve territory.`;
+  return `Yield ${y.toFixed(1)}%.`;
 }
 
 export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
@@ -109,10 +131,10 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
         : "Not a PSEi constituent. Size and float are not the same as a blue chip.",
     );
   }
-  if (q?.pe && q.pe > 0) {
-    const fwd = q.forwardPe && q.forwardPe > 0 ? `, forward ${q.forwardPe >= 100 ? q.forwardPe.toFixed(0) : q.forwardPe.toFixed(1)}` : "";
-    thesis.push(`Trailing PE ${q.pe >= 100 ? q.pe.toFixed(0) : q.pe.toFixed(1)}${fwd}. Multiple only — not a valuation call.`);
-  }
+  const peLine = peTake(q?.pe, q?.forwardPe);
+  if (peLine) thesis.push(peLine);
+  const yLine = yldTake(q?.yieldPct);
+  if (yLine) thesis.push(yLine);
 
   const technical: string[] = [];
   if (spark.length >= 2) {
@@ -130,6 +152,12 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     technical.push("A hold under the pivot keeps the offer in charge. Reclaim of resistance is the first repair.");
   } else {
     technical.push("The box is the trade. Fade the edges until a close outside support or resistance.");
+  }
+  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
+    const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
+    if (pos >= 0.9) technical.push("Last is near the 52-week high. A failed break is a fade.");
+    else if (pos <= 0.1) technical.push("Last is near the 52-week low. A failed breakdown is a bounce.");
+    else technical.push(`${Math.round(pos * 100)}% of the 52-week range.`);
   }
   technical.push("Desk note only. No broker, no target, no stop.");
 
@@ -184,6 +212,18 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   }
   next.push("Read the related headlines before you size anything.");
 
+  const expert: string[] = [];
+  if (peLine) expert.push(peLine);
+  if (yLine) expert.push(yLine);
+  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
+    const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
+    expert.push(`${Math.round(Math.min(1, Math.max(0, pos)) * 100)}% of the 52-week range.`);
+  }
+  if (q?.pb && q.pb > 0) {
+    expert.push(q.pb < 1 ? `P/B ${q.pb.toFixed(1)} — below book.` : `P/B ${q.pb.toFixed(1)}.`);
+  }
+  if (!expert.length) expert.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
+
   const suggestions = [...watch, ...risk, ...next];
 
   const levels: string[] = [];
@@ -227,6 +267,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     watch,
     risk,
     next,
+    expert,
     suggestions,
   };
 }
@@ -269,6 +310,12 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     { text: "STANDPOINT", size: 9, bold: true, gap: 14 },
     ...note.thesis.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
     ...note.technical.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+    ...((note.expert ?? []).length
+      ? [
+          { text: "EXPERT", size: 9, bold: true, gap: 14 } as PdfLine,
+          ...(note.expert ?? []).slice(0, 3).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+        ]
+      : []),
     ...((note.watch ?? []).length
       ? [
           { text: "WATCH", size: 9, bold: true, gap: 14 } as PdfLine,

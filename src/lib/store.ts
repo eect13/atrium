@@ -14,7 +14,7 @@ import {
   withoutCvc,
   writeBooksSnap,
 } from "./books";
-import { isNarrow, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
+import { arrangeNoteBox, isNarrow, MAX_PINNED_NOTES, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
 import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, staleTagline, uid } from "./format";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
@@ -173,6 +173,7 @@ type State = Data & {
   removeNote: (id: string) => void;
   pinNote: (id: string) => void;
   unpinNote: (id: string) => void;
+  arrangeNotes: () => void;
   setNotesLayout: (v: NotesLayout) => void;
   openWindow: (kind: WidgetKind) => void;
   updateWindow: (id: string, patch: Partial<FloatWin>) => void;
@@ -471,21 +472,22 @@ export const useAtrium = create<State>()(
       removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
       pinNote: (id) =>
         set((s) => {
+          const note = s.notes.find((n) => n.id === id);
+          if (!note || note.pinned) return s;
+          const pinnedN = s.notes.filter((n) => n.pinned).length;
+          if (pinnedN >= MAX_PINNED_NOTES) return s;
           const z = nextZ(s);
-          const n = s.windows.length;
           return {
-            notes: s.notes.map((note) => {
-              if (note.id !== id) return note;
+            notes: s.notes.map((n) => {
+              if (n.id !== id) return n;
               const saved =
-                note.fx != null
-                  ? { x: note.fx, y: note.fy ?? note.y, w: note.fw ?? note.w, h: note.fh ?? note.h }
+                n.fx != null
+                  ? { x: n.fx, y: n.fy ?? n.y, w: n.fw ?? n.w, h: n.fh ?? n.h }
                   : undefined;
-              return {
-                ...note,
-                pinned: true,
-                z,
-                ...restoreBox(saved, { w: note.w, h: note.h }, n),
-              };
+              const box = saved
+                ? restoreBox(saved, { w: n.w, h: n.h }, pinnedN)
+                : arrangeNoteBox({ w: n.w, h: n.h }, pinnedN);
+              return { ...n, pinned: true, z, ...box };
             }),
           };
         }),
@@ -495,6 +497,18 @@ export const useAtrium = create<State>()(
             n.id === id ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: 32, y: 32 } : n,
           ),
         })),
+      arrangeNotes: () =>
+        set((s) => {
+          let i = 0;
+          return {
+            notes: s.notes.map((n) => {
+              if (!n.pinned) return n;
+              const box = arrangeNoteBox({ w: n.w, h: n.h }, i);
+              i += 1;
+              return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
+            }),
+          };
+        }),
       setNotesLayout: (notesLayout) => set({ notesLayout }),
       openWindow: (kind) =>
         set((s) => {
@@ -549,7 +563,7 @@ export const useAtrium = create<State>()(
           let pinned = 0;
           const notes = s.notes.map((n) => {
             if (!n.pinned) return n;
-            const box = placeWindow({ w: n.w, h: n.h }, pinned);
+            const box = arrangeNoteBox({ w: n.w, h: n.h }, pinned);
             pinned += 1;
             return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
           });

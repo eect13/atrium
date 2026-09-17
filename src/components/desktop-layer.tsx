@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { FloatWindow } from "@/components/float-window";
-import { NoteColor } from "@/components/note-color";
+import { NoteTools } from "@/components/note-chrome";
 import { NoteInk } from "@/components/note-ink";
-import { MenuRow, NoteEditor, NoteFormat, NoteMore, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
+import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { boxOffscreen, fitBox } from "@/lib/desk";
 import { inkOnPaper, noteTitle } from "@/lib/format";
@@ -43,6 +42,7 @@ export function DesktopLayer({
     updateWindow,
     closeWindow,
     unpinNote,
+    removeNote,
     raise,
   } = useAtrium(
     useShallow((s) => ({
@@ -53,6 +53,7 @@ export function DesktopLayer({
       updateWindow: s.updateWindow,
       closeWindow: s.closeWindow,
       unpinNote: s.unpinNote,
+      removeNote: s.removeNote,
       raise: s.raise,
     })),
   );
@@ -164,15 +165,14 @@ export function DesktopLayer({
               minW={200}
               minH={160}
               extra={
-                <NoteMore ink={ink}>
-                  <div className="px-1 py-1">
-                    <NoteColor color={n.color} onChange={(color) => updateNote(n.id, { color })} ink={ink} />
-                  </div>
-                  <MenuRow onClick={() => unpinNote(n.id)}>
-                    <PinOff className="size-3.5" />
-                    Board
-                  </MenuRow>
-                </NoteMore>
+                <NoteTools
+                  ink={ink}
+                  color={n.color}
+                  pinned
+                  onColor={(color) => updateNote(n.id, { color })}
+                  onFloat={() => unpinNote(n.id)}
+                  onDelete={() => removeNote(n.id)}
+                />
               }
               onMove={(x, y) => updateNote(n.id, { x, y })}
               onResize={(w, h) => updateNote(n.id, { w, h })}

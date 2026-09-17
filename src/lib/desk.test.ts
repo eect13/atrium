@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { boxOffscreen, normalizeWinBox, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
+import { arrangeNoteBox, boxOffscreen, MAX_PINNED_NOTES, normalizeWinBox, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
 
 const box = { x: 100, y: 80, w: 200, h: 160 };
 
@@ -63,4 +63,13 @@ test("boxOffscreen is false without a window (SSR)", () => {
 
 test("snapDesk is a no-op without a window (SSR)", () => {
   assert.deepEqual(snapDesk(1084, 56, 320, 360), { x: 1084, y: 56 });
+});
+
+test("arrangeNoteBox cascades six pads when there is no window", () => {
+  assert.equal(MAX_PINNED_NOTES, 6);
+  const first = arrangeNoteBox({ w: 240, h: 220 }, 0);
+  const second = arrangeNoteBox({ w: 240, h: 220 }, 1);
+  assert.equal(first.w, 240);
+  assert.equal(first.h, 220);
+  assert.ok(second.x > first.x || second.y > first.y);
 });

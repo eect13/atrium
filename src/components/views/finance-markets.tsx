@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { useMarkets } from "@/components/widgets";
+import { useMarkets } from "@/components/use-markets";
 import { deskZone, isoDate, moneyQuote, phpQuote, peso, vol } from "@/lib/format";
 import {
   BOARD_SORTS,
@@ -1247,6 +1247,16 @@ function QuoteSheet({
         </div>
         <p className="mt-2 text-sm">{note.thesis[0]}</p>
         <p className="mt-1 text-xs text-muted-foreground">{note.index}</p>
+      </div>
+      <div className="rounded-lg bg-muted p-4">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">Expert</p>
+        <ul className="mt-2 space-y-1">
+          {note.expert.map((s) => (
+            <li key={s} className="text-sm leading-snug">
+              {s}
+            </li>
+          ))}
+        </ul>
       </div>
       <div>
         <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Suggestions</p>

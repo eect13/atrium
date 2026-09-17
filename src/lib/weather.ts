@@ -2,8 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { isoDate, manilaParts, deskZone } from "./format";
 import { parsePostal, postalCountries, type PostalHint } from "./postal";
+import { aqiBand, samePlace, solarDay, sunClock, uvBand } from "./weather-meta";
 
 export { parsePostal };
+export { aqiBand, samePlace, solarDay, sunClock, uvBand };
 
 export type WmoKind = "sun" | "partly" | "cloud" | "fog" | "drizzle" | "rain" | "snow" | "storm";
 
@@ -50,29 +52,36 @@ export type WeatherPayload = {
     wind_speed_10m: number;
     relative_humidity_2m?: number;
     apparent_temperature?: number;
+    uv_index?: number;
+    us_aqi?: number;
   };
   hourly?: {
     time: string[];
     temperature_2m: number[];
     precipitation_probability?: number[];
     precipitation?: number[];
+    uv_index?: number[];
   };
   daily?: {
     time: string[];
     temperature_2m_max: number[];
     temperature_2m_min: number[];
     weather_code?: number[];
+    sunrise?: string[];
+    sunset?: string[];
+    uv_index_max?: number[];
+    precipitation_probability_max?: number[];
   };
 };
 
-const UA = "Atrium/1.2.11 (personal dashboard)";
+const UA = "Atrium/1.2.12 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
 const cache = new Map<string, { exp: number; staleExp: number; data: WeatherPayload }>();
 
 function cacheKey(lat: number, lon: number) {
-  return `${lat.toFixed(3)},${lon.toFixed(3)}`;
+  return `v12:${lat.toFixed(3)},${lon.toFixed(3)}`;
 }
 
 function stamp(d: Date) {
@@ -107,6 +116,23 @@ type MetRow = {
   };
 };
 
+async function fromAirQuality(lat: number, lon: number): Promise<number | undefined> {
+  const url = new URL("https://air-quality-api.open-meteo.com/v1/air-quality");
+  url.searchParams.set("latitude", String(lat));
+  url.searchParams.set("longitude", String(lon));
+  url.searchParams.set("current", "us_aqi");
+  url.searchParams.set("timezone", deskZone().tz);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_MS) });
+    if (!res.ok) return undefined;
+    const json = (await res.json()) as { current?: { us_aqi?: number } };
+    const n = json.current?.us_aqi;
+    return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload | null> {
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(lat));
@@ -115,8 +141,11 @@ async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload |
     "current",
     "temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m,apparent_temperature",
   );
-  url.searchParams.set("hourly", "temperature_2m,precipitation_probability");
-  url.searchParams.set("daily", "weather_code,temperature_2m_max,temperature_2m_min");
+  url.searchParams.set("hourly", "temperature_2m,precipitation_probability,uv_index");
+  url.searchParams.set(
+    "daily",
+    "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max",
+  );
   url.searchParams.set("timezone", deskZone().tz);
   url.searchParams.set("forecast_days", "7");
   url.searchParams.set("forecast_hours", "24");
@@ -155,7 +184,7 @@ function fromMetSeries(series: MetRow[]): WeatherPayload | null {
   };
 
   const byDay = Object.groupBy(series, (row) => isoDate(new Date(row.time)));
-  const days = Object.keys(byDay).toSorted().slice(0, 5);
+  const days = Object.keys(byDay).toSorted().slice(0, 7);
   const daily = {
     time: days,
     temperature_2m_max: days.map((d) =>
@@ -210,7 +239,18 @@ async function fromMetNo(lat: number, lon: number): Promise<WeatherPayload | nul
 
 /** Open-Meteo (ECMWF blend) first — Met.no is Nordic-centric and used to win a race. */
 async function firstWeather(lat: number, lon: number): Promise<WeatherPayload | null> {
-  return (await fromOpenMeteo(lat, lon)) ?? (await fromMetNo(lat, lon));
+  const [forecast, aqi] = await Promise.all([
+    (async () => (await fromOpenMeteo(lat, lon)) ?? (await fromMetNo(lat, lon)))(),
+    fromAirQuality(lat, lon),
+  ]);
+  if (!forecast?.current || !forecast.daily) return forecast;
+  if (aqi != null) forecast.current.us_aqi = aqi;
+  if (!forecast.daily.sunrise?.[0]) {
+    const tz = deskZone().tz;
+    forecast.daily.sunrise = forecast.daily.time.map((t) => solarDay(lat, lon, new Date(`${t}T12:00:00Z`), tz).sunrise ?? "");
+    forecast.daily.sunset = forecast.daily.time.map((t) => solarDay(lat, lon, new Date(`${t}T12:00:00Z`), tz).sunset ?? "");
+  }
+  return forecast;
 }
 
 export const fetchWeather = createServerFn({ method: "POST" })
@@ -379,7 +419,7 @@ async function findPlaces(name: string, cc: string, count: number): Promise<Plac
   }
   const names = await lookupNames(name, cc, count);
   for (const hit of names) {
-    if (out.some((p) => Math.abs(p.lat - hit.lat) < 0.01 && Math.abs(p.lon - hit.lon) < 0.01)) continue;
+    if (out.some((p) => samePlace(p, hit))) continue;
     out.push(hit);
     if (out.length >= count) break;
   }
