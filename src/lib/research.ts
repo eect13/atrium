@@ -3,7 +3,10 @@ import { parseRss } from "./feeds.ts";
 import { cleanHeadline } from "./headline.ts";
 import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
-import { PSEI_SYMBOL } from "./yahoo.ts";
+import { weightTake } from "./psei-weight.ts";
+import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 
 export type ResearchNote = {
   ticker: string;
@@ -233,7 +236,12 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     if (r >= 1.8) expert.push(`Volume ${r.toFixed(1)}× the 10-day typical.`);
     else if (r <= 0.5) expert.push(`Volume ${r.toFixed(1)}× typical — quiet tape.`);
   }
-  if (!expert.length) expert.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
+  if (!expert.length && !(code === PSEI_SYMBOL || ticker === "PSEi" || isPseiItem(row.item))) {
+    expert.push("No PE, yield, or 52-week box on this quote — tape and levels only.");
+  }
+  if (code === PSEI_SYMBOL || ticker === "PSEi" || isPseiItem(row.item)) {
+    expert.push(...weightTake());
+  }
 
   const suggestions = [...watch, ...risk, ...next];
 
@@ -324,7 +332,7 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     ...((note.expert ?? []).length
       ? [
           { text: "EXPERT", size: 9, bold: true, gap: 14 } as PdfLine,
-          ...(note.expert ?? []).slice(0, 3).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+          ...(note.expert ?? []).slice(0, 6).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
     ...((note.watch ?? []).length
@@ -415,6 +423,7 @@ export type NewsWindow = "1d" | "7d" | "30d";
 const GENERIC_NAME = /^(inc|corp|corporation|holdings?|plc|ltd|limited|group|the|and|of|ph|co|company|philippine|philippines)$/i;
 
 export function relatedNeedles(item: { label: string; symbol: string; name?: string; kind: string }) {
+  if (isPseiItem(item)) return ["psei", "pse index", "philippine stock exchange"];
   const name = (item.name ?? item.label).trim();
   const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
   const out: string[] = [];
@@ -437,6 +446,9 @@ export function isRelatedStory(
   item: { label: string; symbol: string; name?: string; kind: string },
 ) {
   const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`.toLowerCase();
+  if (isPseiItem(item)) {
+    return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(hay);
+  }
   for (const n of relatedNeedles(item)) {
     if (n.length <= 3) {
       const re = new RegExp(`(?:^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`, "i");
@@ -450,7 +462,8 @@ export function relatedNewsQuery(item: { label: string; symbol: string; name?: s
   const name = (item.name ?? item.label).trim();
   const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
   let q = "";
-  if (item.kind === "crypto") q = `${item.label} OR ${name} crypto`;
+  if (isPseiItem(item)) q = `PSEi OR "PSE index" OR "Philippine Stock Exchange"`;
+  else if (item.kind === "crypto") q = `${item.label} OR ${name} crypto`;
   else if (item.kind === "fx") q = `${item.label} peso forex`;
   else if (item.kind === "cmdty") q = `${item.label} OR ${name} commodity`;
   else if (item.kind === "global") q = `${sym} OR ${name}`;
@@ -463,17 +476,21 @@ export function relatedNewsQuery(item: { label: string; symbol: string; name?: s
 
 export function relatedNewsUrl(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
   const q = relatedNewsQuery(item, window);
-  const locale = item.kind === "stock" || item.kind === "fx" ? "hl=en-PH&gl=PH&ceid=PH:en" : "hl=en&gl=US&ceid=US:en";
+  const locale = item.kind === "stock" || item.kind === "fx" || isPseiItem(item) ? "hl=en-PH&gl=PH&ceid=PH:en" : "hl=en&gl=US&ceid=US:en";
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
 }
 
-export function rumorNewsUrl(item: { label: string; symbol: string; name?: string }, window: NewsWindow = "7d") {
+export function rumorNewsUrl(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
   const name = (item.name ?? item.label).trim();
   const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
-  const bits = [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
-  const q = `site:bilyonaryo.com (${bits.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" OR ")}) when:${window}`;
+  const bits = isPseiItem(item)
+    ? ["PSEi", `"PSE index"`]
+    : [sym, name].filter((s, i, a) => s && a.indexOf(s) === i);
+  const q = `site:bilyonaryo.com (${bits.map((s) => (s.includes(" ") && !s.startsWith('"') ? `"${s}"` : s)).join(" OR ")}) when:${window}`;
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-PH&gl=PH&ceid=PH:en`;
 }
+
+export type StoryLane = "fact" | "rumor" | "wire";
 
 export type RelatedStory = {
   title: string;
@@ -481,18 +498,36 @@ export type RelatedStory = {
   desc: string;
   date: string;
   src: string;
+  lane: StoryLane;
 };
+
+const RUMOR_COPY =
+  /bilyonaryo|in talks|sources? say|rumou?r\b|unconfirmed|allegedly|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar/i;
+const FACT_COPY =
+  /pse\.com\.ph|edge\.pse|businessworld|bworldonline|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
+
+export function storyLane(story: { title: string; desc?: string; src?: string }): StoryLane {
+  const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`;
+  if (RUMOR_COPY.test(hay)) return "rumor";
+  if (FACT_COPY.test(hay)) return "fact";
+  return "wire";
+}
 
 function asStories(xml: string): RelatedStory[] {
   return parseRss(xml)
     .filter((s) => s.title && !/^untitled$/i.test(s.title))
-    .map((s) => ({
-      title: cleanHeadline(s.title) || s.title,
-      link: s.link,
-      desc: s.desc,
-      date: s.date,
-      src: s.source || "Google News",
-    }))
+    .map((s) => {
+      const title = cleanHeadline(s.title) || s.title;
+      const src = s.source || "Google News";
+      return {
+        title,
+        link: s.link,
+        desc: s.desc,
+        date: s.date,
+        src,
+        lane: storyLane({ title, desc: s.desc, src }),
+      };
+    })
     .filter((s) => s.title);
 }
 
@@ -508,21 +543,36 @@ function mergeStories(rows: RelatedStory[]) {
   return out.sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || ""));
 }
 
-export async function fetchRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
+export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
   const urls: string[] = [];
   for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
-  if (item.kind === "stock" || item.kind === "fx") {
+  if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
     urls.push(rumorNewsUrl(item, "7d"), rumorNewsUrl(item, "30d"));
   }
-  const gathered: RelatedStory[] = [];
-  for (const url of urls) {
-    try {
-      gathered.push(...asStories(await httpText(url)));
-    } catch {
-      /* next feed */
-    }
-    const related = mergeStories(gathered.filter((s) => isRelatedStory(s, item)));
-    if (related.length >= 4) return related.slice(0, 12);
-  }
-  return mergeStories(gathered.filter((s) => isRelatedStory(s, item))).slice(0, 12);
+  const gathered = (
+    await Promise.all(
+      urls.map(async (url) => {
+        try {
+          return asStories(await httpText(url));
+        } catch {
+          return [] as RelatedStory[];
+        }
+      }),
+    )
+  ).flat();
+  const related = mergeStories(gathered.filter((s) => isRelatedStory(s, item)));
+  const facts = related.filter((s) => s.lane !== "rumor").slice(0, 8);
+  const rumors = related.filter((s) => s.lane === "rumor").slice(0, 8);
+  return mergeStories([...facts, ...rumors]);
 }
+
+const relatedItem = z.object({
+  label: z.string(),
+  symbol: z.string(),
+  name: z.string().optional(),
+  kind: z.string(),
+});
+
+export const fetchRelatedStories = createServerFn({ method: "POST" })
+  .validator(relatedItem)
+  .handler(async ({ data }) => harvestRelatedStories(data));

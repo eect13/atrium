@@ -38,7 +38,7 @@ function Chrome({
   extra?: React.ReactNode;
 }) {
   return (
-    <header className="flex h-11 shrink-0 cursor-grab items-center gap-1 border-b border-current/15 px-2 active:cursor-grabbing">
+    <header className="group/bar flex h-11 shrink-0 cursor-grab items-center gap-1 border-b border-current/15 px-2 active:cursor-grabbing">
       <div className="flex min-w-0 grow items-center gap-1.5" data-tauri-drag-region>
         <GripHorizontal className="size-3.5 shrink-0 opacity-45" data-tauri-drag-region />
         <span className="min-w-0 truncate text-xs font-medium opacity-80" data-tauri-drag-region>

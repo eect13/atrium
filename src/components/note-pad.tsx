@@ -128,7 +128,7 @@ export function NoteFormat({
 }) {
   return (
     <div
-      className="relative z-[4] flex flex-wrap items-center gap-0.5 border-t border-current/10 px-1 pt-0.5"
+      className="note-format-autohide relative z-[4] flex flex-wrap items-center gap-0.5 border-t border-current/10 px-1 pt-0.5"
       style={{ color: ink }}
       onPointerDown={(e) => e.stopPropagation()}
       data-no-drag

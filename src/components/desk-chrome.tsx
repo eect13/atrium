@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AppWindow, House, LayoutGrid, NotebookPen } from "lucide-react";
-import { toast } from "sonner";
+import { AppWindow, House } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { MAX_PINNED_NOTES } from "@/lib/desk";
-import { noteTitle } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -35,11 +32,40 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
   );
 }
 
+export function NotesFloatBtn() {
+  const { notes, pinAllNotes, unpinAllNotes } = useAtrium(
+    useShallow((s) => ({
+      notes: s.notes,
+      pinAllNotes: s.pinAllNotes,
+      unpinAllNotes: s.unpinAllNotes,
+    })),
+  );
+  const on = notes.some((n) => n.pinned);
+  const label = on ? "On desk" : "Float";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
+            on && "text-foreground",
+          )}
+          aria-label={label}
+          onClick={() => (on ? unpinAllNotes() : pinAllNotes())}
+        >
+          <AppWindow className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function DeskMenu() {
   const [open, setOpen] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinNote, unpinNote, arrangeNotes } =
+  const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinAllNotes, unpinAllNotes, arrangeNotes } =
     useAtrium(
       useShallow((s) => ({
         openWindow: s.openWindow,
@@ -49,8 +75,8 @@ export function DeskMenu() {
         homeWindows: s.homeWindows,
         modules: s.modules,
         notes: s.notes,
-        pinNote: s.pinNote,
-        unpinNote: s.unpinNote,
+        pinAllNotes: s.pinAllNotes,
+        unpinAllNotes: s.unpinAllNotes,
         arrangeNotes: s.arrangeNotes,
       })),
     );
@@ -67,10 +93,7 @@ export function DeskMenu() {
   const showNotes = modules.notes !== false;
 
   useEffect(() => {
-    if (!open) {
-      setNotesOpen(false);
-      return;
-    }
+    if (!open) return;
     const ac = new AbortController();
     window.addEventListener(
       "pointerdown",
@@ -111,18 +134,6 @@ export function DeskMenu() {
     );
   }
 
-  function toggleNote(id: string, pinned: boolean) {
-    if (pinned) {
-      unpinNote(id);
-      return;
-    }
-    if (pinnedN >= MAX_PINNED_NOTES) {
-      toast("Six notes on the desk — unpin one first.");
-      return;
-    }
-    pinNote(id);
-  }
-
   return (
     <div ref={root} className="relative">
       <Tooltip>
@@ -148,58 +159,18 @@ export function DeskMenu() {
         >
           {items.map(slot)}
           {showNotes ? (
-            <div>
-              <button
-                type="button"
-                role="menuitem"
-                className="flex h-11 w-full items-center justify-between rounded-md px-2 text-sm hover:bg-muted"
-                aria-expanded={notesOpen}
-                onClick={() => setNotesOpen((v) => !v)}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <NotebookPen className="size-3.5" />
-                  Notes
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {pinnedN}/{MAX_PINNED_NOTES}
-                </span>
-              </button>
-              {notesOpen ? (
-                <div className="mb-1 max-h-64 overflow-y-auto rounded-md bg-muted/60 p-1">
-                  {notes.length ? (
-                    notes.map((n) => (
-                      <button
-                        key={n.id}
-                        type="button"
-                        role="menuitemcheckbox"
-                        aria-checked={n.pinned}
-                        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-sm px-2 text-left text-sm hover:bg-background"
-                        onClick={() => toggleNote(n.id, Boolean(n.pinned))}
-                      >
-                        <span className="min-w-0 truncate">{noteTitle(n)}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">{n.pinned ? "On desk" : "Float"}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">No notes yet.</p>
-                  )}
-                  {pinnedN > 0 ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="mt-1 flex h-11 w-full items-center gap-2 rounded-sm px-2 text-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                      onClick={() => {
-                        arrangeNotes();
-                        toast("Notes arranged");
-                      }}
-                    >
-                      <LayoutGrid className="size-3.5" />
-                      Arrange
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex h-11 w-full items-center justify-between rounded-md px-2 text-sm hover:bg-muted"
+              onClick={() => {
+                if (pinnedN) unpinAllNotes();
+                else pinAllNotes();
+              }}
+            >
+              <span>Notes</span>
+              <span className="text-xs text-muted-foreground">{pinnedN ? "Close" : "Open"}</span>
+            </button>
           ) : null}
           {afterNotes.map(slot)}
           {windows.length > 0 || pinnedN > 0 ? (

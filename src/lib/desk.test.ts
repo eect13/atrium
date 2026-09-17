@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { arrangeNoteBox, boxOffscreen, MAX_PINNED_NOTES, normalizeWinBox, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
+import { arrangeNoteBox, boxOffscreen, normalizeWinBox, placePopover, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
 
 const box = { x: 100, y: 80, w: 200, h: 160 };
 
@@ -65,11 +65,16 @@ test("snapDesk is a no-op without a window (SSR)", () => {
   assert.deepEqual(snapDesk(1084, 56, 320, 360), { x: 1084, y: 56 });
 });
 
-test("arrangeNoteBox cascades six pads when there is no window", () => {
-  assert.equal(MAX_PINNED_NOTES, 6);
+test("arrangeNoteBox cascades pads when there is no window", () => {
   const first = arrangeNoteBox({ w: 240, h: 220 }, 0);
-  const second = arrangeNoteBox({ w: 240, h: 220 }, 1);
+  const seventh = arrangeNoteBox({ w: 240, h: 220 }, 6);
   assert.equal(first.w, 240);
   assert.equal(first.h, 220);
-  assert.ok(second.x > first.x || second.y > first.y);
+  assert.ok(seventh.x > first.x || seventh.y > first.y);
+});
+
+test("placePopover right-aligns and stays on-screen", () => {
+  const box = placePopover({ left: 20, right: 56, top: 40, bottom: 76, width: 36, height: 36, x: 20, y: 40, toJSON() {} }, 160, 120);
+  assert.equal(box.left, 8);
+  assert.ok(box.top >= 8);
 });

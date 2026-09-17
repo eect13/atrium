@@ -74,7 +74,7 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.2.13 (personal dashboard)";
+const UA = "Atrium/1.2.14 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;

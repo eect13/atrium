@@ -37,6 +37,12 @@ export function isYahooIndex(symbol: string) {
   return s.startsWith("^") || /^PSEI\.PS$/i.test(s);
 }
 
+export function isPseiItem(item: { symbol?: string; label?: string }) {
+  const s = (item.symbol ?? "").trim();
+  const l = (item.label ?? "").trim();
+  return s === PSEI_SYMBOL || /^PSEI(\.PS)?$/i.test(s) || l === "PSEi";
+}
+
 /** Map BDO.PS → BDO. Null for the PSEi index so it never overlays the listed PSE stock. */
 export function pseTickerFromYahoo(symbol: string): string | null {
   if (!/\.PS$/i.test(symbol)) return null;

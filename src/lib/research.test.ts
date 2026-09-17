@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, isRelatedStory, relatedNewsUrl, rumorNewsUrl, researchPdf } from "./research.ts";
+import { buildResearch, isRelatedStory, relatedNewsUrl, rumorNewsUrl, researchPdf, storyLane } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -81,6 +81,9 @@ test("related news query is ticker-aware", () => {
   assert.match(url, /gl=PH/);
   const crypto = relatedNewsUrl({ label: "BTC", symbol: "bitcoin", name: "Bitcoin", kind: "crypto" });
   assert.match(crypto, /gl=US/);
+  const psei = relatedNewsUrl({ label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" });
+  assert.match(decodeURIComponent(psei), /PSE index/);
+  assert.match(psei, /gl=PH/);
 });
 
 test("isRelatedStory keeps Lopez and drops noise", () => {
@@ -91,12 +94,23 @@ test("isRelatedStory keeps Lopez and drops noise", () => {
   );
   assert.equal(isRelatedStory({ title: "PSE index edges up as banks lead", src: "Inquirer" }, item), false);
   assert.equal(isRelatedStory({ title: "LPZ in talks for a power deal — Bilyonaryo", src: "Bilyonaryo" }, item), true);
+  const psei = { label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" };
+  assert.equal(isRelatedStory({ title: "PSE index edges up as banks lead", src: "Inquirer" }, psei), true);
+  assert.equal(isRelatedStory({ title: "Lopez Holdings sets meeting", src: "mb.com.ph" }, psei), false);
+});
+
+test("storyLane splits facts from rumor copy", () => {
+  assert.equal(storyLane({ title: "PSEi closes higher", src: "BusinessWorld" }), "fact");
+  assert.equal(storyLane({ title: "ICT in talks for a port deal — sources say", src: "Bilyonaryo" }), "rumor");
+  assert.equal(storyLane({ title: "Markets wrap", src: "Google News" }), "wire");
 });
 
 test("rumor news query is Bilyonaryo-scoped", () => {
   const url = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
   assert.match(decodeURIComponent(url), /site:bilyonaryo.com/);
   assert.match(decodeURIComponent(url), /BDO Unibank/);
+  const psei = rumorNewsUrl({ label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" });
+  assert.match(decodeURIComponent(psei), /PSEi/);
 });
 
 test("research expert reads volume vs typical on a US name", () => {
@@ -137,5 +151,7 @@ test("research expert on the PSEi index uses the 52-week box", () => {
   const note = buildResearch(row);
   assert.match(note.index, /PSEi/);
   assert.match(note.expert.join(" "), /of the 52-week range/);
+  assert.match(note.expert.join(" "), /free-float/i);
+  assert.match(note.expert.join(" "), /26\.83%/);
   assert.match(note.next.join(" "), /dropped \.PS/);
 });

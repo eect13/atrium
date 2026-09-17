@@ -63,11 +63,12 @@ import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
-import { buildResearch, downloadPdf, fetchRelatedStories, researchPdf } from "@/lib/research";
+import { buildResearch, downloadPdf, fetchRelatedStories, researchPdf, type RelatedStory } from "@/lib/research";
+import { concentration, PSEI_FORMULA, topWeights } from "@/lib/psei-weight";
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
-import { PSEI_SYMBOL } from "@/lib/yahoo";
+import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
 
@@ -1130,13 +1131,44 @@ export function FinanceMarkets() {
 
 function RelatedNews({ item }: { item: WatchItem }) {
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, "v2"],
-    queryFn: () => fetchRelatedStories(item),
+    queryKey: ["stock-news", item.symbol, item.name, "v4"],
+    queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
     retry: 1,
   });
-  const items = [...(news.data ?? [])].sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || "")).slice(0, 12);
+  const items = [...(news.data ?? [])].sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || ""));
+  const facts = items.filter((s) => s.lane !== "rumor");
+  const rumors = items.filter((s) => s.lane === "rumor");
+
+  function lane(title: string, rows: RelatedStory[]) {
+    if (!rows.length) return null;
+    return (
+      <div>
+        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{title}</p>
+        <div className="mt-2 space-y-2">
+          {rows.map((n) => (
+            <a
+              key={`${n.link}-${n.title}`}
+              href={n.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-sm leading-snug hover:underline"
+            >
+              <span className="block">{n.title}</span>
+              <span className="text-xs text-muted-foreground">
+                {n.src}
+                {n.date
+                  ? ` · ${new Date(n.date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                  : ""}
+              </span>
+            </a>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Latest news</p>
@@ -1157,26 +1189,36 @@ function RelatedNews({ item }: { item: WatchItem }) {
       ) : !items.length ? (
         <p className="mt-2 text-sm text-muted-foreground">No related stories right now.</p>
       ) : (
-        <div className="mt-2 space-y-2">
-          {items.map((n) => (
-            <a
-              key={`${n.link}-${n.title}`}
-              href={n.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-sm leading-snug hover:underline"
-            >
-              <span className="block">{n.title}</span>
-              <span className="text-xs text-muted-foreground">
-                {n.src}
-                {n.date
-                  ? ` · ${new Date(n.date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
-                  : ""}
-              </span>
-            </a>
-          ))}
+        <div className="mt-2 space-y-4">
+          {lane("Facts", facts)}
+          {lane("Rumors", rumors)}
         </div>
       )}
+    </div>
+  );
+}
+
+function WeightingCard() {
+  const c = concentration();
+  return (
+    <div className="rounded-lg bg-muted p-4">
+      <p className="text-xs uppercase tracking-widest text-muted-foreground">Weighting</p>
+      <p className="mt-2 text-sm">Free-float market-cap of 30 · {PSEI_FORMULA}</p>
+      <p className="mt-1 text-xs text-muted-foreground">FMETF 16 Sep 2026 proxy. ICT {c.ict.toFixed(2)}% of the index.</p>
+      <ul className="mt-2 space-y-1">
+        {topWeights(5).map((w) => (
+          <li key={w.ticker} className="flex items-baseline justify-between gap-3 text-sm">
+            <span>{w.ticker}</span>
+            <span className="tabular-nums text-muted-foreground">{w.psei.toFixed(2)}%</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-muted-foreground">
+        SM group {c.sm.toFixed(1)}% · Banks {c.banks.toFixed(1)}% · Ayala {c.ayala.toFixed(1)}%
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Feb 2027 CN-2026-0033: MTAR 15% in / 10% stay, 98% cumulative cap, 15% float for PHP 250B+ names.
+      </p>
     </div>
   );
 }
@@ -1303,6 +1345,7 @@ function QuoteSheet({
           ))}
         </ul>
       </div>
+      {isPseiItem(row.item) ? <WeightingCard /> : null}
       <div>
         <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Suggestions</p>
         <div className="mt-2 space-y-3">

@@ -2,8 +2,8 @@
 
 import { useRef, useState } from "react";
 import { LayoutGrid, LayoutList, PinOff } from "lucide-react";
-import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
+import { NotesFloatBtn } from "@/components/desk-chrome";
 import { AddColorWheel } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
 import { NoteTools } from "@/components/note-chrome";
@@ -15,7 +15,7 @@ import {
   useInkRedo,
 } from "@/components/note-pad";
 import { ResizeHandles } from "@/components/float-window";
-import { MAX_PINNED_NOTES, resizeFrom, type ResizeHandle } from "@/lib/desk";
+import { resizeFrom, type ResizeHandle } from "@/lib/desk";
 import { inkOnPaper, NOTE_COLORS, noteTitle, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
@@ -42,14 +42,6 @@ export function NotesView() {
   const pinned = notes.filter((n) => n.pinned);
   const layout = notesLayout === "list" ? "list" : "board";
 
-  function tryPin(id: string) {
-    if (pinned.length >= MAX_PINNED_NOTES) {
-      toast("Six notes on the desk — unpin one first.");
-      return;
-    }
-    pinNote(id);
-  }
-
   function spawn(color: string) {
     addNote({
       id: uid(),
@@ -73,6 +65,7 @@ export function NotesView() {
           <span className="hidden lg:inline">Title + body, colors, format tools. Drag the title bar; edges resize.</span>
         </p>
         <div className="grow" />
+        <NotesFloatBtn />
         <Chip active={layout === "list"} onClick={() => setNotesLayout("list")}>
           <LayoutList className="size-3.5" />
           List
@@ -119,12 +112,13 @@ export function NotesView() {
                 />
                 <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />
                 <NoteEditor note={n} ink={ink} drawing={false} onUpdate={(patch) => updateNote(n.id, patch)} />
-                <div className="flex items-center justify-end px-1 pb-1" style={{ color: ink }}>
+                <div className="group/bar flex items-center justify-end px-1 pb-1" style={{ color: ink }}>
                   <NoteTools
                     ink={ink}
                     color={n.color}
+                    reveal="always"
                     onColor={(color) => updateNote(n.id, { color })}
-                    onFloat={() => tryPin(n.id)}
+                    onFloat={() => pinNote(n.id)}
                     onDelete={() => removeNote(n.id)}
                   />
                 </div>
@@ -155,7 +149,7 @@ export function NotesView() {
               onMove={(x, y) => updateNote(n.id, { x, y })}
               onResize={(w, h) => updateNote(n.id, { w, h })}
               onUpdate={(patch) => updateNote(n.id, patch)}
-              onPin={() => tryPin(n.id)}
+              onPin={() => pinNote(n.id)}
               onDelete={() => removeNote(n.id)}
             />
           ))}
@@ -183,6 +177,7 @@ export function NotesView() {
                   ink={ink}
                   color={n.color}
                   pinned
+                  reveal="always"
                   onColor={(color) => updateNote(n.id, { color })}
                   onFloat={() => unpinNote(n.id)}
                   onDelete={() => removeNote(n.id)}
@@ -291,7 +286,7 @@ function BoardNote({
       }}
     >
       <header
-        className="relative z-[2] flex h-9 shrink-0 cursor-grab touch-none items-center gap-1 border-b border-current/10 px-1 active:cursor-grabbing"
+        className="group/bar relative z-[2] flex h-9 shrink-0 cursor-grab touch-none items-center gap-1 border-b border-current/10 px-1 active:cursor-grabbing"
         onPointerDown={(e) => {
           if (drawing) return;
           if ((e.target as HTMLElement).closest("button,input,label,[data-no-drag]")) return;

@@ -15,8 +15,6 @@ export type ResizeEdge = "n" | "s" | "e" | "w";
 export type ResizeHandle = ResizeCorner | ResizeEdge;
 export type DeskBox = { x: number; y: number; w: number; h: number };
 export const WIDGET_KINDS = ["weather", "agenda", "calendar", "quote", "finance", "news"] as const;
-/** Six pads on the desk — Windows menu Notes picker matches this cap. */
-export const MAX_PINNED_NOTES = 6;
 
 export function isNarrow(width = typeof window === "undefined" ? 1280 : window.innerWidth) {
   return width < MD;
@@ -94,7 +92,7 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
 }
 
-/** Tile up to six note pads in a 3×2 grid (cascade on a phone). */
+/** Tile note pads in a 3-col grid (cascade on a phone). Open floats every pad. */
 export function arrangeNoteBox(size: { w: number; h: number }, index = 0): DeskBox {
   if (typeof window === "undefined" || isNarrow()) return placeWindow(size, index);
   const cols = 3;
@@ -103,6 +101,23 @@ export function arrangeNoteBox(size: { w: number; h: number }, index = 0): DeskB
   const { minX, minY } = deskMin();
   const gap = 12;
   return fitBox(minX + 8 + col * (size.w + gap), minY + 8 + row * (size.h + gap), size.w, size.h);
+}
+
+/** Keep a fixed popover on-screen: right-aligned to the anchor, flip above if needed. */
+export function placePopover(anchor: DOMRect, w: number, h: number) {
+  const pad = 8;
+  const vw = typeof window === "undefined" ? 1280 : window.innerWidth;
+  const vh = typeof window === "undefined" ? 800 : window.innerHeight;
+  let left = anchor.right - w;
+  let top = anchor.bottom + 6;
+  if (top + h > vh - pad && anchor.top - 6 - h >= pad) {
+    top = anchor.top - 6 - h;
+  }
+  if (left + w > vw - pad) left = vw - pad - w;
+  if (left < pad) left = pad;
+  if (top + h > vh - pad) top = Math.max(pad, vh - pad - h);
+  if (top < pad) top = pad;
+  return { left: Math.round(left), top: Math.round(top) };
 }
 
 export function normalizeWinBox(raw?: unknown): Partial<Record<(typeof WIDGET_KINDS)[number], DeskBox>> {

@@ -14,7 +14,7 @@ import {
   withoutCvc,
   writeBooksSnap,
 } from "./books";
-import { arrangeNoteBox, isNarrow, MAX_PINNED_NOTES, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
+import { arrangeNoteBox, isNarrow, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
 import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, staleTagline, uid } from "./format";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
@@ -173,6 +173,8 @@ type State = Data & {
   removeNote: (id: string) => void;
   pinNote: (id: string) => void;
   unpinNote: (id: string) => void;
+  pinAllNotes: () => void;
+  unpinAllNotes: () => void;
   arrangeNotes: () => void;
   setNotesLayout: (v: NotesLayout) => void;
   openWindow: (kind: WidgetKind) => void;
@@ -475,7 +477,6 @@ export const useAtrium = create<State>()(
           const note = s.notes.find((n) => n.id === id);
           if (!note || note.pinned) return s;
           const pinnedN = s.notes.filter((n) => n.pinned).length;
-          if (pinnedN >= MAX_PINNED_NOTES) return s;
           const z = nextZ(s);
           return {
             notes: s.notes.map((n) => {
@@ -495,6 +496,34 @@ export const useAtrium = create<State>()(
         set((s) => ({
           notes: s.notes.map((n) =>
             n.id === id ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: 32, y: 32 } : n,
+          ),
+        })),
+      pinAllNotes: () =>
+        set((s) => {
+          if (!s.notes.some((n) => !n.pinned)) return s;
+          let z = nextZ(s);
+          let i = s.notes.filter((n) => n.pinned).length;
+          return {
+            notes: s.notes.map((n) => {
+              if (n.pinned) return n;
+              const saved =
+                n.fx != null
+                  ? { x: n.fx, y: n.fy ?? n.y, w: n.fw ?? n.w, h: n.fh ?? n.h }
+                  : undefined;
+              const box = saved
+                ? restoreBox(saved, { w: n.w, h: n.h }, i)
+                : arrangeNoteBox({ w: n.w, h: n.h }, i);
+              i += 1;
+              const zz = z;
+              z += 1;
+              return { ...n, pinned: true, z: zz, ...box };
+            }),
+          };
+        }),
+      unpinAllNotes: () =>
+        set((s) => ({
+          notes: s.notes.map((n) =>
+            n.pinned ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: 32, y: 32 } : n,
           ),
         })),
       arrangeNotes: () =>

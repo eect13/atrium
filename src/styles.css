@@ -179,6 +179,35 @@ html.light {
     border: none;
     border-radius: 4px;
   }
+
+  @media (hover: hover) and (pointer: fine) {
+    .note-autohide {
+      max-width: 0;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+      transition:
+        opacity 160ms var(--ease-smooth-out),
+        max-width 160ms var(--ease-smooth-out);
+    }
+    .group\/bar:hover .note-autohide,
+    .group\/bar:focus-within .note-autohide,
+    .note-autohide[data-open],
+    .note-autohide:focus-within {
+      max-width: 9.5rem;
+      overflow: visible;
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .note-format-autohide {
+      opacity: 0;
+      transition: opacity 160ms var(--ease-smooth-out);
+    }
+    .note-format-autohide:hover,
+    .note-format-autohide:focus-within {
+      opacity: 1;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
