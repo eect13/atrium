@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane } from "./research.ts";
+import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -362,7 +362,7 @@ test("InsiderPH BDO copy is this issuer, ads and charts are not desk copy", () =
   assert.equal(isDeskStory({ title: "All transactions no fees, kaya BDO Pay Mo Na!", src: "The Manila Times" }), false);
   assert.equal(isDeskStory({ title: "BDO Unibank net income rises", src: "Inquirer" }), true);
   assert.equal(isDeskStory({ title: "Rappler. . BDO Unibank account holders reportedly lost thousands. Full story: https://www.rappler.com/x", src: "facebook.com" }), false);
-  assert.equal(storyLane({ title: "BDO eyeing P5 billion from sustainability bonds", src: "Philstar.com" }), "rumor");
+  assert.equal(storyLane({ title: "BDO eyeing P5 billion from sustainability bonds", src: "Philstar.com" }), "fact");
   assert.equal(storyLane({ title: "BDO clients lose money due to alleged online banking hack", src: "Rappler" }), "rumor");
 });
 
@@ -377,7 +377,7 @@ test("collapseNearDup keeps the latest of the same bond print", () => {
   assert.match(out[0].title, /P132/);
 });
 
-test("fillRumorLane promotes talk copy so the rumor lane can hit five", () => {
+test("fillRumorLane keeps announced bond eyeing as fact and promotes real talk", () => {
   const rumors = [
     { title: "BDO reportedly seeks more collateral", link: "https://bilyonaryo.com/1", desc: "", date: "2026-09-17T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
     { title: "Cebu Pacific gets BDO backing", link: "https://bilyonaryo.com/2", desc: "", date: "2026-07-21T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
@@ -385,13 +385,67 @@ test("fillRumorLane promotes talk copy so the rumor lane can hit five", () => {
   const facts = [
     { title: "BDO eyeing P5 billion from sustainability bonds", link: "https://philstar.com/1", desc: "", date: "2026-07-10T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
     { title: "BDO to sell 70% stake in Dominion Holdings", link: "https://inquirer.net/1", desc: "", date: "2026-01-21T00:00:00Z", src: "Inquirer.net", lane: "fact" as const },
-    { title: "Smooth elections could draw foreign funds — BDO Capital", link: "https://bworldonline.com/1", desc: "", date: "2026-09-02T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
+    { title: "Sources say BDO is in talks for a digital tie-up", link: "https://inquirer.net/2", desc: "", date: "2026-08-02T00:00:00Z", src: "Inquirer.net", lane: "fact" as const },
+    { title: "BDO clients lose money due to alleged online banking hack", link: "https://rappler.com/1", desc: "", date: "2026-06-01T00:00:00Z", src: "Rappler", lane: "fact" as const },
+    { title: "People familiar say BDO is mulling a regional push", link: "https://bworldonline.com/3", desc: "", date: "2026-05-01T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
     { title: "BDO posts record P87.2 billion profit in 2025", link: "https://philstar.com/2", desc: "", date: "2026-02-28T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
-    { title: "BDO Q1 profit climbs to P20.1 billion", link: "https://bworldonline.com/2", desc: "", date: "2026-04-24T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
   ];
   const filled = fillRumorLane([...facts, ...rumors]);
   assert.ok(filled.rumors.length >= 5);
-  assert.ok(filled.facts.length >= 1);
-  assert.ok(filled.rumors.some((r) => /eyeing/i.test(r.title)));
+  assert.ok(filled.facts.some((r) => /eyeing/i.test(r.title)));
+  assert.ok(!filled.rumors.some((r) => /eyeing/i.test(r.title)));
+  assert.ok(filled.rumors.some((r) => /in talks/i.test(r.title)));
+  assert.ok(filled.rumors.some((r) => /alleged/i.test(r.title)));
   assert.ok(filled.facts.some((r) => /profit/i.test(r.title)));
+});
+
+test("tapeBox uses spark range when 52w is missing", () => {
+  const spark = tapeBox({ spark: [100, 105, 110, 120, 110] }, "3M");
+  assert.equal(spark?.kind, "spark");
+  assert.equal(spark?.label, "3M");
+  assert.equal(spark?.low, 100);
+  assert.equal(spark?.high, 120);
+  const week = tapeBox({ weekLow: 80, weekHigh: 140, spark: [100, 120] }, "3M");
+  assert.equal(week?.kind, "52w");
+  assert.equal(week?.label, "52w");
+  const session = tapeBox({ spark: [114, 115] }, "3M");
+  assert.equal(session?.label, "session");
+});
+
+test("research sheet labels spark range instead of inventing 52w", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: {
+      price: 110,
+      change: 0.4,
+      kind: "stock",
+      ccy: "PHP",
+      php: 110,
+      spark: [100, 104, 108, 110, 120],
+    },
+    watching: true,
+  };
+  const note = buildResearch(row, new Date("2026-09-18T04:00:00Z"), { sparkLabel: "3M" });
+  assert.equal(note.metrics.week, "50%");
+  assert.equal(note.metrics.weekLabel, "3M");
+  assert.match(note.tape.join(" "), /3M spark range \(not a 52-week box\)/);
+});
+
+test("H1 bank filing is current on 18 Sep 2026 and hides after the next 17-Q window", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: { price: 115, change: 0.2, kind: "stock", ccy: "PHP", php: 115, pb: 0.93, roe: 13.82 },
+    watching: true,
+  };
+  const now = buildResearch(row, new Date("2026-09-18T04:00:00Z"));
+  assert.equal(now.metrics.roe, "12.72%");
+  assert.doesNotMatch(now.valuation.join(" "), /Aging/);
+  const aging = buildResearch(row, new Date("2026-10-20T04:00:00Z"));
+  assert.equal(aging.metrics.roe, "12.72%");
+  assert.match(aging.valuation.join(" "), /Aging/);
+  const stale = buildResearch(row, new Date("2026-12-01T04:00:00Z"));
+  assert.equal(stale.metrics.roe, "13.82%");
+  assert.match(stale.valuation.join(" "), /past the next 17-Q/);
 });

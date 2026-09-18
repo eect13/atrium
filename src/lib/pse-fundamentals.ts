@@ -76,6 +76,29 @@ export function bankFiling(ticker: string): BankFiling | undefined {
   return BANK_FILINGS[ticker.replace(/^\^/, "").replace(/\.PS$/i, "").replace(/^PSE-/, "").trim().toUpperCase()];
 }
 
+/** Days after period-end the filing stays current (next quarter has not printed). */
+export const FILING_CURRENT_DAYS = 100;
+/** After this, hide — typical next 17-Q window has passed. */
+export const FILING_HIDE_DAYS = 140;
+
+export type FilingFreshness = "current" | "aging" | "stale";
+
+export function filingFreshness(filing: BankFiling, now = new Date()): FilingFreshness {
+  const period = Date.parse(`${filing.asOfDate}T00:00:00Z`);
+  if (!Number.isFinite(period)) return "stale";
+  const days = (now.getTime() - period) / 86_400_000;
+  if (days <= FILING_CURRENT_DAYS) return "current";
+  if (days <= FILING_HIDE_DAYS) return "aging";
+  return "stale";
+}
+
+/** Last-reported filing while it is still the current (or aging) print. Stale 17-Q is dropped, not invented. */
+export function liveBankFiling(ticker: string, now = new Date()): BankFiling | undefined {
+  const f = bankFiling(ticker);
+  if (!f) return undefined;
+  return filingFreshness(f, now) === "stale" ? undefined : f;
+}
+
 /** Public-tape seed 18 Sep 2026 (StockAnalysis). Sheet live-fetch overlays. Not Yahoo .PS. */
 export const PSE_STATS_AS_OF = "2026-09-18";
 export const PSE_STATS_SEED: Record<string, PseStats> = {
@@ -229,7 +252,7 @@ export async function loadPseStats(ticker: string): Promise<PseStats> {
   try {
     const html = await httpText(`https://stockanalysis.com/quote/pse/${encodeURIComponent(t)}/statistics/`, {
       accept: "text/html",
-      "user-agent": "Atrium/1.2.20 (personal dashboard; PSE multiples)",
+      "user-agent": "Atrium/1.2.21 (personal dashboard; PSE multiples)",
     });
     const data = parseStockAnalysisStats(html, t);
     const merged = data.source ? data : { ...empty, ...data, source: seed?.source, asOf: data.asOf ?? seed?.asOf };

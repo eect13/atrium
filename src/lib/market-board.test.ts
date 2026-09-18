@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { displayLast, downsample, findInstrument, kindBoardRows, matchQuery, queryScore, normalizeTab, pairLabel, positionPnl, positionValue, rankByQuery, sortRows, sparkFromMove, stockBoardRows, turnover, universeRows, BLUECHIPS } from "./market-board.ts";
+import { displayLast, downsample, findInstrument, kindBoardRows, matchQuery, queryScore, normalizeTab, pairLabel, positionPnl, positionValue, rankByQuery, sortRows, sparkFromMove, stockBoardRows, tabSortPatch, turnover, universeRows, BLUECHIPS } from "./market-board.ts";
 import type { BoardRow } from "./market-board.ts";
 import { withFactoryGlobals } from "./types.ts";
 
@@ -264,4 +264,33 @@ test("withFactoryGlobals leaves a custom global list alone", () => {
     { id: "nvda", symbol: "NVDA", label: "NVDA", kind: "global" as const },
   ];
   assert.equal(withFactoryGlobals(src), src);
+});
+
+test("sortRows by PSEi weight puts ICT ahead of a thin gainer", () => {
+  const q = (id: string, change: number) => ({
+    id,
+    label: id,
+    price: 1,
+    change,
+    kind: "stock" as const,
+    ccy: "PHP",
+  });
+  const rows: BoardRow[] = [
+    { key: "srd", item: { id: "srd", symbol: "SRD", label: "SRD", kind: "stock" }, q: q("SRD", 9), watching: false },
+    { key: "bdo", item: { id: "bdo", symbol: "BDO", label: "BDO", kind: "stock" }, q: q("BDO", -0.4), watching: false },
+    { key: "ict", item: { id: "ict", symbol: "ICT", label: "ICT", kind: "stock" }, q: q("ICT", 0.2), watching: false },
+  ];
+  const byWt = sortRows(rows, "wt", -1);
+  assert.equal(byWt[0]?.item.label, "ICT");
+  assert.equal(byWt[1]?.item.label, "BDO");
+  assert.equal(byWt[2]?.item.label, "SRD");
+  const byChg = sortRows(rows, "chg", -1);
+  assert.equal(byChg[0]?.item.label, "SRD");
+});
+
+test("tabSortPatch defaults All to weight and Watcher to change", () => {
+  assert.deepEqual(tabSortPatch("all", { tab: "watcher", sort: "chg" }), { tab: "all", sort: "wt", sortDir: -1 });
+  assert.deepEqual(tabSortPatch("watcher", { tab: "all", sort: "wt" }), { tab: "watcher", sort: "chg", sortDir: -1 });
+  assert.deepEqual(tabSortPatch("blue", { tab: "all", sort: "vol" }), { tab: "blue" });
+  assert.deepEqual(tabSortPatch("screen", { tab: "all", sort: "wt" }), { tab: "screen" });
 });

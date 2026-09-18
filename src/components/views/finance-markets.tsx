@@ -18,6 +18,7 @@ import { deskZone, isoDate, moneyQuote, phpQuote, peso, vol } from "@/lib/format
 import {
   BOARD_SORTS,
   BOARD_TABS,
+  BLUECHIPS,
   PRIMARY_TABS,
   PSE_TABS,
   SCREEN_SORTS,
@@ -30,12 +31,14 @@ import {
   rankByQuery,
   sortRows,
   stockBoardRows,
+  tabSortPatch,
   turnover,
   universeRows,
   type BoardRow,
   type BoardSort,
 } from "@/lib/market-board";
 import {
+  PSE_SCREENS,
   SESSION_SCREENS,
   STYLE_SCREENS,
   SECTOR_SCREENS,
@@ -45,6 +48,7 @@ import {
   SCREEN_YLDS,
   applyScreenFilters,
   capLabel,
+  isPseScreen,
   peLabel,
   screensOn,
   yldLabel,
@@ -64,7 +68,7 @@ import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
 import { applyPublicStats, fetchPseStats, overlayStats, seededStats } from "@/lib/pse-fundamentals";
-import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, type RelatedStory } from "@/lib/research";
+import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, tapeBox, type RelatedStory } from "@/lib/research";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
@@ -197,6 +201,12 @@ export function FinanceMarkets() {
   const sort = marketPrefs.sort;
   const sortDir = marketPrefs.sortDir;
   const range = normalizeSparkRange(marketPrefs.sparkRange);
+  const sparkLabel = SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M";
+  const pseScreenOn = tab === "screen" && isPseScreen(marketPrefs.screen);
+
+  function goTab(next: typeof tab) {
+    setMarketPrefs(tabSortPatch(next, { tab, sort }));
+  }
 
   const markets = useMarkets();
   const quotes = useMemo(() => {
@@ -267,10 +277,17 @@ export function FinanceMarkets() {
       for (const c of WATCH_CATALOG.filter((w) => w.kind === tab)) push(c.symbol, c.kind);
     }
     if (tab === "screen") {
-      for (const q of markets.data?.screen ?? []) push(q.id, "global");
+      if (pseScreenOn) {
+        for (const t of BLUECHIPS) push(t, "stock");
+      } else {
+        for (const q of markets.data?.screen ?? []) push(q.id, "global");
+      }
     }
-    return out.slice(0, 24);
-  }, [watch, tab, markets.data?.screen]);
+    if (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") {
+      for (const t of BLUECHIPS) push(t, "stock");
+    }
+    return out.slice(0, 40);
+  }, [watch, tab, markets.data?.screen, pseScreenOn]);
 
   const sparkQ = useQuery({
     queryKey: ["sparks", range, sparkItems.map((i) => i.id).join(",")],
@@ -294,15 +311,35 @@ export function FinanceMarkets() {
           } else if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
             for (const r of kindBoardRows(tab, quotes, WATCH_CATALOG, watching)) out.push(r);
           } else if (tab === "screen") {
-            const screened = applyScreenFilters(markets.data?.screen ?? [], {
-              pe: marketPrefs.screenPe,
-              cap: marketPrefs.screenCap,
-              vol: marketPrefs.screenVol,
-              yld: marketPrefs.screenYld,
-            });
-            for (const q of screened) {
-              const item = asItem(q, "global");
-              out.push({ key: q.id, item, q, watching: watching(item) });
+            if (pseScreenOn) {
+              const sleeve = stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue);
+              const screened = applyScreenFilters(
+                sleeve.map((r) => ({
+                  row: r,
+                  pe: r.q?.pe,
+                  marketCap: r.q?.marketCap,
+                  volume: r.q?.volume,
+                  yieldPct: r.q?.yieldPct,
+                })),
+                {
+                  pe: marketPrefs.screenPe,
+                  cap: marketPrefs.screenCap,
+                  vol: marketPrefs.screenVol,
+                  yld: marketPrefs.screenYld,
+                },
+              );
+              for (const hit of screened) out.push(hit.row);
+            } else {
+              const screened = applyScreenFilters(markets.data?.screen ?? [], {
+                pe: marketPrefs.screenPe,
+                cap: marketPrefs.screenCap,
+                vol: marketPrefs.screenVol,
+                yld: marketPrefs.screenYld,
+              });
+              for (const q of screened) {
+                const item = asItem(q, "global");
+                out.push({ key: q.id, item, q, watching: watching(item) });
+              }
             }
           } else {
             for (const r of stockBoardRows(tab, quotes, WATCH_CATALOG, watching, liveBlue)) {
@@ -319,7 +356,7 @@ export function FinanceMarkets() {
     const filtered = withSpark.filter((r) => matchQuery(query, r.item));
     const sorted = sortRows(filtered, sort, sortDir, { cryptoUsdt: marketPrefs.cryptoUsdt });
     return query.trim() ? rankByQuery(sorted, query) : sorted;
-  }, [tab, watch, quotes, query, sort, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen]);
+  }, [tab, watch, quotes, query, sort, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen, pseScreenOn]);
 
   useEffect(() => {
     if (!boardFocus) return;
@@ -388,7 +425,9 @@ export function FinanceMarkets() {
     vol: marketPrefs.screenVol,
     yld: marketPrefs.screenYld,
   });
-  const screenRawCount = markets.data?.screen?.length ?? 0;
+  const screenRawCount = pseScreenOn
+    ? stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue).length
+    : (markets.data?.screen?.length ?? 0);
   const rowH = compact ? "min-h-11" : "min-h-11 sm:min-h-14";
   const totalValue = positions.reduce((s, p) => s + p.value, 0);
   const pnlParts = positions.map((p) => p.pnl).filter((n): n is number => n != null);
@@ -476,7 +515,7 @@ export function FinanceMarkets() {
 
       <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
         {PRIMARY_TABS.map((t) => (
-          <Chip key={t.id} active={tab === t.id || (t.id === "all" && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => setMarketPrefs({ tab: t.id })}>
+          <Chip key={t.id} active={tab === t.id || (t.id === "all" && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => goTab(t.id)}>
             {t.short ? (
               <>
                 <span className="sm:hidden">{t.short}</span>
@@ -490,11 +529,11 @@ export function FinanceMarkets() {
       </div>
       {tab === "all" || tab === "blue" || tab === "reit" || tab === "div" ? (
         <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
-          <Chip active={tab === "all"} onClick={() => setMarketPrefs({ tab: "all" })}>
+          <Chip active={tab === "all"} onClick={() => goTab("all")}>
             PSE
           </Chip>
           {PSE_TABS.map((t) => (
-            <Chip key={t.id} active={tab === t.id} onClick={() => setMarketPrefs({ tab: t.id })}>
+            <Chip key={t.id} active={tab === t.id} onClick={() => goTab(t.id)}>
               {t.label}
             </Chip>
           ))}
@@ -503,6 +542,15 @@ export function FinanceMarkets() {
       {tab === "screen" ? (
         <>
           <div className="scroll-auto mb-2 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+            {PSE_SCREENS.map((s) => (
+              <Chip
+                key={s.id}
+                active={marketPrefs.screen === s.id}
+                onClick={() => setMarketPrefs({ screen: s.id, sort: "wt", sortDir: -1 })}
+              >
+                {s.label}
+              </Chip>
+            ))}
             {SESSION_SCREENS.map((s) => (
               <Chip
                 key={s.id}
@@ -598,7 +646,7 @@ export function FinanceMarkets() {
           </div>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <p>
-              {quotesPending && !screenRawCount
+              {quotesPending && !screenRawCount && !pseScreenOn
                 ? "Waiting on the list"
                 : `${rows.length} of ${screenRawCount}${screenFilterOn ? " matching filters" : " on this list"}`}
             </p>
@@ -618,7 +666,7 @@ export function FinanceMarkets() {
       ) : null}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="hidden flex-wrap gap-2 sm:flex">
+        <div className="scroll-auto flex max-w-full flex-nowrap gap-2 overflow-x-auto sm:flex-wrap">
           {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS).map((s) => (
             <Chip key={s.id} active={sort === s.id} onClick={() => onSort(s.id)}>
               {s.label}
@@ -905,7 +953,9 @@ export function FinanceMarkets() {
           ) : null}
           <p className="mt-3 px-5 text-xs text-muted-foreground">
             {tab === "screen"
-              ? "Yahoo list of up to 100 names, then PE, cap, volume, and yield on this desk. Delayed, not a full-market screen, not for trading."
+              ? pseScreenOn
+                ? "Official PSEi 30 on the public-tape seed. PE / P/B / yield are not Yahoo US. Delayed, not a full-market screen, not for trading."
+                : "Yahoo list of up to 100 names, then PE, cap, volume, and yield on this desk. Delayed, not a full-market screen, not for trading."
               : tab === "global" || tab === "cmdty"
                 ? "Last from Yahoo Finance. Delayed, not for trading. Commodities stay in dollars unless you turn on peso convert."
                 : `Spark range is on the board — ${SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use Binance, FX uses Frankfurter, PSE names use this desk's tape. PSEi last from Yahoo. Not for trading.`}
@@ -1304,7 +1354,7 @@ function QuoteSheet({
   });
   const q = row.q ? applyPublicStats(row.q, statsQ.data) : row.q;
   const sheetRow = q !== row.q && q ? { ...row, q } : row;
-  const note = buildResearch(sheetRow);
+  const note = buildResearch(sheetRow, new Date(), { sparkLabel: SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M" });
   const shown = displayLast(sheetRow.q, { cryptoUsdt });
   const phpUnder = dualPhp && shown?.php != null && shown.ccy !== "PHP" ? phpQuote(shown.php) : null;
   const qtyN = parseNum(qty);
@@ -1360,7 +1410,7 @@ function QuoteSheet({
               ["NPL", note.metrics.npl],
               ["CET1", note.metrics.cet1],
               ["PSEi wt", note.metrics.wt],
-              ["52w", note.metrics.week],
+              [note.metrics.weekLabel, note.metrics.week],
               ["Vol", note.metrics.vol],
             ] as const
           )
@@ -1421,11 +1471,16 @@ function QuoteSheet({
                 .join(" · ")}
             </p>
           ) : null}
-          {row.q?.weekLow && row.q?.weekHigh ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              52w {moneyQuote(row.q.weekLow, shown?.ccy ?? row.q.ccy)} – {moneyQuote(row.q.weekHigh, shown?.ccy ?? row.q.ccy)}
-            </p>
-          ) : null}
+          {(() => {
+            const box = tapeBox(sheetRow.q, SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M");
+            if (!box) return null;
+            return (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {box.label} {moneyQuote(box.low, shown?.ccy ?? sheetRow.q?.ccy ?? "PHP")} – {moneyQuote(box.high, shown?.ccy ?? sheetRow.q?.ccy ?? "PHP")}
+                {box.kind === "spark" ? " · spark range, not 52w" : ""}
+              </p>
+            );
+          })()}
         </div>
         <div className="rounded-lg bg-muted p-4">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Levels</p>

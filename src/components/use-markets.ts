@@ -7,6 +7,7 @@ import { useAtrium } from "@/lib/store";
 import { WATCH_CATALOG, type QuoteCcy } from "@/lib/types";
 import { regionOf } from "@/lib/region";
 import { YAHOO_CORE_TAPE } from "@/lib/yahoo";
+import { isPseScreen, isYahooScreen } from "@/lib/screener";
 
 const MARKET_SNAP = "atrium.markets.snap";
 
@@ -56,7 +57,7 @@ export function useMarkets() {
         ]),
       ]
     : [];
-  const screener = marketsOn && tab === "screen" ? screen : undefined;
+  const screener = marketsOn && tab === "screen" && isYahooScreen(screen) ? screen : undefined;
   const yahooRegion = regionOf(region).yahoo;
   const wantPse =
     marketsOn &&
@@ -67,6 +68,7 @@ export function useMarkets() {
       tab === "div" ||
       tab === "watcher" ||
       tab === "starred" ||
+      (tab === "screen" && isPseScreen(screen)) ||
       watch.some((w) => w.kind === "stock"));
   const wantCrypto =
     marketsOn &&

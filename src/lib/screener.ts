@@ -1,6 +1,8 @@
-/** Yahoo predefined screeners + local PE / cap / volume / yield filters. No API key. */
+/** Yahoo predefined screeners + a local PSEi 30 screen on the public-tape seed. No API key. */
 
 export const SCREEN_FETCH = 100;
+
+export const PSE_SCREENS = [{ id: "psei_30", label: "PSEi 30" }] as const;
 
 export const SESSION_SCREENS = [
   { id: "day_gainers", label: "Gainers" },
@@ -23,7 +25,8 @@ export const SECTOR_SCREENS = [
   { id: "ms_consumer_cyclical", label: "Consumer" },
 ] as const;
 
-export const SCREENERS = [...SESSION_SCREENS, ...STYLE_SCREENS, ...SECTOR_SCREENS] as const;
+export const YAHOO_SCREENS = [...SESSION_SCREENS, ...STYLE_SCREENS, ...SECTOR_SCREENS] as const;
+export const SCREENERS = [...PSE_SCREENS, ...YAHOO_SCREENS] as const;
 
 export type ScreenerId = (typeof SCREENERS)[number]["id"];
 
@@ -60,6 +63,14 @@ export type ScreenPe = (typeof SCREEN_PES)[number]["id"];
 export type ScreenCap = (typeof SCREEN_CAPS)[number]["id"];
 export type ScreenVol = (typeof SCREEN_VOLS)[number]["id"];
 export type ScreenYld = (typeof SCREEN_YLDS)[number]["id"];
+
+export function isYahooScreen(id?: string) {
+  return YAHOO_SCREENS.some((s) => s.id === id);
+}
+
+export function isPseScreen(id?: string) {
+  return PSE_SCREENS.some((s) => s.id === id);
+}
 
 export function normalizeScreen(raw?: string): ScreenerId {
   return SCREENERS.some((s) => s.id === raw) ? (raw as ScreenerId) : "day_gainers";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyPublicStats, bankFiling, justifiedPb, overlayStats, parseStockAnalysisStats, seededStats } from "./pse-fundamentals.ts";
+import { applyPublicStats, bankFiling, filingFreshness, justifiedPb, liveBankFiling, overlayStats, parseStockAnalysisStats, seededStats } from "./pse-fundamentals.ts";
 
 test("stockanalysis stats parse PE P/B yield and cap", () => {
   const html = `{id:"marketCap",title:"Market Cap",value:"610.37B",hover:"610,365,646,519",url:"market-cap"},{id:"peRatio",title:"PE Ratio",value:"7.05",hover:"7.048"},{id:"peForward",title:"Forward PE",value:"6.59",hover:"6.586"},{id:"pb",title:"PB Ratio",value:"0.93",hover:"0.931"},{id:"dividendYield",title:"Dividend Yield",value:"3.85%",hover:"3.846%"}`;
@@ -78,4 +78,14 @@ test("applyPublicStats lets live tape win over seed", () => {
   const live = applyPublicStats(seeded, { pe: 7.1, pb: 0.95 });
   assert.equal(live.pe, 7.1);
   assert.equal(live.pb, 0.95);
+});
+
+test("H1 2026 filings stay current on 18 Sep and age out after the next 17-Q window", () => {
+  const bdo = bankFiling("BDO");
+  assert.ok(bdo);
+  assert.equal(filingFreshness(bdo, new Date("2026-09-18T00:00:00Z")), "current");
+  assert.equal(filingFreshness(bdo, new Date("2026-10-20T00:00:00Z")), "aging");
+  assert.equal(filingFreshness(bdo, new Date("2026-12-01T00:00:00Z")), "stale");
+  assert.equal(liveBankFiling("BDO", new Date("2026-09-18T00:00:00Z"))?.roe, 12.72);
+  assert.equal(liveBankFiling("BDO", new Date("2026-12-01T00:00:00Z")), undefined);
 });

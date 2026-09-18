@@ -1,4 +1,5 @@
 import type { BoardSort, BoardTab, WatchItem, WatchKind } from "./types.ts";
+import { nameWeight } from "./psei-weight.ts";
 
 export type { BoardSort, BoardTab };
 
@@ -133,6 +134,7 @@ export const BOARD_TABS: { id: BoardTab; label: string; short?: string }[] = [..
 
 export const BOARD_SORTS: { id: BoardSort; label: string }[] = [
   { id: "name", label: "Name" },
+  { id: "wt", label: "Weight" },
   { id: "chg", label: "Change" },
   { id: "vol", label: "Volume" },
   { id: "last", label: "Last" },
@@ -376,8 +378,25 @@ export function normalizeTab(raw?: string): BoardTab {
 }
 
 export function normalizeSort(raw?: string): BoardSort {
-  if (raw === "name" || raw === "chg" || raw === "vol" || raw === "last" || raw === "pe" || raw === "cap") return raw;
+  if (raw === "name" || raw === "chg" || raw === "vol" || raw === "last" || raw === "pe" || raw === "cap" || raw === "wt") return raw;
   return "chg";
+}
+
+export function pseSleeveTab(tab: BoardTab) {
+  return tab === "all" || tab === "blue" || tab === "reit" || tab === "div";
+}
+
+/** All / bluechips default to PSEi weight, not raw % change. Watcher / sleeves that are not the 30 keep change. Screener keeps the current sort so a PSEi 30 screen stays on weight. */
+export function tabSortPatch(
+  next: BoardTab,
+  current?: { tab?: BoardTab; sort?: BoardSort },
+): { tab: BoardTab; sort?: BoardSort; sortDir?: 1 | -1 } {
+  const cur = current?.sort ?? "chg";
+  const toPse = pseSleeveTab(next);
+  if (toPse && cur === "chg") return { tab: next, sort: "wt", sortDir: -1 };
+  const tapeTab = next === "watcher" || next === "starred" || next === "crypto" || next === "fx" || next === "global" || next === "cmdty";
+  if (tapeTab && cur === "wt") return { tab: next, sort: "chg", sortDir: -1 };
+  return { tab: next };
 }
 
 function numSort(a: number | undefined, b: number | undefined, dir: 1 | -1) {
@@ -399,12 +418,14 @@ export function sortRows(
     if (opts?.cryptoUsdt && r.q?.kind === "crypto" && r.q.usd != null) return r.q.usd;
     return r.q?.price ?? -Infinity;
   };
+  const wtOf = (r: BoardRow) => nameWeight(r.item.symbol) ?? nameWeight(r.item.label);
   return rows.slice().toSorted((a, b) => {
     if (sort === "name") return a.item.label.localeCompare(b.item.label) * dir;
     if (sort === "chg") return ((a.q?.change ?? -Infinity) - (b.q?.change ?? -Infinity)) * dir;
     if (sort === "vol") return (turnover(a.q) - turnover(b.q)) * dir;
     if (sort === "pe") return numSort(a.q?.pe, b.q?.pe, dir);
     if (sort === "cap") return numSort(a.q?.marketCap, b.q?.marketCap, dir);
+    if (sort === "wt") return numSort(wtOf(a), wtOf(b), dir);
     return (lastOf(a) - lastOf(b)) * dir;
   });
 }

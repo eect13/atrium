@@ -5,7 +5,7 @@ import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 import { nameWeight, PSEI_WEIGHTS, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
-import { bankFiling, justifiedPb } from "./pse-fundamentals.ts";
+import { bankFiling, filingFreshness, justifiedPb, liveBankFiling } from "./pse-fundamentals.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -38,7 +38,7 @@ export type ResearchNote = {
   tape: string[];
   indexFactor: string[];
   gap: string[];
-  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; vol: string; roe: string; nim: string; npl: string; cet1: string };
+  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; weekLabel: string; vol: string; roe: string; nim: string; npl: string; cet1: string };
 };
 
 function ascii(s: string) {
@@ -98,7 +98,31 @@ function yldTake(y?: number) {
   return `Yield ${y.toFixed(1)}%.`;
 }
 
-export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
+export type TapeBox = {
+  low: number;
+  high: number;
+  kind: "52w" | "spark";
+  label: string;
+};
+
+/** True 52-week box when Yahoo still publishes it. Otherwise the spark on this desk, labeled as such. */
+export function tapeBox(
+  q?: { weekLow?: number; weekHigh?: number; spark?: number[] },
+  sparkLabel = "3M",
+): TapeBox | undefined {
+  if (q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
+    return { low: q.weekLow, high: q.weekHigh, kind: "52w", label: "52w" };
+  }
+  const spark = (q?.spark ?? []).filter((n) => Number.isFinite(n));
+  if (spark.length < 2) return undefined;
+  const low = Math.min(...spark);
+  const high = Math.max(...spark);
+  if (!(high > low)) return undefined;
+  const label = spark.length >= 4 ? sparkLabel : "session";
+  return { low, high, kind: "spark", label };
+}
+
+export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLabel?: string }): ResearchNote {
   const q = row.q;
   const ticker = row.item.label;
   const code = row.item.symbol || ticker;
@@ -110,6 +134,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   const shown = displayLast(q, { cryptoUsdt: true });
   const ccy = shown?.ccy ?? q?.ccy ?? "PHP";
   const last = shown?.price;
+  const box = tapeBox(q, opts?.sparkLabel ?? "3M");
   const low = sparkLow ?? q?.low;
   const high = sparkHigh ?? q?.high;
   const support = low != null ? low : undefined;
@@ -170,11 +195,15 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   } else {
     technical.push("The box is the trade. Fade the edges until a close outside support or resistance.");
   }
-  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
-    const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
-    if (pos >= 0.9) technical.push("Last is near the 52-week high. A failed break is a fade.");
-    else if (pos <= 0.1) technical.push("Last is near the 52-week low. A failed breakdown is a bounce.");
-    else technical.push(`${Math.round(pos * 100)}% of the 52-week range.`);
+  if (last != null && box) {
+    const pos = (last - box.low) / (box.high - box.low);
+    if (box.kind === "52w") {
+      if (pos >= 0.9) technical.push("Last is near the 52-week high. A failed break is a fade.");
+      else if (pos <= 0.1) technical.push("Last is near the 52-week low. A failed breakdown is a bounce.");
+      else technical.push(`${Math.round(pos * 100)}% of the 52-week range.`);
+    } else {
+      technical.push(`${Math.round(Math.min(1, Math.max(0, pos)) * 100)}% of the ${box.label} spark range — not a 52-week box.`);
+    }
   }
   technical.push("Desk note only. No broker, no target, no stop.");
 
@@ -234,7 +263,9 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   next.push("Read the related headlines before you size anything.");
 
   const bank = inSleeve(BANK_TICKERS, code, ticker);
-  const filing = bank ? bankFiling(code) ?? bankFiling(ticker) : undefined;
+  const rawFiling = bank ? bankFiling(code) ?? bankFiling(ticker) : undefined;
+  const freshness = rawFiling ? filingFreshness(rawFiling, asOf) : undefined;
+  const filing = bank ? liveBankFiling(code, asOf) ?? liveBankFiling(ticker, asOf) : undefined;
   const cfaMethod = bank
     ? "Residual income / P/B and tape. Last-reported bank ratios, not a live print. Not a DCF, not a target."
     : "Relative value and tape. Not a DCF, not a target.";
@@ -268,6 +299,9 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     if (filing.nim != null) bits.push(`NIM ${filing.nim.toFixed(2)}%`);
     bits.push(`NPL ${filing.npl.toFixed(2)}%`, `CET1 ${filing.cet1.toFixed(2)}%`);
     valuation.push(`Last reported ${filing.asOf} (${filing.asOfDate}): ${bits.join(" · ")}. ${filing.source}.`);
+    if (freshness === "aging") {
+      valuation.push("Aging — next 17-Q not on this desk yet. Not a live EDGE print.");
+    }
     const just = q?.pb && q.pb > 0 ? justifiedPb(filing.roe) : null;
     if (just != null && q?.pb && q.pb > 0) {
       valuation.push(
@@ -277,6 +311,11 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     if (q?.roe && q.roe > 0 && Math.abs(q.roe - filing.roe) >= 0.15) {
       valuation.push(`Public-tape TTM ROE ${q.roe.toFixed(2)}% vs last-reported ${filing.asOf} ${filing.roe.toFixed(2)}%.`);
     }
+  } else if (rawFiling && freshness === "stale") {
+    valuation.push(`${rawFiling.asOf} filing is past the next 17-Q window — not shown as last reported. Public-tape TTM only.`);
+    if (q?.roe && q.roe > 0 && q?.kind === "stock") {
+      valuation.push(`Public-tape TTM ROE ${q.roe.toFixed(2)}%.`);
+    }
   } else if (q?.roe && q.roe > 0 && q?.kind === "stock") {
     valuation.push(`Public-tape TTM ROE ${q.roe.toFixed(2)}%.`);
   }
@@ -284,9 +323,14 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     valuation.push("REIT. CFA real-estate work is yield and NAV, not a manufacturing P/E.");
   }
 
-  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
-    const pos = (last - q.weekLow) / (q.weekHigh - q.weekLow);
-    tape.push(`${Math.round(Math.min(1, Math.max(0, pos)) * 100)}% of the 52-week range.`);
+  if (last != null && box) {
+    const pos = (last - box.low) / (box.high - box.low);
+    const pct = Math.round(Math.min(1, Math.max(0, pos)) * 100);
+    tape.push(
+      box.kind === "52w"
+        ? `${pct}% of the 52-week range.`
+        : `${pct}% of the ${box.label} spark range (not a 52-week box).`,
+    );
   }
   if (q?.volume && q.avgVolume && q.avgVolume > 0) {
     const r = q.volume / q.avgVolume;
@@ -326,8 +370,8 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
   const expert = [...valuation, ...tape, ...indexFactor, ...gap];
 
   let weekPct: string | null = null;
-  if (last != null && q?.weekLow != null && q?.weekHigh != null && q.weekHigh > q.weekLow) {
-    weekPct = `${Math.round(Math.min(1, Math.max(0, (last - q.weekLow) / (q.weekHigh - q.weekLow))) * 100)}%`;
+  if (last != null && box) {
+    weekPct = `${Math.round(Math.min(1, Math.max(0, (last - box.low) / (box.high - box.low))) * 100)}%`;
   }
   const volRatio = q?.volume && q.avgVolume && q.avgVolume > 0 ? `${(q.volume / q.avgVolume).toFixed(1)}×` : null;
   const metrics = {
@@ -337,6 +381,7 @@ export function buildResearch(row: BoardRow, asOf = new Date()): ResearchNote {
     yld: q?.yieldPct && q.yieldPct > 0 ? `${q.yieldPct.toFixed(1)}%` : "—",
     wt: wt != null ? `${wt.toFixed(2)}%` : "—",
     week: weekPct ?? "—",
+    weekLabel: box?.label ?? "52w",
     vol: volRatio ?? "—",
     roe: filing?.roe != null ? `${filing.roe.toFixed(2)}%` : q?.roe && q.roe > 0 ? `${q.roe.toFixed(2)}%` : "—",
     nim: filing?.nim != null ? `${filing.nim.toFixed(2)}%` : "—",
@@ -802,8 +847,8 @@ export function rumorTalkUrls(item: { label: string; symbol: string; name?: stri
   const { q, minus } = issuerSearchQuery(item, true);
   const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   return [
-    googlePhRss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR alleged OR "people familiar" OR mulling OR eyeing OR reportedly)`, window),
-    googlePhRss(`${core} ("block sale" OR "stake sale" OR takeover OR "merger talks" OR "advanced talks" OR "eyes up to")`, window),
+    googlePhRss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR alleged OR "people familiar" OR mulling OR reportedly)`, window),
+    googlePhRss(`${core} ("takeover talks" OR "merger talks" OR "advanced talks" OR "said to be in talks")`, window),
   ];
 }
 
@@ -816,7 +861,7 @@ export function rumorFillUrls(item: { label: string; symbol: string; name?: stri
     googlePhRss(`site:inquirer.net ${core}`, window),
     googlePhRss(`site:manilastandard.net ${core}`, window),
     googlePhRss(`site:tribune.net.ph ${core}`, window),
-    googlePhRss(`${quoteTerm(legal)} (reportedly OR rumored OR eyeing OR mulling OR allegedly OR alleged OR "in talks" OR "people familiar")`, window),
+    googlePhRss(`${quoteTerm(legal)} (reportedly OR rumored OR mulling OR allegedly OR alleged OR "in talks" OR "people familiar" OR "sources say")`, window),
   ];
 }
 
@@ -840,7 +885,7 @@ export type RelatedStory = {
 };
 
 const RUMOR_COPY =
-  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|\balleged(?:ly)?\b|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|\beyeing\b|eyes up to|advanced talks|block sale|stake sale|takeover talk|merger talks|being eyed|exploring a (?:deal|stake|bid)|reportedly/i;
+  /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|\balleged(?:ly)?\b|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|advanced talks|takeover talk|merger talks|exploring a (?:deal|stake|bid)|reportedly/i;
 const FACT_COPY =
   /pse\.com\.ph|edge\.pse|businessworld|bworldonline|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
 
@@ -925,7 +970,7 @@ export function pickNewsLanes(related: RelatedStory[]) {
 }
 
 const SOFT_TALK =
-  /in talks|sources? say|rumou?r|\balleged(?:ly)?\b|\beyeing\b|eyes up to|mulling|reportedly|people familiar|tipped|unconfirmed|may (?:buy|sell|raise)|to sell \d|could draw|block sale|stake sale|takeover|merger talks/i;
+  /in talks|sources? say|rumou?r|\balleged(?:ly)?\b|mulling|reportedly|people familiar|tipped|unconfirmed|may (?:buy|sell|raise)|takeover talk|merger talks|advanced talks|said to be/i;
 
 export function fillRumorLane(related: RelatedStory[], min = NEWS_LANE_MIN) {
   const rumors = related.filter((s) => s.lane === "rumor");

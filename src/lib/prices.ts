@@ -5,7 +5,7 @@ import { BINANCE_PAIRS, DEFAULT_GECKO_IDS } from "./market-board";
 import { sessionSpark } from "./sparks";
 import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast, isYahooIndex, pseTickerFromYahoo } from "./yahoo";
 import { WATCH_CATALOG } from "./types";
-import { SCREEN_FETCH } from "./screener";
+import { SCREEN_FETCH, isYahooScreen } from "./screener";
 import { httpJson, isTauri } from "./http";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
@@ -575,7 +575,7 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     const wantPse = data.wantPse !== false;
     const wantCrypto = data.wantCrypto !== false;
     const yahooSyms = [...new Set((data.yahoo ?? []).filter(Boolean))];
-    const screener = data.screener?.trim() || "";
+    const screener = isYahooScreen(data.screener?.trim() || "") ? data.screener!.trim() : "";
     const yahooRegion = data.yahooRegion?.trim() || "US";
     const extraGecko = (data.ids ?? []).filter(
       (id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z^=]{1,12}$/.test(id) && !id.includes("="),

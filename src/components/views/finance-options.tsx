@@ -23,7 +23,7 @@ import {
   toBooksFile,
 } from "@/lib/books";
 import { deskZone, isoDate } from "@/lib/format";
-import { PRIMARY_TABS } from "@/lib/market-board";
+import { PRIMARY_TABS, tabSortPatch } from "@/lib/market-board";
 import { useAtrium } from "@/lib/store";
 import { STOCK_TAPES } from "@/lib/types";
 import { Chip } from "./finance-chip";
@@ -377,7 +377,7 @@ export function FinanceOptions() {
             <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Default board</p>
             <div className="flex flex-wrap gap-2">
               {PRIMARY_TABS.map((t) => (
-                <Chip key={t.id} active={marketPrefs.tab === t.id} onClick={() => setMarketPrefs({ tab: t.id })}>
+                <Chip key={t.id} active={marketPrefs.tab === t.id} onClick={() => setMarketPrefs(tabSortPatch(t.id, { tab: marketPrefs.tab, sort: marketPrefs.sort }))}>
                   {t.label}
                 </Chip>
               ))}

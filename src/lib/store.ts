@@ -1113,7 +1113,12 @@ export const useAtrium = create<State>()(
             ...current.marketPrefs,
             ...prefs,
             tab: normalizeTab(prefs?.tab),
-            sort: normalizeSort(prefs?.sort),
+            sort: (() => {
+              const t = normalizeTab(prefs?.tab);
+              const s = normalizeSort(prefs?.sort);
+              if (s === "chg" && (t === "all" || t === "blue" || t === "reit" || t === "div")) return "wt";
+              return s;
+            })(),
             sortDir: prefs?.sortDir === 1 ? 1 : -1,
             sparkRange: SPARK_RANGE_IDS.includes(sparkRaw as (typeof SPARK_RANGE_IDS)[number])
               ? (sparkRaw as MarketPrefs["sparkRange"])

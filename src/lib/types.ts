@@ -11,7 +11,7 @@ export const QUOTE_CCY = ["PHP", "USD", "EUR", "GBP", "JPY"] as const;
 export type QuoteCcy = (typeof QUOTE_CCY)[number];
 
 export type BoardTab = "all" | "watcher" | "starred" | "blue" | "reit" | "div" | "crypto" | "fx" | "global" | "cmdty" | "screen";
-export type BoardSort = "name" | "chg" | "vol" | "last" | "pe" | "cap";
+export type BoardSort = "name" | "chg" | "vol" | "last" | "pe" | "cap" | "wt";
 export type SparkRange = "1d" | "1w" | "1m" | "3m" | "6m" | "1y";
 export type ScreenId = ScreenerId;
 export type StockTape = "auto" | "yahoo";

@@ -4,6 +4,8 @@ import {
   applyScreenFilters,
   capBand,
   capLabel,
+  isPseScreen,
+  isYahooScreen,
   normalizeScreen,
   normalizeScreenYld,
   peLabel,
@@ -11,6 +13,7 @@ import {
   yldLabel,
 } from "./screener.ts";
 import { parseYieldPct, parseYahooSearch } from "./yahoo.ts";
+import { PSE_STATS_SEED } from "./pse-fundamentals.ts";
 
 test("normalizeScreen accepts style and sector lists", () => {
   assert.equal(normalizeScreen("undervalued_large_caps"), "undervalued_large_caps");
@@ -91,3 +94,17 @@ test("parseYahooSearch drops options and maps quote rows", () => {
   assert.equal(hits[1]?.symbol, "BDO.PS");
   assert.equal(hits[1]?.exch, "Philippine");
 });
+
+test("PSEi 30 is a local screen, not a Yahoo US list", () => {
+  assert.equal(normalizeScreen("psei_30"), "psei_30");
+  assert.equal(isPseScreen("psei_30"), true);
+  assert.equal(isYahooScreen("psei_30"), false);
+  assert.equal(isYahooScreen("day_gainers"), true);
+  const rows = Object.values(PSE_STATS_SEED).map((s) => ({ id: s.ticker, pe: s.pe, yieldPct: s.yieldPct }));
+  const cheap = applyScreenFilters(rows, { pe: "lt15" });
+  assert.ok(cheap.some((r) => r.id === "BDO"));
+  assert.ok(!cheap.some((r) => r.id === "ICT"));
+  assert.ok(cheap.length >= 20);
+  assert.ok(cheap.length < rows.length);
+});
+

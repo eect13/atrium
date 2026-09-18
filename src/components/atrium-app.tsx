@@ -63,6 +63,7 @@ import { applyDeskRegion, regionOf } from "@/lib/region";
 import { useModHint } from "@/lib/keys";
 import { parseWhen } from "@/lib/parse-when";
 import { useAtrium } from "@/lib/store";
+import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { DEFAULT_TAGLINE } from "@/lib/types";
 import { rememberMainWindow } from "@/lib/native-session";
@@ -313,6 +314,7 @@ export function AtriumApp() {
     setMarketPrefs,
     setBoardQuery,
     setBoardFocus,
+    marketPrefs,
   } = useAtrium(
     useShallow((s) => ({
       view: s.view,
@@ -330,6 +332,7 @@ export function AtriumApp() {
       setMarketPrefs: s.setMarketPrefs,
       setBoardQuery: s.setBoardQuery,
       setBoardFocus: s.setBoardFocus,
+      marketPrefs: s.marketPrefs,
     })),
   );
   const [cmd, setCmd] = useState("");
@@ -480,7 +483,7 @@ export function AtriumApp() {
     }
     if (cmd.type === "ticker") {
       if (!modules.finance) toggleModule("finance");
-      setMarketPrefs({ tab: cmd.tab, home: "markets", showMarkets: true });
+      setMarketPrefs({ ...tabSortPatch(cmd.tab, { tab: marketPrefs.tab, sort: marketPrefs.sort }), home: "markets", showMarkets: true });
       setBoardQuery(cmd.item.label);
       setBoardFocus(cmd.item.symbol);
       setView("finance");
