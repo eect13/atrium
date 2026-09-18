@@ -32,10 +32,11 @@ import {
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
 import { useAtrium } from "@/lib/store";
-import type { CalendarEvent, NewsItem, QuoteCcy, WidgetKind } from "@/lib/types";
+import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
 import { useMarkets } from "@/components/use-markets";
+import { asDeskItem, deskMarket, resolveCompare, worldIndex } from "@/lib/desk-market";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
@@ -547,7 +548,7 @@ export function QuoteBody() {
 }
 
 export function FinancePeek() {
-  const { txs, accounts, watch, books, setBooks, setView, setBoardFocus, setMarketPrefs, marketPrefs } = useAtrium(
+  const { txs, accounts, watch, books, setBooks, setView, setBoardFocus, setMarketPrefs, marketPrefs, region } = useAtrium(
     useShallow((s) => ({
       txs: s.txs,
       accounts: s.accounts,
@@ -558,6 +559,7 @@ export function FinancePeek() {
       setBoardFocus: s.setBoardFocus,
       setMarketPrefs: s.setMarketPrefs,
       marketPrefs: s.marketPrefs,
+      region: s.profile.region,
     })),
   );
   const prefix = isoMonth();
@@ -580,34 +582,96 @@ export function FinancePeek() {
   const quotes = markets.data?.quotes ?? {};
   const quotesPending = markets.isPending && !markets.data;
   const marketsOn = marketPrefs.showMarkets !== false;
+  const booksOn = marketPrefs.showBooks !== false;
+  const desk = deskMarket(region);
+  const peer = worldIndex(resolveCompare(region, marketPrefs.compareIndex));
+
+  function togglePane(key: "showMarkets" | "showBooks", next: boolean) {
+    if (!next && (key === "showMarkets" ? !booksOn : !marketsOn)) {
+      toast("Keep Markets or Books on");
+      return;
+    }
+    if (key === "showMarkets") {
+      setMarketPrefs({ showMarkets: next, home: next ? marketPrefs.home : "books" });
+      return;
+    }
+    setMarketPrefs({ showBooks: next, home: next ? marketPrefs.home : "markets" });
+  }
+
+  const peekWatch: WatchItem[] = (() => {
+    const seen = new Set<string>();
+    const out: WatchItem[] = [];
+    const push = (item?: WatchItem | null) => {
+      if (!item) return;
+      const k = item.symbol.toUpperCase();
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(item);
+    };
+    if (marketsOn && (!booksOn || watch.length === 0)) {
+      push(asDeskItem(desk.index));
+      push(asDeskItem(peer));
+    }
+    for (const w of watch) push(w);
+    return out.slice(0, booksOn ? 4 : 6);
+  })();
+
   return (
     <div>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">On hand</p>
+      <div className="mb-3 flex flex-wrap gap-2">
         <button
           type="button"
-          className="inline-flex size-11 items-center justify-center text-muted-foreground hover:text-foreground"
-          aria-label={mask ? "Show balances" : "Hide balances"}
-          aria-pressed={mask}
-          onClick={() => setBooks({ mask: !mask })}
+          aria-pressed={marketsOn}
+          className={cn(
+            "inline-flex min-h-11 items-center rounded-full border px-3 text-xs",
+            marketsOn ? "border-transparent bg-primary text-primary-foreground" : "border-border text-muted-foreground",
+          )}
+          onClick={() => togglePane("showMarkets", !marketsOn)}
         >
-          {mask ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          Markets
+        </button>
+        <button
+          type="button"
+          aria-pressed={booksOn}
+          className={cn(
+            "inline-flex min-h-11 items-center rounded-full border px-3 text-xs",
+            booksOn ? "border-transparent bg-primary text-primary-foreground" : "border-border text-muted-foreground",
+          )}
+          onClick={() => togglePane("showBooks", !booksOn)}
+        >
+          Books
         </button>
       </div>
-      <button
-        type="button"
-        className="block w-full text-left"
-        onClick={() => {
-          setMarketPrefs({ home: "books", showBooks: true });
-          setView("finance");
-        }}
-      >
-        <p className="font-display text-3xl tabular-nums">{maskedMoney(liquid, mask, home)}</p>
-        <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
-      </button>
+      {booksOn ? (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">On hand</p>
+            <button
+              type="button"
+              className="inline-flex size-11 items-center justify-center text-muted-foreground hover:text-foreground"
+              aria-label={mask ? "Show balances" : "Hide balances"}
+              aria-pressed={mask}
+              onClick={() => setBooks({ mask: !mask })}
+            >
+              {mask ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+          <button
+            type="button"
+            className="block w-full text-left"
+            onClick={() => {
+              setMarketPrefs({ home: "books", showBooks: true });
+              setView("finance");
+            }}
+          >
+            <p className="font-display text-3xl tabular-nums">{maskedMoney(liquid, mask, home)}</p>
+            <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
+          </button>
+        </>
+      ) : null}
       {marketsOn ? (
-      <div className="mt-4 grid grid-cols-[3.25rem_minmax(0,1fr)_max-content] gap-x-3 gap-y-1" aria-busy={quotesPending || undefined}>
-        {watch.slice(0, 4).map((w) => {
+      <div className={cn("grid grid-cols-[3.25rem_minmax(0,1fr)_max-content] gap-x-3 gap-y-1", booksOn && "mt-4")} aria-busy={quotesPending || undefined}>
+        {peekWatch.map((w) => {
           const q = quotes[w.symbol] ?? quotes[w.id] ?? quotes[w.label];
           const spark =
             q?.spark && q.spark.length >= 2

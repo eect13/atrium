@@ -46,6 +46,8 @@ export type MarketPrefs = {
   tab: BoardTab;
   sort: BoardSort;
   sortDir: 1 | -1;
+  /** Yahoo symbol for the "other" index on All. Home index is the desk region. */
+  compareIndex: string;
 };
 
 export const DEFAULT_MARKET_PREFS: MarketPrefs = {
@@ -69,6 +71,7 @@ export const DEFAULT_MARKET_PREFS: MarketPrefs = {
   tab: "watcher",
   sort: "chg",
   sortDir: -1,
+  compareIndex: "^NSEI",
 };
 
 export const WIDGET_LABEL: Record<WidgetKind, string> = {

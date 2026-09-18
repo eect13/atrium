@@ -43,6 +43,7 @@ import { asNewsFilter, asNewsTag } from "./headline";
 import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
+import { resolveCompare } from "./desk-market";
 
 export const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
 
@@ -439,7 +440,8 @@ export const useAtrium = create<State>()(
           if (typeof next.city === "string") next.city = next.city.trim();
           next.region = regionOf(next.region).id;
           applyDeskRegion(next.region);
-          return { profile: next };
+          const compareIndex = resolveCompare(next.region, s.marketPrefs.compareIndex);
+          return { profile: next, marketPrefs: { ...s.marketPrefs, compareIndex } };
         }),
       addEvent: (e) => set((s) => ({ events: [...s.events, e] })),
       updateEvent: (id, patch) =>
@@ -1131,7 +1133,9 @@ export const useAtrium = create<State>()(
             sort: (() => {
               const t = normalizeTab(prefs?.tab);
               const s = normalizeSort(prefs?.sort);
-              if (s === "chg" && (t === "all" || t === "blue" || t === "reit" || t === "div")) return "wt";
+              const pseHome = regionOf(profile.region).id === "PH";
+              if (!pseHome && s === "wt") return "chg";
+              if (s === "chg" && pseHome && (t === "all" || t === "blue" || t === "reit" || t === "div")) return "wt";
               return s;
             })(),
             sortDir: prefs?.sortDir === 1 ? 1 : -1,
@@ -1147,6 +1151,7 @@ export const useAtrium = create<State>()(
             screenCap: normalizeScreenCap((prefs as { screenCap?: string } | undefined)?.screenCap),
             screenVol: normalizeScreenVol((prefs as { screenVol?: string } | undefined)?.screenVol),
             screenYld: normalizeScreenYld((prefs as { screenYld?: string } | undefined)?.screenYld),
+            compareIndex: resolveCompare(profile.region, (prefs as { compareIndex?: string } | undefined)?.compareIndex),
           },
         };
       },

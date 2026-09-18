@@ -10,6 +10,52 @@ export const NIFTY_SYMBOL = "^NSEI";
 
 export type DeskName = { symbol: string; name: string; label?: string };
 
+/** World indices the compare picker can take. Home index is the desk region; the other is this list. */
+export const WORLD_INDICES: DeskName[] = [
+  { symbol: PSEI_SYMBOL, name: "PSEi INDEX", label: "PSEi" },
+  { symbol: NIFTY_SYMBOL, name: "Nifty 50", label: "Nifty" },
+  { symbol: "^GSPC", name: "S&P 500", label: "S&P 500" },
+  { symbol: "^IXIC", name: "Nasdaq Composite", label: "Nasdaq" },
+  { symbol: "^DJI", name: "Dow Jones", label: "DJIA" },
+  { symbol: "^HSI", name: "Hang Seng", label: "HSI" },
+  { symbol: "^N225", name: "Nikkei 225", label: "Nikkei" },
+  { symbol: "^FTSE", name: "FTSE 100", label: "FTSE" },
+  { symbol: "^GDAXI", name: "DAX", label: "DAX" },
+  { symbol: "^FCHI", name: "CAC 40", label: "CAC 40" },
+  { symbol: "^STOXX50E", name: "Euro Stoxx 50", label: "SX5E" },
+  { symbol: "^AXJO", name: "S&P/ASX 200", label: "ASX 200" },
+  { symbol: "^STI", name: "Straits Times", label: "STI" },
+  { symbol: "^GSPTSE", name: "S&P/TSX", label: "TSX" },
+  { symbol: "^KS11", name: "KOSPI", label: "KOSPI" },
+];
+
+export function worldIndex(symbol: string): DeskName {
+  return WORLD_INDICES.find((i) => i.symbol === symbol) ?? { symbol, name: symbol, label: symbol.replace(/^\^/, "") };
+}
+
+/** Default "other" index for a desk. PH vs Nifty; US vs Nasdaq; rest vs a regional peer or S&P. */
+export function comparePeer(regionId?: string | null): string {
+  const home = deskMarket(regionId).index.symbol;
+  if (home === PSEI_SYMBOL) return NIFTY_SYMBOL;
+  if (home === "^GSPC") return "^IXIC";
+  if (home === NIFTY_SYMBOL) return "^GSPC";
+  if (home === "^HSI") return "^N225";
+  if (home === "^N225") return "^HSI";
+  if (home === "^FTSE") return "^GDAXI";
+  if (home === "^STI") return "^HSI";
+  if (home === "^STOXX50E") return "^GSPC";
+  return "^GSPC";
+}
+
+/** Picked compare index, never the home index. */
+export function resolveCompare(regionId?: string | null, picked?: string | null): string {
+  const home = deskMarket(regionId).index.symbol;
+  const hit = WORLD_INDICES.find((i) => i.symbol === picked);
+  if (hit && hit.symbol !== home) return hit.symbol;
+  const peer = comparePeer(regionId);
+  return peer === home ? "^GSPC" : peer;
+}
+
 export type DeskMarket = {
   id: string;
   name: string;
@@ -243,7 +289,7 @@ export function deskMarket(regionId?: string | null): DeskMarket {
 
 export function deskYahooSymbols(regionId?: string | null): string[] {
   const m = deskMarket(regionId);
-  return [...new Set([PSEI_SYMBOL, NIFTY_SYMBOL, m.index.symbol, ...m.tape, ...m.names.map((n) => n.symbol)])];
+  return [...new Set([...WORLD_INDICES.map((n) => n.symbol), m.index.symbol, ...m.tape, ...m.names.map((n) => n.symbol)])];
 }
 
 export function asDeskItem(name: DeskName, kind: WatchItem["kind"] = "global"): WatchItem {

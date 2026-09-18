@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL } from "./desk-market.ts";
+import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, WORLD_INDICES } from "./desk-market.ts";
 import { PSEI_SYMBOL } from "./yahoo.ts";
 
 test("Philippines All stays the factory PSE tape", () => {
@@ -65,4 +65,26 @@ test("home symbol filter keeps the desk exchange", () => {
   );
   assert.equal(rows.some((r) => r.item.symbol === "AAPL"), false);
   assert.equal(rows.some((r) => r.item.symbol === "0700.HK"), true);
+});
+
+test("index compare follows the desk and never equals home", () => {
+  assert.equal(resolveCompare("PH"), NIFTY_SYMBOL);
+  assert.equal(resolveCompare("US"), "^IXIC");
+  assert.equal(resolveCompare("HK"), "^N225");
+  assert.equal(resolveCompare("IN"), "^GSPC");
+  assert.equal(resolveCompare("JP"), "^HSI");
+  assert.equal(resolveCompare("SG"), "^HSI");
+  assert.equal(resolveCompare("GB"), "^GDAXI");
+  assert.equal(resolveCompare("PH", "^GSPC"), "^GSPC");
+  assert.equal(resolveCompare("US", "^HSI"), "^HSI");
+  assert.equal(resolveCompare("PH", PSEI_SYMBOL), NIFTY_SYMBOL);
+  assert.equal(resolveCompare("US", "^GSPC"), "^IXIC");
+  assert.equal(resolveCompare("IN", NIFTY_SYMBOL), "^GSPC");
+  assert.ok(WORLD_INDICES.some((i) => i.symbol === PSEI_SYMBOL));
+  assert.ok(WORLD_INDICES.some((i) => i.symbol === NIFTY_SYMBOL));
+  for (const id of ["PH", "US", "HK", "IN", "JP"]) {
+    const home = deskMarket(id).index.symbol;
+    assert.notEqual(resolveCompare(id, home), home, id);
+    assert.ok(deskYahooSymbols(id).includes(resolveCompare(id)));
+  }
 });

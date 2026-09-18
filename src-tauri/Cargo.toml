@@ -1,6 +1,6 @@
 [package]
 name = "atrium"
-version = "1.2.23"
+version = "1.2.24"
 description = "Atrium"
 edition = "2021"
 rust-version = "1.77"

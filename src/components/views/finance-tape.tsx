@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ChangePill } from "@/components/spark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { moneyQuote, relativeDesk } from "@/lib/format";
@@ -8,9 +9,9 @@ import { nameWeight } from "@/lib/psei-weight";
 import type { MarketQuote } from "@/lib/prices";
 import { seededStats } from "@/lib/pse-fundamentals";
 import { cn } from "@/lib/utils";
-import { NIFTY_SYMBOL } from "@/lib/desk-market";
+import { WORLD_INDICES, type DeskName } from "@/lib/desk-market";
 import type { DigestDay } from "@/lib/digest";
-import { PSEI_SYMBOL } from "@/lib/yahoo";
+import { FIELD_SELECT } from "./finance-chip";
 
 function heatTone(change?: number) {
   if (change == null || !Number.isFinite(change) || change === 0) return "bg-muted text-muted-foreground";
@@ -189,43 +190,71 @@ function lastLine(q?: MarketQuote) {
 }
 
 export function IndexCompare({
-  psei,
-  nifty,
+  home,
+  peer,
+  homeQuote,
+  peerQuote,
   pending,
+  onPick,
   onOpen,
 }: {
-  psei?: MarketQuote;
-  nifty?: MarketQuote;
+  home: DeskName;
+  peer: DeskName;
+  homeQuote?: MarketQuote;
+  peerQuote?: MarketQuote;
   pending?: boolean;
+  onPick: (symbol: string) => void;
   onOpen: (q: MarketQuote) => void;
 }) {
-  const cell = (q: MarketQuote | undefined, label: string, name: string, symbol: string) => (
+  const cell = (q: MarketQuote | undefined, name: DeskName) => (
     <button
       type="button"
       className="min-h-11 w-full rounded-md bg-muted px-3 py-3 text-left"
       onClick={() => q && onOpen(q)}
       disabled={!q}
     >
-      <p className="text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
+      <p className="text-xs uppercase tracking-widest text-muted-foreground">{name.label ?? name.symbol}</p>
       <p className="mt-1 font-display text-xl tabular-nums">{pending && !q ? "—" : lastLine(q)}</p>
       <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">{name}</span>
+        <span className="text-xs text-muted-foreground">{name.name}</span>
         <ChangePill value={q?.change} />
       </div>
-      <p className="mt-1 font-mono text-xs text-muted-foreground">{symbol}</p>
+      <p className="mt-1 font-mono text-xs text-muted-foreground">{name.symbol}</p>
     </button>
   );
+  const options = WORLD_INDICES.filter((i) => i.symbol !== home.symbol);
   return (
     <Card className="mb-4">
       <CardHeader className="space-y-0">
-        <CardTitle>PSEi vs Nifty 50</CardTitle>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Two delayed index lasts. Not a pairs trade, not a recommendation.
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="min-w-0">
+            <CardTitle>
+              {home.label ?? home.symbol} vs {peer.label ?? peer.symbol}
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Home index is this desk. Pick the other. Two delayed lasts — not a pairs trade.
+            </p>
+          </div>
+          <label className="min-w-40">
+            <span className="sr-only">Compare index</span>
+            <select
+              aria-label="Compare index"
+              className={cn(FIELD_SELECT, "h-11 w-full sm:w-44")}
+              value={peer.symbol}
+              onChange={(e) => onPick(e.target.value)}
+            >
+              {options.map((i) => (
+                <option key={i.symbol} value={i.symbol}>
+                  {i.label ?? i.symbol}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-2 sm:grid-cols-2">
-        {cell(psei, "PSEi", "Philippine Stock Exchange", PSEI_SYMBOL)}
-        {cell(nifty, "Nifty 50", "NSE India", NIFTY_SYMBOL)}
+        {cell(homeQuote, home)}
+        {cell(peerQuote, peer)}
       </CardContent>
     </Card>
   );
@@ -291,7 +320,8 @@ export function DigestCard({
   market: string;
 }) {
   const days = history.length ? history : today ? [today] : [];
-  const shown = today ?? days[0];
+  const [openDay, setOpenDay] = useState<string | null>(null);
+  const shown = days.find((d) => d.day === openDay) ?? today ?? days[0];
   if (!pending && !shown && !days.length) return null;
   return (
     <Card className="mb-4">
@@ -326,11 +356,20 @@ export function DigestCard({
             <p className="text-xs uppercase tracking-widest text-muted-foreground">Last 10</p>
             <ul className="mt-2 space-y-1">
               {days.slice(0, 10).map((d) => (
-                <li key={`${d.region}-${d.day}`} className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="tabular-nums">{d.day}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {d.items.length} {d.items.length === 1 ? "headline" : "headlines"} · {d.market}
-                  </span>
+                <li key={`${d.region}-${d.day}`}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex min-h-11 w-full items-baseline justify-between gap-3 text-left text-sm",
+                      shown?.day === d.day ? "text-foreground" : "text-muted-foreground",
+                    )}
+                    onClick={() => setOpenDay(d.day)}
+                  >
+                    <span className="tabular-nums">{d.day}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {d.items.length} {d.items.length === 1 ? "headline" : "headlines"} · {d.market}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>

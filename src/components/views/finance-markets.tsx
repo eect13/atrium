@@ -75,7 +75,7 @@ import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
-import { asDeskItem, deskMarket, homeBoardRows, NIFTY_SYMBOL } from "@/lib/desk-market";
+import { asDeskItem, deskMarket, homeBoardRows, resolveCompare, worldIndex } from "@/lib/desk-market";
 import { fetchFinanceDigest } from "@/lib/digest";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
@@ -264,7 +264,8 @@ export function FinanceMarkets() {
     .map((id) => (id === "bitcoin" ? (quotes.bitcoin ?? quotes.BTC) : id === "ethereum" ? (quotes.ethereum ?? quotes.ETH) : quotes[id]))
     .filter((q): q is MarketQuote => Boolean(q));
   const psei = quotes[PSEI_SYMBOL];
-  const nifty = quotes[NIFTY_SYMBOL];
+  const compareSym = resolveCompare(region, marketPrefs.compareIndex);
+  const peer = worldIndex(compareSym);
   const homeIndex = quotes[market.index.symbol] ?? (market.pseHome ? psei : undefined);
   const homeWeek =
     homeIndex?.weekLow != null && homeIndex.weekHigh != null && homeIndex.weekHigh > homeIndex.weekLow
@@ -282,9 +283,8 @@ export function FinanceMarkets() {
       out.push({ id, kind });
     };
     for (const w of watch) push(w.symbol, w.kind);
-    push(PSEI_SYMBOL, "global");
-    push(NIFTY_SYMBOL, "global");
     push(market.index.symbol, "global");
+    push(compareSym, "global");
     if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
       for (const c of WATCH_CATALOG.filter((w) => w.kind === tab)) push(c.symbol, c.kind);
     }
@@ -303,7 +303,7 @@ export function FinanceMarkets() {
       }
     }
     return out.slice(0, 40);
-  }, [watch, tab, markets.data?.screen, pseScreenOn, market]);
+  }, [watch, tab, markets.data?.screen, pseScreenOn, market, compareSym]);
 
   const sparkQ = useQuery({
     queryKey: ["sparks", range, sparkItems.map((i) => i.id).join(",")],
@@ -744,7 +744,9 @@ export function FinanceMarkets() {
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="scroll-auto flex max-w-full flex-nowrap gap-2 overflow-x-auto sm:flex-wrap">
-          {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS).map((s) => (
+          {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS)
+            .filter((s) => s.id !== "wt" || market.pseHome)
+            .map((s) => (
             <Chip key={s.id} active={sortUse === s.id} onClick={() => onSort(s.id)}>
               {s.label}
               {sortUse === s.id ? (sortDir === -1 ? " ↓" : " ↑") : ""}
@@ -880,9 +882,12 @@ export function FinanceMarkets() {
 
       {!query.trim() && tab === "all" ? (
         <IndexCompare
-          psei={psei}
-          nifty={nifty}
+          home={market.index}
+          peer={peer}
+          homeQuote={homeIndex}
+          peerQuote={quotes[compareSym]}
           pending={quotesPending}
+          onPick={(sym) => setMarketPrefs({ compareIndex: resolveCompare(region, sym) })}
           onOpen={(q) => {
             const item = asItem(q, q.kind);
             setOpen({ key: q.id, item, q, watching: watching(item) });

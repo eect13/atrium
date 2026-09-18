@@ -34,7 +34,7 @@ export async function runFinanceAnalyze(input: {
     "Not a recommendation, not a DCF, not a target. Label assumptions.",
     `Desk region is ${market.name}. Home index is ${market.index.label ?? market.index.symbol}.`,
     "Use only the tape and headlines in the user message. If a number is missing, say so.",
-    "PSEi vs Nifty is two delayed index lasts, not a pairs trade.",
+    "Index compare is two delayed lasts, not a pairs trade.",
     "End with one line: Not an offer to buy or sell.",
   ].join(" ");
   const user = [
