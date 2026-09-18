@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { displayLast, downsample, findInstrument, kindBoardRows, matchQuery, queryScore, normalizeTab, pairLabel, positionPnl, positionValue, rankByQuery, sortRows, sparkFromMove, stockBoardRows, tabSortPatch, turnover, universeRows, BLUECHIPS } from "./market-board.ts";
+import { displayLast, downsample, findInstrument, kindBoardRows, matchQuery, queryScore, normalizeTab, pairLabel, peerTickers, positionPnl, positionValue, rankByQuery, sortRows, sparkFromMove, stockBoardRows, tabSortPatch, turnover, universeRows, BLUECHIPS } from "./market-board.ts";
 import type { BoardRow } from "./market-board.ts";
 import { withFactoryGlobals } from "./types.ts";
 
@@ -293,4 +293,11 @@ test("tabSortPatch defaults All to weight and Watcher to change", () => {
   assert.deepEqual(tabSortPatch("watcher", { tab: "all", sort: "wt" }), { tab: "watcher", sort: "chg", sortDir: -1 });
   assert.deepEqual(tabSortPatch("blue", { tab: "all", sort: "vol" }), { tab: "blue" });
   assert.deepEqual(tabSortPatch("screen", { tab: "all", sort: "wt" }), { tab: "screen" });
+});
+
+test("peerTickers is the bank sleeve and the two index REITs", () => {
+  assert.deepEqual(peerTickers("BDO"), ["BDO", "BPI", "MBT", "CBC"]);
+  assert.deepEqual(peerTickers("BDO.PS"), ["BDO", "BPI", "MBT", "CBC"]);
+  assert.deepEqual(peerTickers("AREIT"), ["AREIT", "RCR"]);
+  assert.equal(peerTickers("ICT"), undefined);
 });

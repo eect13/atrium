@@ -114,6 +114,30 @@ export function fromManilaInput(value: string) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+/** Desk-relative age for headlines. Older than two weeks falls back to a short date. */
+export function relativeDesk(raw?: string, now = new Date()) {
+  if (!raw) return "";
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.round((now.getTime() - t) / 60_000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days}d ago`;
+  try {
+    return new Date(t).toLocaleString(deskZone().locale, {
+      month: "short",
+      day: "numeric",
+      timeZone: deskZone().tz,
+    });
+  } catch {
+    return "";
+  }
+}
+
 export function weekRangeLabel(cursor: Date) {
   const p = manilaParts(cursor);
   const start = fromManila(p.year, p.month, p.day - p.weekdayIndex, 12);

@@ -60,6 +60,11 @@ export type MarketQuote = {
   weekHigh?: number;
   weekLow?: number;
   roe?: number;
+  weekChange?: number;
+  sma50?: number;
+  sma200?: number;
+  rsi?: number;
+  beta?: number;
 };
 
 export type MarketSnapshot = {

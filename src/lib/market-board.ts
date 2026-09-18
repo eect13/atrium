@@ -104,6 +104,15 @@ export const DIVIDENDS = new Set([
 
 /** Universal banks in the official PSEi 30. CFA bank work is P/B and ROE, not a DCF of FCF. */
 export const BANK_TICKERS = new Set(["BDO", "BPI", "MBT", "CBC"]);
+export const BANK_ORDER = ["BDO", "BPI", "MBT", "CBC"] as const;
+
+/** Bloomberg-style sleeve for the sheet. Banks and the two index REITs only. */
+export function peerTickers(ticker: string): string[] | undefined {
+  const t = ticker.replace(/^\^/, "").replace(/\.PS$/i, "").replace(/^PSE-/, "").trim().toUpperCase();
+  if (BANK_TICKERS.has(t)) return [...BANK_ORDER];
+  if (t === "AREIT" || t === "RCR") return ["AREIT", "RCR"];
+  return undefined;
+}
 export const BINANCE_PAIRS: Record<string, { gecko: string; ticker: string; name: string }> = {
   BTCUSDT: { gecko: "bitcoin", ticker: "BTC", name: "Bitcoin" },
   ETHUSDT: { gecko: "ethereum", ticker: "ETH", name: "Ethereum" },
@@ -168,6 +177,11 @@ export type TapeQuote = {
   roe?: number;
   weekHigh?: number;
   weekLow?: number;
+  weekChange?: number;
+  sma50?: number;
+  sma200?: number;
+  rsi?: number;
+  beta?: number;
 };
 
 export type BoardRow = {

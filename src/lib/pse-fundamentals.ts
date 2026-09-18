@@ -14,6 +14,12 @@ export type PseStats = {
   yieldPct?: number;
   marketCap?: number;
   roe?: number;
+  avgVolume?: number;
+  weekChange?: number;
+  sma50?: number;
+  sma200?: number;
+  rsi?: number;
+  beta?: number;
   source?: string;
   asOf?: string;
 };
@@ -143,9 +149,22 @@ export function seededStats(ticker: string): PseStats | undefined {
 }
 
 
-export function overlayStats<T extends { pe?: number; pb?: number; yieldPct?: number; forwardPe?: number; marketCap?: number; roe?: number }>(
+export function overlayStats<T extends {
+  pe?: number;
+  pb?: number;
+  yieldPct?: number;
+  forwardPe?: number;
+  marketCap?: number;
+  roe?: number;
+  avgVolume?: number;
+  weekChange?: number;
+  sma50?: number;
+  sma200?: number;
+  rsi?: number;
+  beta?: number;
+}>(
   q: T,
-  s?: Pick<PseStats, "pe" | "pb" | "yieldPct" | "forwardPe" | "marketCap" | "roe">,
+  s?: Pick<PseStats, "pe" | "pb" | "yieldPct" | "forwardPe" | "marketCap" | "roe" | "avgVolume" | "weekChange" | "sma50" | "sma200" | "rsi" | "beta">,
 ): T {
   if (!s) return q;
   return {
@@ -156,13 +175,32 @@ export function overlayStats<T extends { pe?: number; pb?: number; yieldPct?: nu
     forwardPe: q.forwardPe ?? s.forwardPe,
     marketCap: q.marketCap ?? s.marketCap,
     roe: q.roe ?? s.roe,
+    avgVolume: q.avgVolume ?? s.avgVolume,
+    weekChange: q.weekChange ?? s.weekChange,
+    sma50: q.sma50 ?? s.sma50,
+    sma200: q.sma200 ?? s.sma200,
+    rsi: q.rsi ?? s.rsi,
+    beta: q.beta ?? s.beta,
   };
 }
 
 /** Public tape wins when present (live StockAnalysis over seed). Yahoo stays if public fields are empty. */
-export function applyPublicStats<T extends { pe?: number; pb?: number; yieldPct?: number; forwardPe?: number; marketCap?: number; roe?: number }>(
+export function applyPublicStats<T extends {
+  pe?: number;
+  pb?: number;
+  yieldPct?: number;
+  forwardPe?: number;
+  marketCap?: number;
+  roe?: number;
+  avgVolume?: number;
+  weekChange?: number;
+  sma50?: number;
+  sma200?: number;
+  rsi?: number;
+  beta?: number;
+}>(
   q: T,
-  s?: Pick<PseStats, "pe" | "pb" | "yieldPct" | "forwardPe" | "marketCap" | "roe">,
+  s?: Pick<PseStats, "pe" | "pb" | "yieldPct" | "forwardPe" | "marketCap" | "roe" | "avgVolume" | "weekChange" | "sma50" | "sma200" | "rsi" | "beta">,
 ): T {
   if (!s) return q;
   return {
@@ -173,6 +211,12 @@ export function applyPublicStats<T extends { pe?: number; pb?: number; yieldPct?
     forwardPe: s.forwardPe ?? q.forwardPe,
     marketCap: s.marketCap ?? q.marketCap,
     roe: s.roe ?? q.roe,
+    avgVolume: s.avgVolume ?? q.avgVolume,
+    weekChange: s.weekChange ?? q.weekChange,
+    sma50: s.sma50 ?? q.sma50,
+    sma200: s.sma200 ?? q.sma200,
+    rsi: s.rsi ?? q.rsi,
+    beta: s.beta ?? q.beta,
   };
 }
 
@@ -183,15 +227,25 @@ export function justifiedPb(roePct: number, r = 0.12, g = 0.05): number | null {
   return (roe - g) / (r - g);
 }
 
+/** TTM ROE/P/B that is a statistic, not an economic ROE. ICT is the live example. Do not haircut the print. */
+export function distortedPublicTape(q?: { roe?: number; pb?: number }) {
+  return Boolean(q?.roe != null && q.roe >= 35 && q.pb != null && q.pb >= 5);
+}
+
 function saField(html: string, id: string, key: "value" | "hover" = "value"): string | undefined {
   const m = html.match(new RegExp(`id\\s*:\\s*"${id}"[^}]{0,240}${key}\\s*:\\s*"([^"]+)"`));
   return m?.[1];
 }
 
-function parseNum(raw?: string): number | undefined {
+function parseSigned(raw?: string): number | undefined {
   if (!raw || /^n\/?a$/i.test(raw.trim())) return undefined;
   const n = Number(raw.replace(/%/g, "").replace(/,/g, "").trim());
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseNum(raw?: string): number | undefined {
+  const n = parseSigned(raw);
+  return n != null && n > 0 ? n : undefined;
 }
 
 function parseCap(value?: string, hover?: string): number | undefined {
@@ -219,6 +273,12 @@ export function parseStockAnalysisStats(html: string, ticker: string): PseStats 
     saField(html, "marketCap", "hover") ?? saField(html, "marketcap", "hover"),
   );
   const roe = parseNum(saField(html, "roe"));
+  const avgVolume = parseNum(saField(html, "averageVolume"));
+  const weekChange = parseSigned(saField(html, "ch1y"));
+  const sma50 = parseNum(saField(html, "sma50"));
+  const sma200 = parseNum(saField(html, "sma200"));
+  const rsi = parseNum(saField(html, "rsi"));
+  const beta = parseNum(saField(html, "beta"));
   return {
     ticker,
     pe,
@@ -227,7 +287,13 @@ export function parseStockAnalysisStats(html: string, ticker: string): PseStats 
     yieldPct,
     marketCap,
     roe,
-    source: pe || pb || yieldPct || roe ? "stockanalysis" : undefined,
+    avgVolume,
+    weekChange,
+    sma50,
+    sma200,
+    rsi,
+    beta,
+    source: pe || pb || yieldPct || roe || avgVolume || weekChange != null ? "stockanalysis" : undefined,
     asOf: new Date().toISOString().slice(0, 10),
   };
 }
@@ -252,7 +318,7 @@ export async function loadPseStats(ticker: string): Promise<PseStats> {
   try {
     const html = await httpText(`https://stockanalysis.com/quote/pse/${encodeURIComponent(t)}/statistics/`, {
       accept: "text/html",
-      "user-agent": "Atrium/1.2.21 (personal dashboard; PSE multiples)",
+      "user-agent": "Atrium/1.2.22 (personal dashboard; PSE multiples)",
     });
     const data = parseStockAnalysisStats(html, t);
     const merged = data.source ? data : { ...empty, ...data, source: seed?.source, asOf: data.asOf ?? seed?.asOf };

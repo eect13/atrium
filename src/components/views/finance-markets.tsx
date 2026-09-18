@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useMarkets } from "@/components/use-markets";
-import { deskZone, isoDate, moneyQuote, phpQuote, peso, vol } from "@/lib/format";
+import { deskZone, isoDate, moneyQuote, phpQuote, peso, relativeDesk, vol } from "@/lib/format";
 import {
   BOARD_SORTS,
   BOARD_TABS,
@@ -73,6 +73,7 @@ import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
+import { MoversStrip, PeerStrip, PseHeatmap } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
@@ -432,6 +433,23 @@ export function FinanceMarkets() {
   const totalValue = positions.reduce((s, p) => s + p.value, 0);
   const pnlParts = positions.map((p) => p.pnl).filter((n): n is number => n != null);
   const totalPnl = pnlParts.length ? pnlParts.reduce((a, b) => a + b, 0) : null;
+  const heatRows = useMemo(
+    () => stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue),
+    [quotes, liveBlue, watch],
+  );
+  const tapeMovers = useMemo(() => {
+    if (tab === "crypto") {
+      const coins = Object.values(quotes).filter((q) => q.kind === "crypto" && q.change != null);
+      const ranked = coins.toSorted((a, b) => (b.change ?? 0) - (a.change ?? 0));
+      const active = coins.toSorted((a, b) => (b.volume ?? 0) - (a.volume ?? 0)).slice(0, 5);
+      return {
+        gainers: ranked.filter((c) => (c.change ?? 0) > 0).slice(0, 5),
+        losers: ranked.filter((c) => (c.change ?? 0) < 0).toReversed().slice(0, 5),
+        active,
+      };
+    }
+    return markets.data?.movers ?? { gainers: [], losers: [], active: [] };
+  }, [tab, quotes, markets.data?.movers]);
 
   function onSort(key: BoardSort) {
     if (sort === key) {
@@ -801,6 +819,22 @@ export function FinanceMarkets() {
         </div>
       ) : null}
 
+      {!query.trim() && tab !== "screen" ? (
+        <MoversStrip
+          gainers={tapeMovers.gainers}
+          losers={tapeMovers.losers}
+          active={tapeMovers.active}
+          pending={quotesPending}
+          activeLabel={tab === "crypto" ? "Volume" : "Active"}
+          onOpen={(q) => {
+            const item = asItem(q, q.kind);
+            setOpen({ key: q.id, item, q, watching: watching(item) });
+          }}
+        />
+      ) : null}
+
+      {!query.trim() && (tab === "all" || tab === "blue") ? <PseHeatmap rows={heatRows} onOpen={setOpen} /> : null}
+
       {tab === "watcher" && positions.length > 0 ? (
         <Card className="mb-4">
           <CardHeader className="flex-row items-end justify-between space-y-0">
@@ -1055,6 +1089,15 @@ export function FinanceMarkets() {
               dualPhp={open.item.kind === "cmdty" ? marketPrefs.cmdtyPhp : marketPrefs.dualPhp}
               showVol={marketPrefs.showVol}
               sparkRange={range}
+              quotes={quotes}
+              onPeer={(sym) => {
+                const q = quotes[sym];
+                const item = asItem(
+                  q ?? { id: sym, label: sym, price: 0, kind: "stock", ccy: "PHP" },
+                  "stock",
+                );
+                setOpen({ key: sym, item, q, watching: watching(item) });
+              }}
               onStar={() => starRow(open.item)}
               onWatch={() => {
                 addWatch({ ...open.item, starred: true });
@@ -1190,15 +1233,16 @@ export function FinanceMarkets() {
 function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v7"],
+    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v8"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
     retry: 1,
   });
-  const items = [...(news.data ?? [])].sort((a, b) => Date.parse(b.date || "") - Date.parse(a.date || ""));
-  const facts = items.filter((s) => s.lane !== "rumor");
-  const rumors = items.filter((s) => s.lane === "rumor");
+  const facts = news.data?.facts ?? [];
+  const rumors = news.data?.rumors ?? [];
+  const earlier = news.data?.earlier ?? [];
+  const items = [...facts, ...rumors];
 
   function lane(title: string, rows: RelatedStory[], empty: string) {
     return (
@@ -1220,9 +1264,7 @@ function RelatedNews({ item }: { item: WatchItem }) {
                 <span className="block">{n.title}</span>
                 <span className="text-xs text-muted-foreground">
                   {n.src}
-                  {n.date
-                    ? ` · ${new Date(n.date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
-                    : ""}
+                  {n.date ? ` · ${relativeDesk(n.date)}` : ""}
                 </span>
               </a>
             ))}
@@ -1242,9 +1284,9 @@ function RelatedNews({ item }: { item: WatchItem }) {
         {issuer.aliases.length ? ` · ${issuer.aliases.join(" · ")}` : ""}
       </p>
       <p className="text-xs text-muted-foreground">
-        Matched to {issuer.legal}, not a ticker collision. Latest five facts and five rumors when the wires have copy.
+        Daily first. Facts from the last two weeks, talk from the last 30 days. Older copy is earlier, not latest.
       </p>
-      {news.isPending && !items.length ? (
+      {news.isPending && !items.length && !earlier.length ? (
         <div className="mt-3 grid gap-4 sm:grid-cols-2" aria-busy>
           <div className="space-y-2">
             <Skeleton className="h-4 w-full" />
@@ -1266,10 +1308,13 @@ function RelatedNews({ item }: { item: WatchItem }) {
           Couldn’t load related news — retry
         </button>
       ) : (
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          {lane("Facts", facts, "No related fact copy on the wires right now.")}
-          {lane("Rumors & talk", rumors, "Gossip is thin on this name — no rumor copy matched.")}
-        </div>
+        <>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {lane("Latest facts", facts, "No fact copy from the last two weeks.")}
+            {lane("Latest talk", rumors, "No talk from the last 30 days.")}
+          </div>
+          <div className="mt-4">{lane("Earlier", earlier, "No older copy on the wires.")}</div>
+        </>
       )}
     </div>
   );
@@ -1322,6 +1367,8 @@ function QuoteSheet({
   dualPhp,
   showVol,
   sparkRange,
+  quotes,
+  onPeer,
   onStar,
   onWatch,
   onRemove,
@@ -1335,6 +1382,8 @@ function QuoteSheet({
   dualPhp: boolean;
   showVol: boolean;
   sparkRange: ReturnType<typeof normalizeSparkRange>;
+  quotes: Record<string, MarketQuote>;
+  onPeer: (sym: string) => void;
   onStar: () => void;
   onWatch: () => void;
   onRemove: () => void;
@@ -1412,9 +1461,12 @@ function QuoteSheet({
               ["PSEi wt", note.metrics.wt],
               [note.metrics.weekLabel, note.metrics.week],
               ["Vol", note.metrics.vol],
+              ["52w chg", note.metrics.ch1y],
+              ["SMA50", note.metrics.sma50],
+              ["RSI", note.metrics.rsi],
             ] as const
           )
-            .filter(([k, v]) => v !== "—" || (k !== "ROE" && k !== "NIM" && k !== "NPL" && k !== "CET1"))
+            .filter(([k, v]) => v !== "—" || (k !== "ROE" && k !== "NIM" && k !== "NPL" && k !== "CET1" && k !== "RSI" && k !== "52w chg" && k !== "SMA50"))
             .map(([k, v]) => (
             <div key={k}>
               <p className="text-xs uppercase tracking-widest text-muted-foreground">{k}</p>
@@ -1445,6 +1497,7 @@ function QuoteSheet({
           ))}
       </div>
       {isPseiItem(row.item) ? <WeightingCard /> : null}
+      <PeerStrip ticker={ticker} quotes={quotes} onOpen={onPeer} />
       <RelatedNews item={row.item} />
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-lg bg-muted p-4">

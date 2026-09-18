@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addDays, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, setDeskZone, staleTagline } from "./format.ts";
+import { addDays, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
 
 test("moneyShort compact last for large notionals", () => {
   assert.equal(moneyShort(4_850_048, "PHP"), "₱4.85M");
@@ -51,4 +51,13 @@ test("addDays walks civil dates across US DST", () => {
   } finally {
     setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
   }
+});
+
+test("relativeDesk is desk-relative, not a month-old stamp", () => {
+  const now = new Date("2026-09-18T12:00:00Z");
+  assert.equal(relativeDesk("2026-09-18T10:00:00Z", now), "2h ago");
+  assert.equal(relativeDesk("2026-09-17T12:00:00Z", now), "yesterday");
+  assert.equal(relativeDesk("2026-09-06T12:00:00Z", now), "12d ago");
+  assert.match(relativeDesk("2026-07-29T00:00:00Z", now), /Jul/);
+  assert.equal(relativeDesk("", now), "");
 });

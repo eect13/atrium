@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyPublicStats, bankFiling, filingFreshness, justifiedPb, liveBankFiling, overlayStats, parseStockAnalysisStats, seededStats } from "./pse-fundamentals.ts";
+import { applyPublicStats, bankFiling, distortedPublicTape, filingFreshness, justifiedPb, liveBankFiling, overlayStats, parseStockAnalysisStats, seededStats } from "./pse-fundamentals.ts";
 
 test("stockanalysis stats parse PE P/B yield and cap", () => {
   const html = `{id:"marketCap",title:"Market Cap",value:"610.37B",hover:"610,365,646,519",url:"market-cap"},{id:"peRatio",title:"PE Ratio",value:"7.05",hover:"7.048"},{id:"peForward",title:"Forward PE",value:"6.59",hover:"6.586"},{id:"pb",title:"PB Ratio",value:"0.93",hover:"0.931"},{id:"dividendYield",title:"Dividend Yield",value:"3.85%",hover:"3.846%"}`;
@@ -88,4 +88,21 @@ test("H1 2026 filings stay current on 18 Sep and age out after the next 17-Q win
   assert.equal(filingFreshness(bdo, new Date("2026-12-01T00:00:00Z")), "stale");
   assert.equal(liveBankFiling("BDO", new Date("2026-09-18T00:00:00Z"))?.roe, 12.72);
   assert.equal(liveBankFiling("BDO", new Date("2026-12-01T00:00:00Z")), undefined);
+});
+
+test("stockanalysis parses 52w change RSI SMA and average volume", () => {
+  const html = `{id:"ch1y",title:"52-Week Change",value:"-18.34%"},{id:"sma50",title:"50-Day Moving Average",value:"122.54"},{id:"rsi",title:"RSI",value:"35.06"},{id:"averageVolume",title:"Average Volume",value:"3,487,926"},{id:"beta",title:"Beta",value:"0.42"}`;
+  const s = parseStockAnalysisStats(html, "BDO");
+  assert.equal(s.weekChange, -18.34);
+  assert.equal(s.sma50, 122.54);
+  assert.equal(s.rsi, 35.06);
+  assert.equal(s.avgVolume, 3_487_926);
+  assert.equal(s.beta, 0.42);
+});
+
+test("distortedPublicTape flags ICT TTM, not BDO", () => {
+  assert.equal(distortedPublicTape({ roe: 57.4, pb: 12.5 }), true);
+  assert.equal(distortedPublicTape({ roe: 13.82, pb: 0.93 }), false);
+  assert.equal(distortedPublicTape(seededStats("ICT")), true);
+  assert.equal(distortedPublicTape(seededStats("BDO")), false);
 });

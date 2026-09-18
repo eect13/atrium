@@ -5,7 +5,7 @@ import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 import { nameWeight, PSEI_WEIGHTS, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
-import { bankFiling, filingFreshness, justifiedPb, liveBankFiling } from "./pse-fundamentals.ts";
+import { bankFiling, distortedPublicTape, filingFreshness, justifiedPb, liveBankFiling } from "./pse-fundamentals.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -38,7 +38,7 @@ export type ResearchNote = {
   tape: string[];
   indexFactor: string[];
   gap: string[];
-  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; weekLabel: string; vol: string; roe: string; nim: string; npl: string; cet1: string };
+  metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; weekLabel: string; vol: string; roe: string; nim: string; npl: string; cet1: string; ch1y: string; rsi: string; sma50: string };
 };
 
 function ascii(s: string) {
@@ -319,6 +319,11 @@ export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLa
   } else if (q?.roe && q.roe > 0 && q?.kind === "stock") {
     valuation.push(`Public-tape TTM ROE ${q.roe.toFixed(2)}%.`);
   }
+  if (distortedPublicTape(q)) {
+    valuation.push(
+      `Public-tape TTM ROE ${q?.roe?.toFixed(1)}% and P/B ${q?.pb?.toFixed(1)} look distorted on this name (StockAnalysis TTM). Not a CFA input — do not haircut it, treat it as a data gap.`,
+    );
+  }
   if (inSleeve(REITS, code, ticker)) {
     valuation.push("REIT. CFA real-estate work is yield and NAV, not a manufacturing P/E.");
   }
@@ -334,10 +339,23 @@ export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLa
   }
   if (q?.volume && q.avgVolume && q.avgVolume > 0) {
     const r = q.volume / q.avgVolume;
-    if (r >= 1.8) tape.push(`Volume ${r.toFixed(1)}× the 10-day typical — CFA tape confirmation.`);
+    if (r >= 1.8) tape.push(`Volume ${r.toFixed(1)}× typical on the public tape — CFA tape confirmation.`);
     else if (r <= 0.5) tape.push(`Volume ${r.toFixed(1)}× typical — quiet tape.`);
-    else tape.push(`Volume ${r.toFixed(1)}× the 10-day typical.`);
+    else tape.push(`Volume ${r.toFixed(1)}× typical on the public tape.`);
   }
+  if (q?.weekChange != null && Number.isFinite(q.weekChange)) {
+    tape.push(`52-week change ${q.weekChange.toFixed(1)}% on the public tape — a return, not a high/low box.`);
+  }
+  if (last != null && q?.sma50 && q.sma50 > 0) {
+    const vs = ((last / q.sma50) - 1) * 100;
+    tape.push(`Last is ${vs >= 0 ? "+" : ""}${vs.toFixed(1)}% vs the 50-day SMA (${moneyShown(q.sma50, ccy)}).`);
+  }
+  if (q?.rsi && q.rsi > 0) {
+    if (q.rsi <= 30) tape.push(`RSI ${q.rsi.toFixed(0)} — oversold band on the public tape.`);
+    else if (q.rsi >= 70) tape.push(`RSI ${q.rsi.toFixed(0)} — overbought band on the public tape.`);
+    else tape.push(`RSI ${q.rsi.toFixed(0)} on the public tape.`);
+  }
+  if (q?.beta && q.beta > 0) tape.push(`Beta ${q.beta.toFixed(2)} on the public tape.`);
 
   const wt = nameWeight(code) ?? nameWeight(ticker);
   if (wt != null) {
@@ -387,6 +405,9 @@ export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLa
     nim: filing?.nim != null ? `${filing.nim.toFixed(2)}%` : "—",
     npl: filing?.npl != null ? `${filing.npl.toFixed(2)}%` : "—",
     cet1: filing?.cet1 != null ? `${filing.cet1.toFixed(2)}%` : "—",
+    ch1y: q?.weekChange != null && Number.isFinite(q.weekChange) ? `${q.weekChange.toFixed(1)}%` : "—",
+    rsi: q?.rsi && q.rsi > 0 ? q.rsi.toFixed(0) : "—",
+    sma50: q?.sma50 && q.sma50 > 0 ? moneyShown(q.sma50, ccy) : "—",
   };
 
   const suggestions = [...watch, ...risk, ...next];
@@ -825,6 +846,20 @@ export function relatedNewsUrl(item: { label: string; symbol: string; name?: str
 
 export const NEWS_LANE_KEEP = 8;
 export const NEWS_LANE_MIN = 5;
+/** Latest facts stay inside two weeks. Older copy is Earlier, not Latest. */
+export const NEWS_FRESH_DAYS = 14;
+/** Talk can run a month. Beyond that it is archive. */
+export const NEWS_TALK_DAYS = 30;
+
+export function storyAgeDays(date: string, now = new Date()) {
+  const t = Date.parse(date);
+  if (!Number.isFinite(t)) return Number.POSITIVE_INFINITY;
+  return (now.getTime() - t) / 86_400_000;
+}
+
+export function isFreshStory(story: { date?: string }, days: number, now = new Date()) {
+  return storyAgeDays(story.date || "", now) <= days;
+}
 
 function googlePhRss(query: string, window: NewsWindow) {
   const locale = "hl=en-PH&gl=PH&ceid=PH:en";
@@ -852,7 +887,7 @@ export function rumorTalkUrls(item: { label: string; symbol: string; name?: stri
   ];
 }
 
-export function rumorFillUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "1y") {
+export function rumorFillUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "30d") {
   const { q, minus } = issuerSearchQuery(item, true);
   const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   const legal = issuerNews(item)?.names?.[0] ?? item.name ?? item.label;
@@ -963,28 +998,35 @@ export function collapseNearDup(rows: RelatedStory[]) {
   return out;
 }
 
-export function pickNewsLanes(related: RelatedStory[]) {
-  const facts = related.filter((s) => s.lane !== "rumor").slice(0, NEWS_LANE_KEEP);
-  const rumors = related.filter((s) => s.lane === "rumor").slice(0, NEWS_LANE_KEEP);
-  return { facts, rumors, stories: mergeStories([...facts, ...rumors]) };
+export function pickNewsLanes(related: RelatedStory[], now = new Date()) {
+  const facts = related.filter((s) => s.lane !== "rumor" && isFreshStory(s, NEWS_FRESH_DAYS, now)).slice(0, NEWS_LANE_KEEP);
+  const rumors = related.filter((s) => s.lane === "rumor" && isFreshStory(s, NEWS_TALK_DAYS, now)).slice(0, NEWS_LANE_KEEP);
+  const used = new Set([...facts, ...rumors].map((s) => `${s.link}|${s.title}`.toLowerCase()));
+  const earlier = related.filter((s) => !used.has(`${s.link}|${s.title}`.toLowerCase())).slice(0, NEWS_LANE_KEEP);
+  return { facts, rumors, earlier, stories: mergeStories([...facts, ...rumors]) };
 }
 
 const SOFT_TALK =
   /in talks|sources? say|rumou?r|\balleged(?:ly)?\b|mulling|reportedly|people familiar|tipped|unconfirmed|may (?:buy|sell|raise)|takeover talk|merger talks|advanced talks|said to be/i;
 
-export function fillRumorLane(related: RelatedStory[], min = NEWS_LANE_MIN) {
+export function fillRumorLane(related: RelatedStory[], min = NEWS_LANE_MIN, now = new Date()) {
   const rumors = related.filter((s) => s.lane === "rumor");
   const facts = related.filter((s) => s.lane !== "rumor");
-  if (rumors.length >= min) return pickNewsLanes(related);
-  const need = min - rumors.length;
+  const freshRumors = rumors.filter((s) => isFreshStory(s, NEWS_TALK_DAYS, now));
+  if (freshRumors.length >= min) return pickNewsLanes(related, now);
+  const need = min - freshRumors.length;
   const promoted: RelatedStory[] = [];
   const rest: RelatedStory[] = [];
   for (const s of facts) {
-    if (promoted.length < need && SOFT_TALK.test(`${s.title} ${s.desc ?? ""} ${s.src}`)) {
+    if (
+      promoted.length < need &&
+      isFreshStory(s, NEWS_TALK_DAYS, now) &&
+      SOFT_TALK.test(`${s.title} ${s.desc ?? ""} ${s.src}`)
+    ) {
       promoted.push({ ...s, lane: "rumor" });
     } else rest.push(s);
   }
-  return pickNewsLanes([...rest, ...rumors, ...promoted]);
+  return pickNewsLanes([...rest, ...rumors, ...promoted], now);
 }
 
 function prepRelated(
@@ -1008,21 +1050,28 @@ async function pullStories(urls: string[]) {
   ).flat();
 }
 
-export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedStory[]> {
+export type RelatedDesk = {
+  facts: RelatedStory[];
+  rumors: RelatedStory[];
+  earlier: RelatedStory[];
+};
+
+export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedDesk> {
   const urls: string[] = [];
-  for (const window of ["1d", "7d", "1y"] as const) urls.push(relatedNewsUrl(item, window));
+  for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
   if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
-    urls.push(...rumorNewsUrls(item, "1y"));
+    urls.push(...rumorNewsUrls(item, "7d"));
+    urls.push(...rumorNewsUrls(item, "30d"));
   }
   let gathered = await pullStories(urls);
   let related = prepRelated(gathered, item);
   let picked = fillRumorLane(related);
   if (picked.rumors.length < NEWS_LANE_MIN && (item.kind === "stock" || isPseiItem(item))) {
-    gathered = [...gathered, ...(await pullStories(rumorFillUrls(item, "1y")))];
+    gathered = [...gathered, ...(await pullStories(rumorFillUrls(item, "30d")))];
     related = prepRelated(gathered, item);
     picked = fillRumorLane(related);
   }
-  return picked.stories;
+  return { facts: picked.facts, rumors: picked.rumors, earlier: picked.earlier };
 }
 
 const relatedItem = z.object({

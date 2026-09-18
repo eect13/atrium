@@ -83,6 +83,7 @@ test("related news query is ticker-aware", () => {
   const url = relatedNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.match(url, /news\.google\.com\/rss\/search/);
   assert.match(decodeURIComponent(url), /BDO Unibank/);
+  assert.match(decodeURIComponent(url), /when:1d/);
   assert.match(url, /gl=PH/);
   const crypto = relatedNewsUrl({ label: "BTC", symbol: "bitcoin", name: "Bitcoin", kind: "crypto" });
   assert.match(crypto, /gl=US/);
@@ -147,7 +148,7 @@ test("research expert reads volume vs typical on a US name", () => {
     watching: false,
   };
   const note = buildResearch(row);
-  assert.match(note.expert.join(" "), /2\.4× the 10-day typical/);
+  assert.match(note.expert.join(" "), /2\.4× typical on the public tape/);
 });
 
 test("research expert on the PSEi index uses the 52-week box", () => {
@@ -252,6 +253,8 @@ test("rumor harvest covers gossip wires and talk copy", () => {
   const fill = rumorFillUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" }).map((u) => decodeURIComponent(u)).join(" ");
   assert.match(fill, /site:philstar.com/);
   assert.match(fill, /site:tribune.net.ph/);
+  assert.match(fill, /when:30d/);
+  assert.doesNotMatch(fill, /when:1y/);
 });
 
 test("pickNewsLanes keeps at least five facts and five rumors when the wires have copy", () => {
@@ -273,7 +276,7 @@ test("pickNewsLanes keeps at least five facts and five rumors when the wires hav
     src: "Bilyonaryo",
     lane: "rumor" as const,
   }));
-  const picked = pickNewsLanes([...facts, ...rumors]);
+  const picked = pickNewsLanes([...facts, ...rumors], new Date("2026-09-09T12:00:00Z"));
   assert.equal(picked.facts.length, 8);
   assert.equal(picked.rumors.length, 8);
   assert.ok(picked.facts.length >= 5);
@@ -378,25 +381,43 @@ test("collapseNearDup keeps the latest of the same bond print", () => {
 });
 
 test("fillRumorLane keeps announced bond eyeing as fact and promotes real talk", () => {
+  const now = new Date("2026-09-18T12:00:00Z");
   const rumors = [
     { title: "BDO reportedly seeks more collateral", link: "https://bilyonaryo.com/1", desc: "", date: "2026-09-17T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
     { title: "Cebu Pacific gets BDO backing", link: "https://bilyonaryo.com/2", desc: "", date: "2026-07-21T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
+    { title: "BDO in talks for a Visayas push — Bilyonaryo", link: "https://bilyonaryo.com/3", desc: "", date: "2026-09-12T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
   ];
   const facts = [
     { title: "BDO eyeing P5 billion from sustainability bonds", link: "https://philstar.com/1", desc: "", date: "2026-07-10T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
     { title: "BDO to sell 70% stake in Dominion Holdings", link: "https://inquirer.net/1", desc: "", date: "2026-01-21T00:00:00Z", src: "Inquirer.net", lane: "fact" as const },
-    { title: "Sources say BDO is in talks for a digital tie-up", link: "https://inquirer.net/2", desc: "", date: "2026-08-02T00:00:00Z", src: "Inquirer.net", lane: "fact" as const },
-    { title: "BDO clients lose money due to alleged online banking hack", link: "https://rappler.com/1", desc: "", date: "2026-06-01T00:00:00Z", src: "Rappler", lane: "fact" as const },
-    { title: "People familiar say BDO is mulling a regional push", link: "https://bworldonline.com/3", desc: "", date: "2026-05-01T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
+    { title: "Sources say BDO is in talks for a digital tie-up", link: "https://inquirer.net/2", desc: "", date: "2026-09-05T00:00:00Z", src: "Inquirer.net", lane: "fact" as const },
+    { title: "BDO clients lose money due to alleged online banking hack", link: "https://rappler.com/1", desc: "", date: "2026-09-02T00:00:00Z", src: "Rappler", lane: "fact" as const },
+    { title: "People familiar say BDO is mulling a regional push", link: "https://bworldonline.com/3", desc: "", date: "2026-08-25T00:00:00Z", src: "BusinessWorld", lane: "fact" as const },
     { title: "BDO posts record P87.2 billion profit in 2025", link: "https://philstar.com/2", desc: "", date: "2026-02-28T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
+    { title: "BDO Unibank Inc's Dividend Analysis", link: "https://finance.yahoo.com/1", desc: "", date: "2026-09-14T00:00:00Z", src: "Yahoo Finance", lane: "fact" as const },
   ];
-  const filled = fillRumorLane([...facts, ...rumors]);
+  const filled = fillRumorLane([...facts, ...rumors], NEWS_LANE_MIN, now);
   assert.ok(filled.rumors.length >= 5);
-  assert.ok(filled.facts.some((r) => /eyeing/i.test(r.title)));
   assert.ok(!filled.rumors.some((r) => /eyeing/i.test(r.title)));
+  assert.ok(filled.earlier.some((r) => /eyeing/i.test(r.title)));
   assert.ok(filled.rumors.some((r) => /in talks/i.test(r.title)));
   assert.ok(filled.rumors.some((r) => /alleged/i.test(r.title)));
-  assert.ok(filled.facts.some((r) => /profit/i.test(r.title)));
+  assert.ok(filled.earlier.some((r) => /profit/i.test(r.title)));
+  assert.ok(filled.facts.some((r) => /Dividend/i.test(r.title)));
+});
+
+test("July bond is earlier, September fact is latest", () => {
+  const now = new Date("2026-09-18T12:00:00Z");
+  const related = [
+    { title: "BDO Unibank Inc's Dividend Analysis", link: "https://yahoo.com/1", desc: "", date: "2026-09-14T00:00:00Z", src: "Yahoo Finance", lane: "fact" as const },
+    { title: "BDO raises P132 billion from sustainability bonds", link: "https://philstar.com/a", desc: "", date: "2026-07-29T00:00:00Z", src: "Philstar.com", lane: "fact" as const },
+    { title: "BDO reportedly seeks more collateral", link: "https://bilyonaryo.com/1", desc: "", date: "2026-09-17T00:00:00Z", src: "bilyonaryo.com", lane: "rumor" as const },
+  ];
+  const picked = pickNewsLanes(related, now);
+  assert.ok(picked.facts.some((r) => /Dividend/i.test(r.title)));
+  assert.ok(!picked.facts.some((r) => /P132/i.test(r.title)));
+  assert.ok(picked.earlier.some((r) => /P132/i.test(r.title)));
+  assert.ok(picked.rumors.some((r) => /reportedly/i.test(r.title)));
 });
 
 test("tapeBox uses spark range when 52w is missing", () => {
@@ -448,4 +469,48 @@ test("H1 bank filing is current on 18 Sep 2026 and hides after the next 17-Q win
   const stale = buildResearch(row, new Date("2026-12-01T04:00:00Z"));
   assert.equal(stale.metrics.roe, "13.82%");
   assert.match(stale.valuation.join(" "), /past the next 17-Q/);
+});
+
+test("ICT public-tape ROE is flagged as distorted, not haircut", () => {
+  const row: BoardRow = {
+    key: "ict",
+    item: { id: "ict", symbol: "ICT", label: "ICT", name: "International Container Terminal Services", kind: "stock" },
+    q: { price: 540, change: 0.2, kind: "stock", ccy: "PHP", php: 540, pe: 26.96, pb: 12.5, roe: 57.4 },
+    watching: false,
+  };
+  const note = buildResearch(row);
+  assert.equal(note.metrics.roe, "57.40%");
+  assert.equal(note.metrics.pb, "12.50");
+  assert.match(note.valuation.join(" "), /distorted/);
+  assert.match(note.valuation.join(" "), /do not haircut/);
+});
+
+test("research tape reads 52w change SMA50 RSI and typical volume", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: {
+      price: 115,
+      change: -0.5,
+      kind: "stock",
+      ccy: "PHP",
+      php: 115,
+      volume: 7_000_000,
+      avgVolume: 3_487_926,
+      weekChange: -18.34,
+      sma50: 122.54,
+      rsi: 35,
+      beta: 0.42,
+    },
+    watching: true,
+  };
+  const note = buildResearch(row);
+  assert.equal(note.metrics.ch1y, "-18.3%");
+  assert.equal(note.metrics.rsi, "35");
+  assert.match(note.metrics.sma50, /122/);
+  assert.match(note.tape.join(" "), /52-week change -18\.3%/);
+  assert.match(note.tape.join(" "), /50-day SMA/);
+  assert.match(note.tape.join(" "), /RSI 35/);
+  assert.match(note.tape.join(" "), /Beta 0\.42/);
+  assert.match(note.tape.join(" "), /2\.0× typical/);
 });
