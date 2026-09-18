@@ -514,3 +514,25 @@ test("research tape reads 52w change SMA50 RSI and typical volume", () => {
   assert.match(note.tape.join(" "), /Beta 0\.42/);
   assert.match(note.tape.join(" "), /2\.0× typical/);
 });
+
+test("research PDF paginates and keeps a byte-accurate xref", () => {
+  const row: BoardRow = {
+    key: "bdo",
+    item: { id: "bdo", symbol: "BDO", label: "BDO", name: "BDO Unibank", kind: "stock" },
+    q: { price: 120.1, change: 1.4, kind: "stock", ccy: "PHP", php: 120.1, volume: 1_000_000, spark: [118, 119, 120.1] },
+    watching: true,
+  };
+  const note = buildResearch(row);
+  note.expert = Array.from({ length: 8 }, (_, i) => `Expert line ${i} on valuation, tape, index factor, and the next filing window with enough words to wrap.`);
+  note.watch = Array.from({ length: 10 }, (_, i) => `Watch item ${i} with enough words to wrap onto a second Helvetica line of the desk note.`);
+  note.risk = Array.from({ length: 10 }, (_, i) => `Risk item ${i} with enough words to wrap onto a second Helvetica line of the desk note.`);
+  note.next = Array.from({ length: 10 }, (_, i) => `Next item ${i} with enough words to wrap onto a second Helvetica line of the desk note.`);
+  const bytes = researchPdf(note);
+  const latin = new TextDecoder("latin1").decode(bytes);
+  assert.match(latin, /%PDF-1\./);
+  assert.match(latin, /\/Count [2-9]/);
+  assert.match(latin, /52w chg/);
+  assert.match(latin, /ATRIUM RESEARCH/);
+  const at = Number(latin.match(/startxref\n(\d+)/)?.[1]);
+  assert.equal(latin.slice(at, at + 4), "xref");
+});

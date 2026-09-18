@@ -318,7 +318,7 @@ export async function loadPseStats(ticker: string): Promise<PseStats> {
   try {
     const html = await httpText(`https://stockanalysis.com/quote/pse/${encodeURIComponent(t)}/statistics/`, {
       accept: "text/html",
-      "user-agent": "Atrium/1.2.22 (personal dashboard; PSE multiples)",
+      "user-agent": "Atrium/1.2.23 (personal dashboard; PSE multiples)",
     });
     const data = parseStockAnalysisStats(html, t);
     const merged = data.source ? data : { ...empty, ...data, source: seed?.source, asOf: data.asOf ?? seed?.asOf };

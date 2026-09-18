@@ -73,8 +73,10 @@ import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
-import { MoversStrip, PeerStrip, PseHeatmap } from "./finance-tape";
+import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
+import { asDeskItem, deskMarket, homeBoardRows, NIFTY_SYMBOL } from "@/lib/desk-market";
+import { fetchFinanceDigest } from "@/lib/digest";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
 
@@ -89,6 +91,10 @@ function fxToPhp(unit: (typeof FX_UNITS)[number], fx: { usdphp: number; eurphp: 
 function asItem(q: MarketQuote, kind: WatchItem["kind"]): WatchItem {
   const catalog = WATCH_CATALOG.find((w) => w.symbol === q.id || (kind === "stock" && w.symbol === q.label));
   if (catalog) return catalog;
+  const seed = ["US", "HK", "IN", "JP", "SG", "GB", "AU", "CA", "EU"]
+    .flatMap((id) => deskMarket(id).names)
+    .find((n) => n.symbol === q.id);
+  if (seed) return asDeskItem(seed);
   return {
     id: kind === "stock" ? `pse-${q.id}` : q.id,
     symbol: q.id,
@@ -168,6 +174,10 @@ export function FinanceMarkets() {
     setBoardQuery,
     boardFocus,
     setBoardFocus,
+    region,
+    digests,
+    rememberDigest,
+    setAnalyzeSeed,
   } = useAtrium(
     useShallow((s) => ({
       watch: s.watch,
@@ -183,6 +193,10 @@ export function FinanceMarkets() {
       setBoardQuery: s.setBoardQuery,
       boardFocus: s.boardFocus,
       setBoardFocus: s.setBoardFocus,
+      region: s.profile.region,
+      digests: s.digests,
+      rememberDigest: s.rememberDigest,
+      setAnalyzeSeed: s.setAnalyzeSeed,
     })),
   );
   const [fromUnit, setFromUnit] = useState<(typeof FX_UNITS)[number]>("USD");
@@ -204,9 +218,11 @@ export function FinanceMarkets() {
   const range = normalizeSparkRange(marketPrefs.sparkRange);
   const sparkLabel = SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M";
   const pseScreenOn = tab === "screen" && isPseScreen(marketPrefs.screen);
+  const market = deskMarket(region);
+  const sortUse = !market.pseHome && sort === "wt" && (tab === "all" || tab === "blue") ? "chg" : sort;
 
   function goTab(next: typeof tab) {
-    setMarketPrefs(tabSortPatch(next, { tab, sort }));
+    setMarketPrefs(tabSortPatch(next, { tab, sort: sortUse }));
   }
 
   const markets = useMarkets();
@@ -244,23 +260,16 @@ export function FinanceMarkets() {
     enabled: addOpen && addNeedle.length >= 1,
     staleTime: 60_000,
   });
-  const tape = [
-    quotes[PSEI_SYMBOL],
-    quotes.BDO,
-    quotes.ICT,
-    quotes.SM,
-    quotes["^GSPC"],
-    quotes["GC=F"],
-    quotes.USDPHP,
-    quotes.bitcoin ?? quotes.BTC,
-    quotes.ethereum ?? quotes.ETH,
-  ].filter((q): q is MarketQuote => Boolean(q));
+  const tape = [...new Set([...market.tape, "USDPHP", "bitcoin", "ethereum"])]
+    .map((id) => (id === "bitcoin" ? (quotes.bitcoin ?? quotes.BTC) : id === "ethereum" ? (quotes.ethereum ?? quotes.ETH) : quotes[id]))
+    .filter((q): q is MarketQuote => Boolean(q));
   const psei = quotes[PSEI_SYMBOL];
-  const pseiWeek =
-    psei?.weekLow != null && psei.weekHigh != null && psei.weekHigh > psei.weekLow
-      ? Math.round(Math.min(1, Math.max(0, (psei.price - psei.weekLow) / (psei.weekHigh - psei.weekLow))) * 100)
+  const nifty = quotes[NIFTY_SYMBOL];
+  const homeIndex = quotes[market.index.symbol] ?? (market.pseHome ? psei : undefined);
+  const homeWeek =
+    homeIndex?.weekLow != null && homeIndex.weekHigh != null && homeIndex.weekHigh > homeIndex.weekLow
+      ? Math.round(Math.min(1, Math.max(0, (homeIndex.price - homeIndex.weekLow) / (homeIndex.weekHigh - homeIndex.weekLow))) * 100)
       : null;
-
   const watching = (item: WatchItem) => watch.some((w) => w.symbol === item.symbol || w.id === item.id);
   const watched = (item: WatchItem) => watch.find((w) => w.symbol === item.symbol || w.id === item.id);
 
@@ -274,6 +283,8 @@ export function FinanceMarkets() {
     };
     for (const w of watch) push(w.symbol, w.kind);
     push(PSEI_SYMBOL, "global");
+    push(NIFTY_SYMBOL, "global");
+    push(market.index.symbol, "global");
     if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
       for (const c of WATCH_CATALOG.filter((w) => w.kind === tab)) push(c.symbol, c.kind);
     }
@@ -285,10 +296,14 @@ export function FinanceMarkets() {
       }
     }
     if (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") {
-      for (const t of BLUECHIPS) push(t, "stock");
+      if (market.pseHome) {
+        for (const t of BLUECHIPS) push(t, "stock");
+      } else {
+        for (const n of market.names) push(n.symbol, "global");
+      }
     }
     return out.slice(0, 40);
-  }, [watch, tab, markets.data?.screen, pseScreenOn]);
+  }, [watch, tab, markets.data?.screen, pseScreenOn, market]);
 
   const sparkQ = useQuery({
     queryKey: ["sparks", range, sparkItems.map((i) => i.id).join(",")],
@@ -297,6 +312,24 @@ export function FinanceMarkets() {
     enabled: marketPrefs.spark && sparkItems.length > 0,
   });
   const remoteSparks = sparkQ.data ?? {};
+
+  const digestQ = useQuery({
+    queryKey: ["finance-digest", market.id],
+    queryFn: () => fetchFinanceDigest({ data: { region: market.id } }),
+    staleTime: 30 * 60_000,
+    gcTime: 24 * 60 * 60_000,
+    enabled: tab === "all",
+    retry: 1,
+  });
+  useEffect(() => {
+    if (digestQ.data) rememberDigest(digestQ.data);
+  }, [digestQ.data, rememberDigest]);
+
+  useEffect(() => {
+    if (!market.pseHome && (tab === "blue" || tab === "reit" || tab === "div")) {
+      setMarketPrefs(tabSortPatch("all", { tab: "all", sort: "chg" }));
+    }
+  }, [market.pseHome, tab, setMarketPrefs]);
 
   const rows = useMemo(() => {
     const searching = query.trim().length > 0;
@@ -342,6 +375,8 @@ export function FinanceMarkets() {
                 out.push({ key: q.id, item, q, watching: watching(item) });
               }
             }
+          } else if (!market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div")) {
+            for (const r of homeBoardRows(quotes, markets.data?.home, market, watching)) out.push(r);
           } else {
             for (const r of stockBoardRows(tab, quotes, WATCH_CATALOG, watching, liveBlue)) {
               out.push(r);
@@ -355,9 +390,9 @@ export function FinanceMarkets() {
       return { ...r, q: { ...r.q, spark } };
     });
     const filtered = withSpark.filter((r) => matchQuery(query, r.item));
-    const sorted = sortRows(filtered, sort, sortDir, { cryptoUsdt: marketPrefs.cryptoUsdt });
+    const sorted = sortRows(filtered, sortUse, sortDir, { cryptoUsdt: marketPrefs.cryptoUsdt });
     return query.trim() ? rankByQuery(sorted, query) : sorted;
-  }, [tab, watch, quotes, query, sort, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen, pseScreenOn]);
+  }, [tab, watch, quotes, query, sortUse, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen, markets.data?.home, pseScreenOn, market]);
 
   useEffect(() => {
     if (!boardFocus) return;
@@ -434,8 +469,11 @@ export function FinanceMarkets() {
   const pnlParts = positions.map((p) => p.pnl).filter((n): n is number => n != null);
   const totalPnl = pnlParts.length ? pnlParts.reduce((a, b) => a + b, 0) : null;
   const heatRows = useMemo(
-    () => stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue),
-    [quotes, liveBlue, watch],
+    () =>
+      market.pseHome
+        ? stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue)
+        : homeBoardRows(quotes, markets.data?.home, market, watching),
+    [quotes, liveBlue, watch, market, markets.data?.home],
   );
   const tapeMovers = useMemo(() => {
     if (tab === "crypto") {
@@ -448,11 +486,25 @@ export function FinanceMarkets() {
         active,
       };
     }
+    if (!market.pseHome) {
+      const board = heatRows
+        .map((r) => r.q)
+        .filter((q): q is NonNullable<typeof q> => Boolean(q && q.change != null));
+      const ranked = board.toSorted((a, b) => (b.change ?? 0) - (a.change ?? 0));
+      const active = [...board]
+        .toSorted((a, b) => (b.price ?? 0) * (b.volume ?? 0) - (a.price ?? 0) * (a.volume ?? 0))
+        .slice(0, 5);
+      return {
+        gainers: ranked.filter((c) => (c.change ?? 0) > 0).slice(0, 5) as MarketQuote[],
+        losers: ranked.filter((c) => (c.change ?? 0) < 0).toReversed().slice(0, 5) as MarketQuote[],
+        active: active as MarketQuote[],
+      };
+    }
     return markets.data?.movers ?? { gainers: [], losers: [], active: [] };
-  }, [tab, quotes, markets.data?.movers]);
+  }, [tab, quotes, markets.data?.movers, market.pseHome, heatRows]);
 
   function onSort(key: BoardSort) {
-    if (sort === key) {
+    if (sortUse === key) {
       setMarketPrefs({ sortDir: sortDir === 1 ? -1 : 1 });
       return;
     }
@@ -533,7 +585,7 @@ export function FinanceMarkets() {
 
       <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
         {PRIMARY_TABS.map((t) => (
-          <Chip key={t.id} active={tab === t.id || (t.id === "all" && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => goTab(t.id)}>
+          <Chip key={t.id} active={tab === t.id || (t.id === "all" && market.pseHome && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => goTab(t.id)}>
             {t.short ? (
               <>
                 <span className="sm:hidden">{t.short}</span>
@@ -545,7 +597,7 @@ export function FinanceMarkets() {
           </Chip>
         ))}
       </div>
-      {tab === "all" || tab === "blue" || tab === "reit" || tab === "div" ? (
+      {market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") ? (
         <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
           <Chip active={tab === "all"} onClick={() => goTab("all")}>
             PSE
@@ -556,6 +608,13 @@ export function FinanceMarkets() {
             </Chip>
           ))}
         </div>
+      ) : null}
+      {tab === "all" && !query.trim() ? (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {market.pseHome
+            ? "Philippines — PSE tape. Factory desk."
+            : `${market.name} tape. Delayed Yahoo last, not a broker book.`}
+        </p>
       ) : null}
       {tab === "screen" ? (
         <>
@@ -686,9 +745,9 @@ export function FinanceMarkets() {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="scroll-auto flex max-w-full flex-nowrap gap-2 overflow-x-auto sm:flex-wrap">
           {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS).map((s) => (
-            <Chip key={s.id} active={sort === s.id} onClick={() => onSort(s.id)}>
+            <Chip key={s.id} active={sortUse === s.id} onClick={() => onSort(s.id)}>
               {s.label}
-              {sort === s.id ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+              {sortUse === s.id ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </Chip>
           ))}
         </div>
@@ -752,30 +811,30 @@ export function FinanceMarkets() {
         </button>
       </div>
 
-      {psei ? (
+      {homeIndex ? (
         <button
           type="button"
           className="mb-4 flex w-full items-center gap-3 rounded-md bg-card px-4 py-3 text-left shadow-[var(--shadow-border)]"
           onClick={() => {
-            const item = asItem(psei, "global");
-            setOpen({ key: psei.id, item, q: psei, watching: watching(item) });
+            const item = asItem(homeIndex, "global");
+            setOpen({ key: homeIndex.id, item, q: homeIndex, watching: watching(item) });
           }}
         >
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-widest text-muted-foreground">PSEi</p>
-            <p className="font-display text-2xl tabular-nums">{moneyQuote(psei.price, psei.ccy)}</p>
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">{market.index.label ?? market.index.name}</p>
+            <p className="font-display text-2xl tabular-nums">{moneyQuote(homeIndex.price, homeIndex.ccy)}</p>
             <p className="text-xs text-muted-foreground">
-              {pseiWeek != null ? `${pseiWeek}% of 52w` : "Yahoo index"}
-              {psei.weekLow && psei.weekHigh
-                ? ` · ${moneyQuote(psei.weekLow, psei.ccy)}–${moneyQuote(psei.weekHigh, psei.ccy)}`
+              {homeWeek != null ? `${homeWeek}% of 52w` : market.name}
+              {homeIndex.weekLow && homeIndex.weekHigh
+                ? ` · ${moneyQuote(homeIndex.weekLow, homeIndex.ccy)}–${moneyQuote(homeIndex.weekHigh, homeIndex.ccy)}`
                 : ""}
             </p>
           </div>
-          <ChangePill value={psei.change} />
+          <ChangePill value={homeIndex.change} />
           {marketPrefs.spark ? (
             <Spark
-              values={remoteSparks[PSEI_SYMBOL] ?? psei.spark}
-              up={(psei.change ?? 0) >= 0}
+              values={remoteSparks[homeIndex.id] ?? homeIndex.spark}
+              up={(homeIndex.change ?? 0) >= 0}
               className="ml-auto hidden h-10 w-28 sm:block"
             />
           ) : null}
@@ -819,6 +878,27 @@ export function FinanceMarkets() {
         </div>
       ) : null}
 
+      {!query.trim() && tab === "all" ? (
+        <IndexCompare
+          psei={psei}
+          nifty={nifty}
+          pending={quotesPending}
+          onOpen={(q) => {
+            const item = asItem(q, q.kind);
+            setOpen({ key: q.id, item, q, watching: watching(item) });
+          }}
+        />
+      ) : null}
+
+      {!query.trim() && tab === "all" ? (
+        <DigestCard
+          today={digestQ.data ?? digests.find((d) => d.region === market.id)}
+          history={digests.filter((d) => d.region === market.id)}
+          pending={digestQ.isPending && !digestQ.data}
+          market={market.name}
+        />
+      ) : null}
+
       {!query.trim() && tab !== "screen" ? (
         <MoversStrip
           gainers={tapeMovers.gainers}
@@ -833,7 +913,13 @@ export function FinanceMarkets() {
         />
       ) : null}
 
-      {!query.trim() && (tab === "all" || tab === "blue") ? <PseHeatmap rows={heatRows} onOpen={setOpen} /> : null}
+      {!query.trim() && (tab === "all" || tab === "blue") ? (
+        market.pseHome ? (
+          <PseHeatmap rows={heatRows} onOpen={setOpen} />
+        ) : (
+          <SessionHeatmap rows={heatRows} market={market.name} onOpen={setOpen} />
+        )
+      ) : null}
 
       {tab === "watcher" && positions.length > 0 ? (
         <Card className="mb-4">
@@ -899,9 +985,9 @@ export function FinanceMarkets() {
           <div className="flex items-center gap-1 px-2 text-xs uppercase tracking-[0.06em] text-muted-foreground sm:gap-2 sm:px-3">
             <span className="inline-block size-9 shrink-0" />
             <button type="button" className="min-h-11 min-w-0 flex-1 text-left" onClick={() => onSort("name")}>
-              <span className="sm:hidden">Name{sort === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}</span>
+              <span className="sm:hidden">Name{sortUse === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}</span>
               <span className="hidden sm:inline">
-                Name / vol{sort === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+                Name / vol{sortUse === "name" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
               </span>
             </button>
             {marketPrefs.spark ? (
@@ -914,10 +1000,10 @@ export function FinanceMarkets() {
               </button>
             ) : null}
             <button type="button" className="min-h-11 shrink-0 text-right sm:w-24" onClick={() => onSort("last")}>
-              Last{sort === "last" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+              Last{sortUse === "last" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </button>
             <button type="button" className="min-h-11 w-14 shrink-0 text-right sm:w-20" onClick={() => onSort("chg")}>
-              24h{sort === "chg" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+              24h{sortUse === "chg" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </button>
             <span className="inline-block size-11 shrink-0" />
           </div>
@@ -1392,6 +1478,12 @@ function QuoteSheet({
   const [qty, setQty] = useState(held?.qty != null ? String(held.qty) : "");
   const [avg, setAvg] = useState(held?.avg != null ? String(held.avg) : "");
   const [pdfHref, setPdfHref] = useState<string | null>(null);
+  const setAnalyzeSeed = useAtrium((s) => s.setAnalyzeSeed);
+  useEffect(() => {
+    return () => {
+      if (pdfHref) URL.revokeObjectURL(pdfHref);
+    };
+  }, [pdfHref]);
   const ticker = (row.item.symbol || row.item.label).replace(/^\^/, "").replace(/\.PS$/i, "");
   const statsQ = useQuery({
     queryKey: ["pse-stats", ticker],
@@ -1591,6 +1683,28 @@ function QuoteSheet({
           <FileDown className="size-4" />
           Research PDF
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          onClick={() => {
+            setAnalyzeSeed({
+              ticker: row.item.label,
+              question: `CFA take on ${row.item.label} (${row.item.name ?? row.item.label}). Last ${note.last}, ${note.change}.`,
+              context: [
+                note.issuerLine,
+                `Last ${note.last} ${note.change} ${note.volume}`,
+                `PE ${note.metrics.pe}  P/B ${note.metrics.pb}  Yld ${note.metrics.yld}  52w ${note.metrics.ch1y}  SMA50 ${note.metrics.sma50}  RSI ${note.metrics.rsi}`,
+                ...note.expert.slice(0, 4),
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            });
+            toast(`Analyzer seeded with ${row.item.label}`);
+          }}
+        >
+          Analyze
+        </Button>
         {pdfHref ? (
           <a
             href={pdfHref}
@@ -1603,6 +1717,13 @@ function QuoteSheet({
           </a>
         ) : null}
       </div>
+      {pdfHref ? (
+        <iframe
+          title={`${row.item.label} research`}
+          src={pdfHref}
+          className="h-[480px] w-full rounded-md border border-border bg-white"
+        />
+      ) : null}
       {row.q?.kind === "crypto" && row.q.high != null && row.q.low != null ? (
         <p className="text-sm text-muted-foreground">
           24h {moneyQuote(scaleBand(row.q.low), shown?.ccy ?? "USD")} –{" "}

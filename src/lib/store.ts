@@ -42,6 +42,7 @@ import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashC
 import { asNewsFilter, asNewsTag } from "./headline";
 import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
+import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 
 export const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
 
@@ -157,6 +158,8 @@ type Data = {
   boardFocus: string | null;
   calMode: CalMode;
   calCursor: string;
+  digests: DigestDay[];
+  analyzeSeed: { ticker?: string; question?: string; context?: string } | null;
 };
 
 type State = Data & {
@@ -220,6 +223,8 @@ type State = Data & {
   setBoardFocus: (id: string | null) => void;
   setCalMode: (v: CalMode) => void;
   setCalCursor: (iso: string) => void;
+  rememberDigest: (day: DigestDay) => void;
+  setAnalyzeSeed: (seed: Data["analyzeSeed"]) => void;
   reset: () => void;
   wipeProfile: () => void;
 };
@@ -349,6 +354,8 @@ function blankDesk(): Data {
     boardFocus: null,
     calMode: "month",
     calCursor: "",
+    digests: [],
+    analyzeSeed: null,
   };
 }
 
@@ -778,6 +785,8 @@ export const useAtrium = create<State>()(
       setBoardFocus: (boardFocus) => set({ boardFocus }),
       setCalMode: (calMode) => set({ calMode }),
       setCalCursor: (calCursor) => set({ calCursor }),
+      rememberDigest: (day) => set((s) => ({ digests: pushDigest(s.digests, day) })),
+      setAnalyzeSeed: (analyzeSeed) => set({ analyzeSeed }),
       reset: () => {
         const next = demoDesk();
         applyTheme(next.theme);
@@ -791,7 +800,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 30,
+      version: 31,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -1003,6 +1012,9 @@ export const useAtrium = create<State>()(
           mods.weather = mods.weather !== false;
           p = { ...p, modules: mods };
         }
+        if (version < 31) {
+          p = { ...p, digests: Array.isArray((p as { digests?: unknown }).digests) ? ((p as { digests: DigestDay[] }).digests ?? []).slice(0, 10) : [] };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -1035,6 +1047,7 @@ export const useAtrium = create<State>()(
         boardFocus: s.boardFocus,
         calMode: s.calMode,
         calCursor: s.calCursor,
+        digests: s.digests,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
@@ -1069,6 +1082,8 @@ export const useAtrium = create<State>()(
           boardFocus: typeof p.boardFocus === "string" || p.boardFocus === null ? p.boardFocus : current.boardFocus,
           calMode: p.calMode === "week" || p.calMode === "day" || p.calMode === "agenda" || p.calMode === "month" ? p.calMode : (current as Data).calMode ?? "month",
           calCursor: typeof p.calCursor === "string" ? p.calCursor : (current as Data).calCursor ?? "",
+          digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
+          analyzeSeed: null,
           profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,

@@ -2,12 +2,15 @@
 
 import { ChangePill } from "@/components/spark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { moneyQuote } from "@/lib/format";
+import { moneyQuote, relativeDesk } from "@/lib/format";
 import { BANK_ORDER, BLUECHIPS, peerTickers, type BoardRow } from "@/lib/market-board";
 import { nameWeight } from "@/lib/psei-weight";
 import type { MarketQuote } from "@/lib/prices";
 import { seededStats } from "@/lib/pse-fundamentals";
 import { cn } from "@/lib/utils";
+import { NIFTY_SYMBOL } from "@/lib/desk-market";
+import type { DigestDay } from "@/lib/digest";
+import { PSEI_SYMBOL } from "@/lib/yahoo";
 
 function heatTone(change?: number) {
   if (change == null || !Number.isFinite(change) || change === 0) return "bg-muted text-muted-foreground";
@@ -177,5 +180,163 @@ export function PeerStrip({
         </table>
       </div>
     </div>
+  );
+}
+
+function lastLine(q?: MarketQuote) {
+  if (!q || !Number.isFinite(q.price)) return "—";
+  return moneyQuote(q.price, q.ccy);
+}
+
+export function IndexCompare({
+  psei,
+  nifty,
+  pending,
+  onOpen,
+}: {
+  psei?: MarketQuote;
+  nifty?: MarketQuote;
+  pending?: boolean;
+  onOpen: (q: MarketQuote) => void;
+}) {
+  const cell = (q: MarketQuote | undefined, label: string, name: string, symbol: string) => (
+    <button
+      type="button"
+      className="min-h-11 w-full rounded-md bg-muted px-3 py-3 text-left"
+      onClick={() => q && onOpen(q)}
+      disabled={!q}
+    >
+      <p className="text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
+      <p className="mt-1 font-display text-xl tabular-nums">{pending && !q ? "—" : lastLine(q)}</p>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{name}</span>
+        <ChangePill value={q?.change} />
+      </div>
+      <p className="mt-1 font-mono text-xs text-muted-foreground">{symbol}</p>
+    </button>
+  );
+  return (
+    <Card className="mb-4">
+      <CardHeader className="space-y-0">
+        <CardTitle>PSEi vs Nifty 50</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Two delayed index lasts. Not a pairs trade, not a recommendation.
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-2 sm:grid-cols-2">
+        {cell(psei, "PSEi", "Philippine Stock Exchange", PSEI_SYMBOL)}
+        {cell(nifty, "Nifty 50", "NSE India", NIFTY_SYMBOL)}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function SessionHeatmap({
+  rows,
+  market,
+  onOpen,
+}: {
+  rows: BoardRow[];
+  market: string;
+  onOpen: (row: BoardRow) => void;
+}) {
+  const ordered = rows
+    .filter((r) => r.q && Number.isFinite(r.q.price))
+    .toSorted((a, b) => (b.q?.change ?? 0) - (a.q?.change ?? 0))
+    .slice(0, 24);
+  if (ordered.length < 6) return null;
+  const up = ordered.filter((r) => (r.q?.change ?? 0) > 0).length;
+  const down = ordered.filter((r) => (r.q?.change ?? 0) < 0).length;
+  return (
+    <Card className="mb-4">
+      <CardHeader className="space-y-0">
+        <CardTitle>Heat</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {market} session %. No index weights on this tape. {up} up · {down} down.
+        </p>
+      </CardHeader>
+      <CardContent className="px-3 pb-3 sm:px-5">
+        <div className="grid grid-cols-4 gap-1 sm:grid-cols-6">
+          {ordered.map((r) => {
+            const ch = r.q?.change;
+            return (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() => onOpen(r)}
+                className={cn("min-h-11 rounded-md px-1 py-1.5 text-center", heatTone(ch))}
+              >
+                <span className="block font-mono text-xs leading-tight">{r.item.label}</span>
+                <span className="block text-xs tabular-nums leading-tight">
+                  {ch == null ? "—" : `${ch >= 0 ? "+" : ""}${ch.toFixed(1)}%`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function DigestCard({
+  today,
+  history,
+  pending,
+  market,
+}: {
+  today?: DigestDay;
+  history: DigestDay[];
+  pending?: boolean;
+  market: string;
+}) {
+  const days = history.length ? history : today ? [today] : [];
+  const shown = today ?? days[0];
+  if (!pending && !shown && !days.length) return null;
+  return (
+    <Card className="mb-4">
+      <CardHeader className="space-y-0">
+        <CardTitle>Daily digest</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {market} headlines. Last {Math.min(10, Math.max(days.length, 1))} runs on this desk. RSS, not an AI brief.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {pending && !shown?.items.length ? (
+          <p className="text-sm text-muted-foreground">Pulling today's tape.</p>
+        ) : shown?.items.length ? (
+          <ul className="space-y-2">
+            {shown.items.slice(0, 10).map((s) => (
+              <li key={s.link}>
+                <a href={s.link} target="_blank" rel="noopener noreferrer" className="block min-h-11">
+                  <p className="text-sm leading-snug">{s.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.src}
+                    {s.date ? ` · ${relativeDesk(s.date)}` : ""}
+                  </p>
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No headlines on this window yet.</p>
+        )}
+        {days.length > 1 ? (
+          <div className="mt-4 border-t border-border pt-3">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">Last 10</p>
+            <ul className="mt-2 space-y-1">
+              {days.slice(0, 10).map((d) => (
+                <li key={`${d.region}-${d.day}`} className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="tabular-nums">{d.day}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {d.items.length} {d.items.length === 1 ? "headline" : "headlines"} · {d.market}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

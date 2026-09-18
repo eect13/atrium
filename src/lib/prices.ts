@@ -7,6 +7,7 @@ import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast,
 import { WATCH_CATALOG } from "./types";
 import { SCREEN_FETCH, isYahooScreen } from "./screener";
 import { httpJson, isTauri } from "./http";
+import { isHomeSymbol } from "./desk-market";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
 export type PriceResult = { failed?: boolean; quotes: PriceMap };
@@ -73,6 +74,7 @@ export type MarketSnapshot = {
   movers: { gainers: MarketQuote[]; losers: MarketQuote[]; active: MarketQuote[] };
   quotes: Record<string, MarketQuote>;
   screen?: MarketQuote[];
+  home?: MarketQuote[];
   asOf?: string;
   vs: QuoteCcy;
 };
@@ -465,6 +467,7 @@ function assemble(
   binance: MarketQuote[],
   yahoo: MarketQuote[],
   screen: MarketQuote[] = [],
+  home: MarketQuote[] = [],
 ): MarketSnapshot {
   const quotes: Record<string, MarketQuote> = {};
   if (fx) {
@@ -542,12 +545,21 @@ function assemble(
     const existing = quotes[s.id];
     quotes[s.id] = existing && existing.kind === s.kind ? overlayFund(existing, s) : s;
   }
-  const withChg = stocks.filter((r) => r.change != null && r.change !== 0);
+  for (const h of home) {
+    if (quotes[h.id]?.kind === "stock") {
+      quotes[h.id] = overlayFund(quotes[h.id]!, h);
+      continue;
+    }
+    const existing = quotes[h.id];
+    quotes[h.id] = existing && existing.kind === h.kind ? overlayFund(existing, h) : h;
+  }
+  const board = (home.length ? home : stocks).filter((q) => q.kind !== "crypto" && q.kind !== "fx");
+  const withChg = board.filter((r) => r.change != null && r.change !== 0);
   const ranked = (withChg.length ? withChg : coins).toSorted((a, b) => (b.change ?? 0) - (a.change ?? 0));
-  const active = stocks
-    .toSorted((a, b) => b.price * (b.volume ?? 0) - a.price * (a.volume ?? 0))
+  const active = board
+    .toSorted((a, b) => (b.price ?? 0) * (b.volume ?? 0) - (a.price ?? 0) * (a.volume ?? 0))
     .slice(0, 8);
-  const failed = !fx && !coins.length && !stocks.length && !yahoo.length && !screen.length;
+  const failed = !fx && !coins.length && !stocks.length && !yahoo.length && !screen.length && !home.length;
   return {
     failed: failed || undefined,
     fx: fx ?? { usdphp: 0, eurphp: 0, jpyphp: 0, gbpphp: 0 },
@@ -558,6 +570,7 @@ function assemble(
     },
     quotes,
     screen,
+    home: home.length ? home : undefined,
     asOf: pse.asOf,
     vs: ccy,
   };
@@ -571,6 +584,7 @@ export const fetchMarkets = createServerFn({ method: "POST" })
       yahoo: z.array(z.string()).optional(),
       wantPse: z.boolean().optional(),
       wantCrypto: z.boolean().optional(),
+      wantHome: z.boolean().optional(),
       screener: z.string().optional(),
       yahooRegion: z.string().optional(),
     }),
@@ -579,6 +593,7 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     const vs = data.vs ?? "php";
     const wantPse = data.wantPse !== false;
     const wantCrypto = data.wantCrypto !== false;
+    const wantHome = data.wantHome === true;
     const yahooSyms = [...new Set((data.yahoo ?? []).filter(Boolean))];
     const screener = isYahooScreen(data.screener?.trim() || "") ? data.screener!.trim() : "";
     const yahooRegion = data.yahooRegion?.trim() || "US";
@@ -586,10 +601,11 @@ export const fetchMarkets = createServerFn({ method: "POST" })
       (id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z^=]{1,12}$/.test(id) && !id.includes("="),
     );
     const geckoIds = [...new Set(extraGecko)];
-    const key = `${vs}|g:${geckoIds.toSorted().join(",")}|y:${yahooSyms.toSorted().join(",")}|p:${wantPse ? 1 : 0}|c:${wantCrypto ? 1 : 0}|s:${screener}|r:${yahooRegion}`;
+    const key = `${vs}|g:${geckoIds.toSorted().join(",")}|y:${yahooSyms.toSorted().join(",")}|p:${wantPse ? 1 : 0}|c:${wantCrypto ? 1 : 0}|h:${wantHome ? 1 : 0}|s:${screener}|r:${yahooRegion}`;
     const snap = g.__atriumMarkets;
     if (snap && snap.key === key && snap.exp > Date.now()) return snap.data;
-    const [fx, binance, pse, yahooRaw, screenRaw, activeRaw] = await Promise.all([
+    const needHome = wantHome && screener !== "most_actives";
+    const [fx, binance, pse, yahooRaw, screenRaw, activeRaw, homeRaw] = await Promise.all([
       loadFx(),
       wantCrypto ? loadBinance() : Promise.resolve([] as MarketQuote[]),
       wantPse ? getPseTape() : Promise.resolve({ rows: [] as MarketQuote[] }),
@@ -598,19 +614,23 @@ export const fetchMarkets = createServerFn({ method: "POST" })
       yahooSyms.length && screener !== "most_actives"
         ? fetchYahooScreener("most_actives", "US", SCREEN_FETCH)
         : Promise.resolve([]),
+      needHome ? fetchYahooScreener("most_actives", yahooRegion, SCREEN_FETCH, { fallback: yahooRegion === "US" }) : Promise.resolve([]),
     ]);
     let gecko: GeckoRow[] = [];
     if (geckoIds.length) gecko = await loadGecko(geckoIds, vs);
     else if (wantCrypto && !binance.length) gecko = await loadGecko(DEFAULT_GECKO_IDS, vs);
     const fundBySym = new Map<string, YahooLast>();
-    for (const row of [...activeRaw, ...screenRaw]) fundBySym.set(row.symbol, row);
+    for (const row of [...activeRaw, ...screenRaw, ...homeRaw]) fundBySym.set(row.symbol, row);
     const yahoo = yahooRaw.map((row) => {
       const q = asYahooQuote(row, fx);
       const fund = fundBySym.get(row.symbol);
       return fund ? overlayFund(q, asYahooQuote(fund, fx)) : q;
     });
     const screen = screenRaw.map((row) => asYahooQuote(row, fx));
-    const snapshot = assemble(vs, fx, gecko, pse, binance, yahoo, screen);
+    const home = (wantHome && screener === "most_actives" ? screenRaw : homeRaw)
+      .map((row) => asYahooQuote(row, fx))
+      .filter((q) => isHomeSymbol(q.id, yahooRegion));
+    const snapshot = assemble(vs, fx, gecko, pse, binance, yahoo, screen, home);
     if (!snapshot.failed) {
       g.__atriumMarkets = {
         key,

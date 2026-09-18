@@ -471,25 +471,104 @@ function pdfEscape(s: string) {
 
 type PdfLine = { text: string; size: number; bold?: boolean; gap?: number; gray?: boolean };
 
-function pageOps(lines: PdfLine[], startY: number) {
-  let y = startY;
-  const textOps: string[] = [];
-  for (const line of lines) {
-    if (y < 48) break;
-    const font = line.bold ? "F2" : "F1";
-    const fill = line.gray ? "0.42 0.42 0.4 rg" : "0.09 0.09 0.09 rg";
-    textOps.push("BT");
-    textOps.push(fill);
-    textOps.push(`/${font} ${line.size} Tf`);
-    textOps.push(`1 0 0 1 48 ${y} Tm`);
-    textOps.push(`(${pdfEscape(line.text)}) Tj`);
-    textOps.push("ET");
-    y -= line.gap ?? 14;
-  }
-  return textOps.join("\n");
+function headerOps() {
+  return [
+    "0.08 0.08 0.09 rg",
+    "0 792 595 50 re f",
+    "1 1 1 rg",
+    "BT",
+    "/F2 11 Tf",
+    "1 0 0 1 48 810 Tm",
+    "(ATRIUM RESEARCH) Tj",
+    "ET",
+    "0.82 0.82 0.8 rg",
+    "48 786 499 0.6 re f",
+  ].join("\n");
 }
 
-/** One-page Helvetica desk note — snapshot, technical standpoint, levels. */
+function lineOps(line: PdfLine, y: number) {
+  const font = line.bold ? "F2" : "F1";
+  const fill = line.gray ? "0.42 0.42 0.4 rg" : "0.09 0.09 0.09 rg";
+  return [
+    "BT",
+    fill,
+    `/${font} ${line.size} Tf`,
+    `1 0 0 1 48 ${y} Tm`,
+    `(${pdfEscape(line.text)}) Tj`,
+    "ET",
+  ].join("\n");
+}
+
+function paginateOps(lines: PdfLine[]): string[] {
+  const pages: string[] = [];
+  let ops: string[] = [headerOps()];
+  let y = 768;
+  for (const line of lines) {
+    const gap = line.gap ?? 14;
+    if (y - gap < 40) {
+      pages.push(ops.join("\n"));
+      ops = [headerOps()];
+      y = 768;
+    }
+    ops.push(lineOps(line, y));
+    y -= gap;
+  }
+  pages.push(ops.join("\n"));
+  return pages;
+}
+
+function encodePdf(pages: string[]): Uint8Array {
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [0];
+  let pos = 0;
+  const push = (s: string) => {
+    const b = enc.encode(s);
+    chunks.push(b);
+    pos += b.byteLength;
+  };
+  const obj = (n: number, body: string) => {
+    offsets[n] = pos;
+    push(`${n} 0 obj ${body} endobj\n`);
+  };
+  push("%PDF-1.4\n");
+  const kids = pages.map((_, i) => `${5 + 2 * i} 0 R`).join(" ");
+  obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
+  obj(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  obj(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  pages.forEach((draw, i) => {
+    const pageNo = 5 + 2 * i;
+    const contentNo = 6 + 2 * i;
+    const stream = enc.encode(draw);
+    obj(
+      pageNo,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentNo} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`,
+    );
+    offsets[contentNo] = pos;
+    push(`${contentNo} 0 obj << /Length ${stream.byteLength} >> stream\n`);
+    chunks.push(stream);
+    pos += stream.byteLength;
+    push("\nendstream endobj\n");
+  });
+  const xrefAt = pos;
+  const last = 4 + 2 * pages.length;
+  let xref = `xref\n0 ${last + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= last; i += 1) {
+    xref += `${String(offsets[i] ?? 0).padStart(10, "0")} 00000 n \n`;
+  }
+  push(xref);
+  push(`trailer << /Size ${last + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`);
+  const out = new Uint8Array(pos);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.byteLength;
+  }
+  return out;
+}
+
+/** Helvetica desk note — paginates when the Expert take runs long. */
 export function researchPdf(note: ResearchNote): Uint8Array {
   const lines: PdfLine[] = [
     { text: `${note.ticker}  ${note.name}`, size: 18, bold: true, gap: 16 },
@@ -505,13 +584,14 @@ export function researchPdf(note: ResearchNote): Uint8Array {
       ? [{ text: `ROE ${note.metrics.roe}    NIM ${note.metrics.nim}    NPL ${note.metrics.npl}    CET1 ${note.metrics.cet1}`, size: 10, gap: 12 } as PdfLine]
       : []),
     { text: `Support ${note.support}    Pivot ${note.pivot}    Resistance ${note.resistance}`, size: 10, gap: 18 },
+    { text: `52w chg ${note.metrics.ch1y}    SMA50 ${note.metrics.sma50}    RSI ${note.metrics.rsi}`, size: 10, gap: 18 },
     { text: "STANDPOINT", size: 9, bold: true, gap: 14 },
     ...note.thesis.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
     ...note.technical.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
     ...((note.expert ?? []).length
       ? [
           { text: "CFA DESK / EXPERT", size: 9, bold: true, gap: 14 } as PdfLine,
-          ...(note.expert ?? []).slice(0, 6).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
+          ...(note.expert ?? []).slice(0, 8).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
     ...((note.watch ?? []).length
@@ -539,45 +619,7 @@ export function researchPdf(note: ResearchNote): Uint8Array {
       gray: true,
     },
   ];
-
-  const header = [
-    "0.08 0.08 0.09 rg",
-    "0 792 595 50 re f",
-    "1 1 1 rg",
-    "BT",
-    "/F2 11 Tf",
-    "1 0 0 1 48 810 Tm",
-    "(ATRIUM RESEARCH) Tj",
-    "ET",
-    "0.82 0.82 0.8 rg",
-    "48 786 499 0.6 re f",
-  ].join("\n");
-  const draw = `${header}\n${pageOps(lines, 768)}`;
-  const streamBytes = new TextEncoder().encode(draw);
-
-  const objs: string[] = [
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj",
-    `4 0 obj << /Length ${streamBytes.byteLength} >> stream\n${draw}\nendstream endobj`,
-    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
-    "6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj",
-  ];
-
-  let body = "%PDF-1.4\n";
-  const offsets = [0];
-  for (const obj of objs) {
-    offsets.push(body.length);
-    body += `${obj}\n`;
-  }
-  const xrefAt = body.length;
-  let xref = `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
-  for (let i = 1; i <= objs.length; i += 1) {
-    xref += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  }
-  body += xref;
-  body += `trailer << /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`;
-  return new TextEncoder().encode(body);
+  return encodePdf(paginateOps(lines));
 }
 
 export function downloadPdf(filename: string, bytes: Uint8Array) {
@@ -593,7 +635,6 @@ export function downloadPdf(filename: string, bytes: Uint8Array) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60_000);
   return url;
 }
 

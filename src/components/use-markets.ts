@@ -8,6 +8,7 @@ import { WATCH_CATALOG, type QuoteCcy } from "@/lib/types";
 import { regionOf } from "@/lib/region";
 import { YAHOO_CORE_TAPE } from "@/lib/yahoo";
 import { isPseScreen, isYahooScreen } from "@/lib/screener";
+import { deskMarket, deskYahooSymbols } from "@/lib/desk-market";
 
 const MARKET_SNAP = "atrium.markets.snap";
 
@@ -42,11 +43,13 @@ export function useMarkets() {
   const boardQuery = useAtrium((s) => s.boardQuery);
   const searching = boardQuery.trim().length > 0;
   const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
+  const market = deskMarket(region);
   const wantYahoo = marketsOn;
   const yahoo = wantYahoo
     ? [
         ...new Set([
           ...YAHOO_CORE_TAPE,
+          ...deskYahooSymbols(region),
           ...watch.filter((w) => w.kind === "global" || w.kind === "cmdty").map((w) => w.symbol),
           ...(tab === "global" || searching
             ? WATCH_CATALOG.filter((w) => w.kind === "global").map((w) => w.symbol)
@@ -62,14 +65,16 @@ export function useMarkets() {
   const wantPse =
     marketsOn &&
     (searching ||
-      tab === "all" ||
+      (market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div")) ||
       tab === "blue" ||
       tab === "reit" ||
       tab === "div" ||
-      tab === "watcher" ||
-      tab === "starred" ||
       (tab === "screen" && isPseScreen(screen)) ||
       watch.some((w) => w.kind === "stock"));
+  const wantHome =
+    marketsOn &&
+    !market.pseHome &&
+    (searching || tab === "all" || tab === "watcher" || tab === "starred");
   const wantCrypto =
     marketsOn &&
     (searching ||
@@ -79,10 +84,10 @@ export function useMarkets() {
       tab === "all" ||
       watch.some((w) => w.kind === "crypto"));
   return useQuery({
-    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, screener, yahooRegion, stockTape],
+    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, wantHome, screener, yahooRegion, stockTape],
     queryFn: async () => {
       const data = await fetchMarkets({
-        data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, screener, yahooRegion },
+        data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, wantHome, screener, yahooRegion },
       });
       writeSnap(MARKET_SNAP, { ids, quoteCcy, data });
       if (data.quotes) rememberTape(data.quotes);

@@ -55,6 +55,7 @@ test("PSEi is an index and never maps onto the listed PSE stock", () => {
   assert.equal(pseTickerFromYahoo("BDO.PS"), "BDO");
   assert.equal(pseTickerFromYahoo("^GSPC"), null);
   assert.ok(YAHOO_CORE_TAPE.includes(PSEI_SYMBOL));
+  assert.ok((YAHOO_CORE_TAPE as readonly string[]).includes("^NSEI"));
   assert.equal(isPseiItem({ symbol: PSEI_SYMBOL, label: "PSEi" }), true);
   assert.equal(isPseiItem({ symbol: "BDO", label: "BDO" }), false);
 });

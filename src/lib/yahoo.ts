@@ -30,7 +30,7 @@ export type YahooLast = {
 export const PSEI_SYMBOL = "PSEI.PS";
 
 /** Core Yahoo symbols the Markets tape always wants — index + a US benchmark + gold. */
-export const YAHOO_CORE_TAPE = [PSEI_SYMBOL, "^GSPC", "GC=F"] as const;
+export const YAHOO_CORE_TAPE = [PSEI_SYMBOL, "^NSEI", "^GSPC", "GC=F"] as const;
 
 export function isYahooIndex(symbol: string) {
   const s = symbol.trim();
@@ -319,9 +319,15 @@ export async function fetchYahooScreener(
   scrId: string,
   region = "US",
   count = 100,
+  opts?: { fallback?: boolean },
 ): Promise<YahooLast[]> {
   const id = encodeURIComponent(scrId);
-  const tryRegions = region && region !== "US" ? [region, "US"] : [region || "US"];
+  const tryRegions =
+    opts?.fallback === false
+      ? [region || "US"]
+      : region && region !== "US"
+        ? [region, "US"]
+        : [region || "US"];
   for (const reg of tryRegions) {
     for (const host of HOSTS) {
       try {
