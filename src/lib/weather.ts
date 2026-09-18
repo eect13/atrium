@@ -74,7 +74,7 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.2.19 (personal dashboard)";
+const UA = "Atrium/1.2.20 (personal dashboard)";
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
@@ -116,12 +116,12 @@ type MetRow = {
   };
 };
 
-async function getWeather(url: URL, ms: number, tries = 2): Promise<Response | null> {
+async function getWeather(url: URL, ms: number, tries = 4): Promise<Response | null> {
   for (let i = 0; i < tries; i += 1) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(ms) });
       if (res.status === 429 && i + 1 < tries) {
-        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+        await new Promise((r) => setTimeout(r, 800 * (i + 1)));
         continue;
       }
       return res;

@@ -76,6 +76,50 @@ export function bankFiling(ticker: string): BankFiling | undefined {
   return BANK_FILINGS[ticker.replace(/^\^/, "").replace(/\.PS$/i, "").replace(/^PSE-/, "").trim().toUpperCase()];
 }
 
+/** Public-tape seed 18 Sep 2026 (StockAnalysis). Sheet live-fetch overlays. Not Yahoo .PS. */
+export const PSE_STATS_AS_OF = "2026-09-18";
+export const PSE_STATS_SEED: Record<string, PseStats> = {
+  AC: { ticker: "AC", pe: 5.45, pb: 0.38, yieldPct: 1.97, roe: 10.83, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  ACEN: { ticker: "ACEN", pe: 21.02, pb: 0.64, yieldPct: 1.87, roe: 4.58, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  AEV: { ticker: "AEV", pe: 8.72, pb: 0.5, yieldPct: 2.97, roe: 9.72, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  ALI: { ticker: "ALI", pe: 5.99, pb: 0.55, yieldPct: 3.84, roe: 11.28, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  AREIT: { ticker: "AREIT", pe: 13.33, pb: 0.99, yieldPct: 6.74, roe: 8.17, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  BDO: { ticker: "BDO", pe: 7.05, pb: 0.93, yieldPct: 3.8, roe: 13.82, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  BPI: { ticker: "BPI", pe: 7.95, pb: 1.09, yieldPct: 5.19, roe: 14.18, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  CBC: { ticker: "CBC", pe: 4.71, pb: 0.72, yieldPct: 5.44, roe: 16.06, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  CNPF: { ticker: "CNPF", pe: 15.76, pb: 2.88, yieldPct: 3.54, roe: 18.82, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  DMC: { ticker: "DMC", pe: 6.32, pb: 0.69, yieldPct: 9.43, roe: 14.35, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  EMI: { ticker: "EMI", pe: 68.74, pb: 2.21, yieldPct: 0.86, roe: 3.5, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  GLO: { ticker: "GLO", pe: 11.73, pb: 1.31, yieldPct: 6.23, roe: 12.48, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  GTCAP: { ticker: "GTCAP", pe: 2.85, pb: 0.28, yieldPct: 2.43, roe: 12.74, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  ICT: { ticker: "ICT", pe: 26.96, pb: 12.5, yieldPct: 2.04, roe: 57.4, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  JFC: { ticker: "JFC", pe: 16.2, pb: 1.93, yieldPct: 2.43, roe: 12.52, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  JGS: { ticker: "JGS", pe: 5.72, pb: 0.36, yieldPct: 2.16, roe: 8.41, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  LTG: { ticker: "LTG", pe: 4.94, pb: 0.44, yieldPct: 8.19, roe: 12.68, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  MBT: { ticker: "MBT", pe: 5.63, pb: 0.67, yieldPct: 8.03, roe: 12.28, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  MER: { ticker: "MER", pe: 10.16, pb: 2.38, yieldPct: 5.78, roe: 25.11, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  MONDE: { ticker: "MONDE", pe: 12.11, pb: 1.97, yieldPct: 7.11, roe: 16.63, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  MYNLD: { ticker: "MYNLD", pe: 7.29, pb: 1.17, yieldPct: 6.55, roe: 17.45, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  PGOLD: { ticker: "PGOLD", pe: 9.67, pb: 1.12, yieldPct: 4.9, roe: 11.93, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  PLUS: { ticker: "PLUS", pe: 2.94, pb: 0.87, yieldPct: 9.16, roe: 32.98, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  RCR: { ticker: "RCR", pe: 4.2, pb: 0.82, yieldPct: 6.57, roe: 22.45, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  SCC: { ticker: "SCC", pe: 6.44, pb: 1.32, yieldPct: 16.09, roe: 21.88, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  SM: { ticker: "SM", pe: 6.93, pb: 0.67, yieldPct: 3.21, roe: 13.59, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  SMC: { ticker: "SMC", pe: 40.13, pb: 0.19, yieldPct: 2.22, roe: 8.56, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  SMPH: { ticker: "SMPH", pe: 10.12, pb: 1.02, yieldPct: 2.44, roe: 10.72, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  TEL: { ticker: "TEL", pe: 8.44, pb: 1.81, yieldPct: 8.33, roe: 22.45, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+  URC: { ticker: "URC", pe: 11.5, pb: 0.96, yieldPct: 3.6, roe: 8.94, source: "stockanalysis", asOf: PSE_STATS_AS_OF },
+};
+
+export function statsTicker(ticker: string) {
+  return ticker.replace(/^\^/, "").replace(/\.PS$/i, "").replace(/^PSE-/, "").trim().toUpperCase();
+}
+
+export function seededStats(ticker: string): PseStats | undefined {
+  return PSE_STATS_SEED[statsTicker(ticker)];
+}
+
+
 export function overlayStats<T extends { pe?: number; pb?: number; yieldPct?: number; forwardPe?: number; marketCap?: number; roe?: number }>(
   q: T,
   s?: Pick<PseStats, "pe" | "pb" | "yieldPct" | "forwardPe" | "marketCap" | "roe">,
@@ -89,6 +133,23 @@ export function overlayStats<T extends { pe?: number; pb?: number; yieldPct?: nu
     forwardPe: q.forwardPe ?? s.forwardPe,
     marketCap: q.marketCap ?? s.marketCap,
     roe: q.roe ?? s.roe,
+  };
+}
+
+/** Public tape wins when present (live StockAnalysis over seed). Yahoo stays if public fields are empty. */
+export function applyPublicStats<T extends { pe?: number; pb?: number; yieldPct?: number; forwardPe?: number; marketCap?: number; roe?: number }>(
+  q: T,
+  s?: Pick<PseStats, "pe" | "pb" | "yieldPct" | "forwardPe" | "marketCap" | "roe">,
+): T {
+  if (!s) return q;
+  return {
+    ...q,
+    pe: s.pe ?? q.pe,
+    pb: s.pb ?? q.pb,
+    yieldPct: s.yieldPct ?? q.yieldPct,
+    forwardPe: s.forwardPe ?? q.forwardPe,
+    marketCap: s.marketCap ?? q.marketCap,
+    roe: s.roe ?? q.roe,
   };
 }
 
@@ -162,16 +223,18 @@ export async function loadPseStats(ticker: string): Promise<PseStats> {
   const t = ticker.replace(/^\^/, "").replace(/\.PS$/i, "").trim().toUpperCase();
   const hit = cache().get(t);
   if (hit && hit.exp > Date.now()) return hit.data;
-  const empty: PseStats = { ticker: t };
+  const seed = seededStats(t);
+  const empty: PseStats = seed ?? { ticker: t };
   if (!/^[A-Z][A-Z0-9]{1,5}$/.test(t)) return empty;
   try {
     const html = await httpText(`https://stockanalysis.com/quote/pse/${encodeURIComponent(t)}/statistics/`, {
       accept: "text/html",
-      "user-agent": "Atrium/1.2.19 (personal dashboard; PSE multiples)",
+      "user-agent": "Atrium/1.2.20 (personal dashboard; PSE multiples)",
     });
     const data = parseStockAnalysisStats(html, t);
-    cache().set(t, { exp: Date.now() + CACHE_MS, data });
-    return data;
+    const merged = data.source ? data : { ...empty, ...data, source: seed?.source, asOf: data.asOf ?? seed?.asOf };
+    cache().set(t, { exp: Date.now() + CACHE_MS, data: merged });
+    return merged;
   } catch {
     if (hit) return hit.data;
     return empty;

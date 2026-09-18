@@ -59,6 +59,7 @@ export type MarketQuote = {
   pb?: number;
   weekHigh?: number;
   weekLow?: number;
+  roe?: number;
 };
 
 export type MarketSnapshot = {

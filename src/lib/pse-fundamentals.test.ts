@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bankFiling, justifiedPb, overlayStats, parseStockAnalysisStats } from "./pse-fundamentals.ts";
+import { applyPublicStats, bankFiling, justifiedPb, overlayStats, parseStockAnalysisStats, seededStats } from "./pse-fundamentals.ts";
 
 test("stockanalysis stats parse PE P/B yield and cap", () => {
   const html = `{id:"marketCap",title:"Market Cap",value:"610.37B",hover:"610,365,646,519",url:"market-cap"},{id:"peRatio",title:"PE Ratio",value:"7.05",hover:"7.048"},{id:"peForward",title:"Forward PE",value:"6.59",hover:"6.586"},{id:"pb",title:"PB Ratio",value:"0.93",hover:"0.931"},{id:"dividendYield",title:"Dividend Yield",value:"3.85%",hover:"3.846%"}`;
@@ -62,4 +62,20 @@ test("overlayStats fills empty multiples and keeps Yahoo when present", () => {
   assert.equal(filled.pb, 0.93);
   const keep = overlayStats({ price: 1, pe: 9.2 }, { pe: 7.05 });
   assert.equal(keep.pe, 9.2);
+});
+
+test("PSEi public-tape seed fills BDO PE on the board", () => {
+  const bdo = seededStats("BDO.PS");
+  assert.equal(bdo?.pe, 7.05);
+  assert.equal(bdo?.pb, 0.93);
+  assert.equal(seededStats("ICT")?.pe, 26.96);
+  assert.equal(seededStats("COST"), undefined);
+});
+
+test("applyPublicStats lets live tape win over seed", () => {
+  const seeded = overlayStats({ pe: undefined as number | undefined, pb: undefined as number | undefined }, seededStats("BDO"));
+  assert.equal(seeded.pe, 7.05);
+  const live = applyPublicStats(seeded, { pe: 7.1, pb: 0.95 });
+  assert.equal(live.pe, 7.1);
+  assert.equal(live.pb, 0.95);
 });

@@ -63,7 +63,7 @@ import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
-import { fetchPseStats, overlayStats } from "@/lib/pse-fundamentals";
+import { applyPublicStats, fetchPseStats, overlayStats, seededStats } from "@/lib/pse-fundamentals";
 import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, type RelatedStory } from "@/lib/research";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
 import { mixStories } from "@/lib/headline";
@@ -199,7 +199,14 @@ export function FinanceMarkets() {
   const range = normalizeSparkRange(marketPrefs.sparkRange);
 
   const markets = useMarkets();
-  const quotes = markets.data?.quotes ?? {};
+  const quotes = useMemo(() => {
+    const raw = markets.data?.quotes ?? {};
+    const out: Record<string, MarketQuote> = {};
+    for (const [k, q] of Object.entries(raw)) {
+      out[k] = q.kind === "stock" ? overlayStats(q, seededStats(k) ?? seededStats(q.label ?? "")) : q;
+    }
+    return out;
+  }, [markets.data?.quotes]);
   const quotesPending = markets.isPending && !markets.data;
   const fx = markets.data?.fx;
 
@@ -592,7 +599,7 @@ export function FinanceMarkets() {
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <p>
               {quotesPending && !screenRawCount
-                ? "Loading list…"
+                ? "Waiting on the list"
                 : `${rows.length} of ${screenRawCount}${screenFilterOn ? " matching filters" : " on this list"}`}
             </p>
             {screenFilterOn ? (
@@ -1295,7 +1302,7 @@ function QuoteSheet({
     gcTime: 24 * 60 * 60_000,
     retry: 1,
   });
-  const q = row.q ? overlayStats(row.q, statsQ.data) : row.q;
+  const q = row.q ? applyPublicStats(row.q, statsQ.data) : row.q;
   const sheetRow = q !== row.q && q ? { ...row, q } : row;
   const note = buildResearch(sheetRow);
   const shown = displayLast(sheetRow.q, { cryptoUsdt });

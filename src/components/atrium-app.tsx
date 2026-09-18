@@ -358,10 +358,17 @@ export function AtriumApp() {
   useEffect(() => rememberMainWindow(), []);
 
   useEffect(() => {
-    const id = window.setTimeout(() => {
+    const dash = window.setTimeout(() => {
       void import("@/components/views/dashboard-view");
     }, 50);
-    return () => window.clearTimeout(id);
+    const rest = window.setTimeout(() => {
+      void import("@/components/views/finance-view");
+      void import("@/components/views/weather-view");
+    }, 400);
+    return () => {
+      window.clearTimeout(dash);
+      window.clearTimeout(rest);
+    };
   }, []);
 
   useEffect(() => {
