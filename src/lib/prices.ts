@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { QuoteCcy, WatchItem, WatchKind } from "./types";
-import { BINANCE_PAIRS, DEFAULT_GECKO_IDS } from "./market-board";
+import { BINANCE_PAIRS, DEFAULT_GECKO_IDS, BLUECHIPS } from "./market-board";
 import { sessionSpark } from "./sparks";
 import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast, isYahooIndex, pseTickerFromYahoo } from "./yahoo";
 import { WATCH_CATALOG } from "./types";
@@ -533,6 +533,8 @@ function assemble(
       quotes[y.id] = overlayFund(quotes[y.id]!, y);
       continue;
     }
+    const bare = y.id.replace(/\.PS$/i, "").toUpperCase();
+    if (BLUECHIPS.has(bare) && !isYahooIndex(y.id)) continue;
     quotes[y.id] = y;
     const hit = WATCH_CATALOG.find((w) => w.symbol === y.id && (w.kind === "global" || w.kind === "cmdty"));
     if (hit && hit.id !== y.id) quotes[hit.id] = y;

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { BLUECHIPS, PSEI_NAMES } from "./market-board.ts";
 import { httpJson, isTauri } from "./http.ts";
+import { APP_VERSION } from "./version.ts";
 
 export type PseIndexSnap = {
   tickers: string[];
@@ -46,7 +47,7 @@ async function loadWikipedia(page: string): Promise<PseIndexSnap | null> {
   const url = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(page)}&prop=wikitext&format=json&formatversion=2`;
   const headers = {
     accept: "application/json",
-    "user-agent": "Atrium/1.0 (personal command center; PSEi constituents)",
+    "user-agent": `Atrium/${APP_VERSION} (personal command center; PSEi constituents)`,
   };
   let json: { parse?: { wikitext?: string } };
   try {

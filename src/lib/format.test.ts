@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addDays, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
+import { addDays, foldNoteChecks, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, noteTitle, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
 
 test("moneyShort compact last for large notionals", () => {
   assert.equal(moneyShort(4_850_048, "PHP"), "₱4.85M");
@@ -14,6 +14,30 @@ test("notePlain strips tags and decodes entities", () => {
   assert.equal(notePlain("a<br>b", ""), "a\nb");
   assert.equal(notePlain("A &amp; B", ""), "A & B");
   assert.equal(notePlain(undefined, "plain"), "plain");
+});
+
+test("noteTitle falls back to body then first to-do", () => {
+  assert.equal(noteTitle({ title: " Milk ", text: "body" }), "Milk");
+  assert.equal(noteTitle({ text: "Buy rice\nmore" }), "Buy rice");
+  assert.equal(noteTitle({ text: "", checks: [{ text: "Call the bank" }] }), "Call the bank");
+  assert.equal(noteTitle({ text: "" }), "Untitled");
+});
+
+test("foldNoteChecks writes leftover to-dos into the body", () => {
+  assert.equal(foldNoteChecks({ text: "hi" }), null);
+  const folded = foldNoteChecks({
+    text: "Milk",
+    checks: [
+      { text: "Eggs", done: false },
+      { text: "<script>", done: true },
+    ],
+  });
+  assert.ok(folded);
+  assert.match(folded.html, /note-checks/);
+  assert.match(folded.html, /data-done="true"/);
+  assert.match(folded.text, /Eggs/);
+  assert.equal(folded.html.includes("<script>"), false);
+  assert.ok(folded.html.includes("&" + "lt;script&" + "gt;"));
 });
 
 test("staleTagline folds the old desk copy", () => {

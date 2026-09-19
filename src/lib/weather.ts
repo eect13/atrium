@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { isoDate, manilaParts, deskZone } from "./format";
 import { parsePostal, postalCountries, type PostalHint } from "./postal";
+import { APP_VERSION } from "./version";
 import { aqiBand, samePlace, solarDay, sunClock, uvBand } from "./weather-meta";
 
 export { parsePostal };
@@ -74,7 +75,7 @@ export type WeatherPayload = {
   };
 };
 
-const UA = "Atrium/1.2.24 (personal dashboard)";
+const UA = `Atrium/${APP_VERSION} (personal dashboard)`;
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;

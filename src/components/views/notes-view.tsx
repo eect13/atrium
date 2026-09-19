@@ -37,7 +37,6 @@ export function NotesView() {
   );
   const board = useRef<HTMLDivElement>(null);
   const [inkId, setInkId] = useState<string | null>(null);
-  const inkRedo = useInkRedo();
   const boardNotes = notes.filter((n) => !n.pinned);
   const pinned = notes.filter((n) => n.pinned);
   const layout = notesLayout === "list" ? "list" : "board";
@@ -99,15 +98,10 @@ export function NotesView() {
                 <NoteFormat
                   ink={ink}
                   drawing={false}
-                  canUndo={Boolean(n.ink?.length)}
-                  canRedo={inkRedo.canRedoFor(n.id)}
-                  onDraw={() => undefined}
-                  onUndo={() => inkRedo.pushUndo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
-                  onRedo={() => inkRedo.popRedo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
-                  onClear={() => {
-                    inkRedo.forget(n.id);
-                    updateNote(n.id, { ink: [] });
-                  }}
+                  canDraw={false}
+                  canUndo={false}
+                  onUndo={() => undefined}
+                  onClear={() => undefined}
                   onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
                 />
                 <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />

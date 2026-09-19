@@ -203,7 +203,6 @@ type State = Data & {
   reloadSampleBooks: () => void;
   addWatch: (item: WatchItem) => void;
   removeWatch: (id: string) => void;
-  toggleWatchStar: (id: string) => void;
   updateWatch: (id: string, patch: Partial<WatchItem>) => void;
   setQuoteCcy: (ccy: QuoteCcy) => void;
   setMarketPrefs: (p: Partial<MarketPrefs>) => void;
@@ -741,16 +740,17 @@ export const useAtrium = create<State>()(
           return { watch: [...s.watch, item] };
         }),
       removeWatch: (id) => set((s) => ({ watch: s.watch.filter((w) => w.id !== id) })),
-      toggleWatchStar: (id) =>
-        set((s) => ({
-          watch: s.watch.map((w) => (w.id === id ? { ...w, starred: !w.starred } : w)),
-        })),
       updateWatch: (id, patch) =>
         set((s) => ({
           watch: s.watch.map((w) => (w.id === id ? { ...w, ...patch } : w)),
         })),
       setQuoteCcy: (quoteCcy) => set({ quoteCcy }),
-      setMarketPrefs: (p) => set((s) => ({ marketPrefs: { ...s.marketPrefs, ...p } })),
+      setMarketPrefs: (p) =>
+        set((s) => {
+          const marketPrefs = { ...s.marketPrefs, ...p };
+          marketPrefs.tab = normalizeTab(marketPrefs.tab);
+          return { marketPrefs };
+        }),
       setDashOrder: (order) => set({ dashOrder: normalizeDash(order) }),
       setDashLocked: (dashLocked) => set({ dashLocked }),
       setDashSpan: (id, n) =>

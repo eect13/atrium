@@ -109,6 +109,7 @@ test("displayLast keeps PHP for stocks", () => {
 
 test("normalizeTab maps pse to all", () => {
   assert.equal(normalizeTab("pse"), "all");
+  assert.equal(normalizeTab("starred"), "watcher");
   assert.equal(normalizeTab("global"), "global");
   assert.equal(normalizeTab("cmdty"), "cmdty");
   assert.equal(normalizeTab("screen"), "screen");

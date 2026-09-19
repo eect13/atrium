@@ -65,7 +65,7 @@ export function useMarkets() {
   const wantPse =
     marketsOn &&
     (searching ||
-      (market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div")) ||
+      market.pseHome ||
       tab === "blue" ||
       tab === "reit" ||
       tab === "div" ||
@@ -74,13 +74,12 @@ export function useMarkets() {
   const wantHome =
     marketsOn &&
     !market.pseHome &&
-    (searching || tab === "all" || tab === "watcher" || tab === "starred");
+    (searching || tab === "all" || tab === "watcher");
   const wantCrypto =
     marketsOn &&
     (searching ||
       tab === "crypto" ||
       tab === "watcher" ||
-      tab === "starred" ||
       tab === "all" ||
       watch.some((w) => w.kind === "crypto"));
   return useQuery({

@@ -25,7 +25,7 @@ import {
   monthCells,
   monthName,
   moneyQuote,
-  notePlain,
+  noteTitle,
   pct,
   sameDay,
 } from "@/lib/format";
@@ -36,7 +36,6 @@ import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
 import { useMarkets } from "@/components/use-markets";
-import { asDeskItem, deskMarket, resolveCompare, worldIndex } from "@/lib/desk-market";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
@@ -548,7 +547,7 @@ export function QuoteBody() {
 }
 
 export function FinancePeek() {
-  const { txs, accounts, watch, books, setBooks, setView, setBoardFocus, setMarketPrefs, marketPrefs, region } = useAtrium(
+  const { txs, accounts, watch, books, setBooks, setView, setBoardFocus, setMarketPrefs, marketPrefs } = useAtrium(
     useShallow((s) => ({
       txs: s.txs,
       accounts: s.accounts,
@@ -559,7 +558,6 @@ export function FinancePeek() {
       setBoardFocus: s.setBoardFocus,
       setMarketPrefs: s.setMarketPrefs,
       marketPrefs: s.marketPrefs,
-      region: s.profile.region,
     })),
   );
   const prefix = isoMonth();
@@ -583,65 +581,21 @@ export function FinancePeek() {
   const quotesPending = markets.isPending && !markets.data;
   const marketsOn = marketPrefs.showMarkets !== false;
   const booksOn = marketPrefs.showBooks !== false;
-  const desk = deskMarket(region);
-  const peer = worldIndex(resolveCompare(region, marketPrefs.compareIndex));
 
-  function togglePane(key: "showMarkets" | "showBooks", next: boolean) {
-    if (!next && (key === "showMarkets" ? !booksOn : !marketsOn)) {
-      toast("Keep Markets or Books on");
-      return;
-    }
-    if (key === "showMarkets") {
-      setMarketPrefs({ showMarkets: next, home: next ? marketPrefs.home : "books" });
-      return;
-    }
-    setMarketPrefs({ showBooks: next, home: next ? marketPrefs.home : "markets" });
-  }
-
-  const peekWatch: WatchItem[] = (() => {
+  const peekWatch = useMemo(() => {
     const seen = new Set<string>();
     const out: WatchItem[] = [];
-    const push = (item?: WatchItem | null) => {
-      if (!item) return;
-      const k = item.symbol.toUpperCase();
-      if (seen.has(k)) return;
+    for (const w of watch) {
+      const k = w.symbol.toUpperCase();
+      if (seen.has(k)) continue;
       seen.add(k);
-      out.push(item);
-    };
-    if (marketsOn && (!booksOn || watch.length === 0)) {
-      push(asDeskItem(desk.index));
-      push(asDeskItem(peer));
+      out.push(w);
     }
-    for (const w of watch) push(w);
-    return out.slice(0, booksOn ? 4 : 6);
-  })();
+    return out.slice(0, booksOn ? 6 : 8);
+  }, [watch, booksOn]);
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          aria-pressed={marketsOn}
-          className={cn(
-            "inline-flex min-h-11 items-center rounded-full border px-3 text-xs",
-            marketsOn ? "border-transparent bg-primary text-primary-foreground" : "border-border text-muted-foreground",
-          )}
-          onClick={() => togglePane("showMarkets", !marketsOn)}
-        >
-          Markets
-        </button>
-        <button
-          type="button"
-          aria-pressed={booksOn}
-          className={cn(
-            "inline-flex min-h-11 items-center rounded-full border px-3 text-xs",
-            booksOn ? "border-transparent bg-primary text-primary-foreground" : "border-border text-muted-foreground",
-          )}
-          onClick={() => togglePane("showBooks", !booksOn)}
-        >
-          Books
-        </button>
-      </div>
       {booksOn ? (
         <>
           <div className="flex items-center justify-between gap-2">
@@ -660,7 +614,7 @@ export function FinancePeek() {
             type="button"
             className="block w-full text-left"
             onClick={() => {
-              setMarketPrefs({ home: "books", showBooks: true });
+              setMarketPrefs({ home: "books" });
               setView("finance");
             }}
           >
@@ -671,7 +625,7 @@ export function FinancePeek() {
       ) : null}
       {marketsOn ? (
       <div className={cn("grid grid-cols-[3.25rem_minmax(0,1fr)_max-content] gap-x-3 gap-y-1", booksOn && "mt-4")} aria-busy={quotesPending || undefined}>
-        {peekWatch.map((w) => {
+        {peekWatch.length ? peekWatch.map((w) => {
           const q = quotes[w.symbol] ?? quotes[w.id] ?? quotes[w.label];
           const spark =
             q?.spark && q.spark.length >= 2
@@ -686,7 +640,7 @@ export function FinancePeek() {
               type="button"
               className="col-span-3 grid min-h-11 grid-cols-subgrid items-center text-left"
               onClick={() => {
-                setMarketPrefs({ home: "markets", showMarkets: true });
+                setMarketPrefs({ home: "markets", tab: "watcher" });
                 setBoardFocus(w.symbol);
                 setView("finance");
               }}
@@ -711,7 +665,18 @@ export function FinancePeek() {
               )}
             </button>
           );
-        })}
+        }) : (
+          <button
+            type="button"
+            className="col-span-3 min-h-11 text-left text-sm text-muted-foreground"
+            onClick={() => {
+              setMarketPrefs({ home: "markets", tab: "watcher" });
+              setView("finance");
+            }}
+          >
+            Empty watcher — open Markets to add names.
+          </button>
+        )}
       </div>
       ) : null}
       {marketsOn && (markets.isError || markets.data?.failed) ? (
@@ -759,7 +724,7 @@ export function NotesPeek() {
           onClick={() => setView("notes")}
         >
           <span className="size-2 rounded-full" style={{ background: n.color }} />
-          <span className="truncate">{notePlain(n.html, n.text).split("\n")[0] || "Untitled"}</span>
+          <span className="truncate">{noteTitle(n)}</span>
         </button>
       ))}
       {!notes.length && <p className="text-sm text-muted-foreground">No stickies yet.</p>}

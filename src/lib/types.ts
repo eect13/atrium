@@ -10,7 +10,7 @@ export type WatchKind = "crypto" | "fx" | "stock" | "global" | "cmdty";
 export const QUOTE_CCY = ["PHP", "USD", "EUR", "GBP", "JPY"] as const;
 export type QuoteCcy = (typeof QUOTE_CCY)[number];
 
-export type BoardTab = "all" | "watcher" | "starred" | "blue" | "reit" | "div" | "crypto" | "fx" | "global" | "cmdty" | "screen";
+export type BoardTab = "all" | "watcher" | "blue" | "reit" | "div" | "crypto" | "fx" | "global" | "cmdty" | "screen";
 export type BoardSort = "name" | "chg" | "vol" | "last" | "pe" | "cap" | "wt";
 export type SparkRange = "1d" | "1w" | "1m" | "3m" | "6m" | "1y";
 export type ScreenId = ScreenerId;
@@ -96,6 +96,7 @@ export type CalendarEvent = {
 
 export type NoteStroke = { color: string; w: number; pts: number[] };
 export type NotePhoto = { id: string; src: string };
+export type NoteCheck = { id: string; text: string; done: boolean };
 
 export type StickyNote = {
   id: string;
@@ -112,6 +113,8 @@ export type StickyNote = {
   ink?: NoteStroke[];
   html?: string;
   photos?: NotePhoto[];
+  book?: string;
+  checks?: NoteCheck[];
   /** Last floating-desk box. Unpin parks the pad on the board; pin restores this. */
   fx?: number;
   fy?: number;
@@ -249,6 +252,7 @@ export type WatchItem = {
   label: string;
   kind: WatchKind;
   name?: string;
+  /** Kept so old backups still parse. Star is watcher membership now. */
   starred?: boolean;
   qty?: number;
   avg?: number;

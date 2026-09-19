@@ -4,13 +4,14 @@ import { useState } from "react";
 import { ChangePill } from "@/components/spark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { moneyQuote, relativeDesk } from "@/lib/format";
-import { BANK_ORDER, BLUECHIPS, peerTickers, type BoardRow } from "@/lib/market-board";
+import { BANK_ORDER, BLUECHIPS, peerTickers, PSEI_NAMES, type BoardRow } from "@/lib/market-board";
 import { nameWeight } from "@/lib/psei-weight";
 import type { MarketQuote } from "@/lib/prices";
 import { seededStats } from "@/lib/pse-fundamentals";
 import { cn } from "@/lib/utils";
 import { WORLD_INDICES, type DeskName } from "@/lib/desk-market";
 import type { DigestDay } from "@/lib/digest";
+import type { IndexLink, SleeveMove } from "@/lib/desk-stats";
 import { FIELD_SELECT } from "./finance-chip";
 
 function heatTone(change?: number) {
@@ -197,6 +198,8 @@ export function IndexCompare({
   pending,
   onPick,
   onOpen,
+  link,
+  rangeLabel,
 }: {
   home: DeskName;
   peer: DeskName;
@@ -205,6 +208,8 @@ export function IndexCompare({
   pending?: boolean;
   onPick: (symbol: string) => void;
   onOpen: (q: MarketQuote) => void;
+  link?: IndexLink;
+  rangeLabel?: string;
 }) {
   const cell = (q: MarketQuote | undefined, name: DeskName) => (
     <button
@@ -255,6 +260,142 @@ export function IndexCompare({
       <CardContent className="grid gap-2 sm:grid-cols-2">
         {cell(homeQuote, home)}
         {cell(peerQuote, peer)}
+        {link ? (
+          <p className="col-span-full text-xs text-muted-foreground">
+            Spark r {link.r.toFixed(2)} · β {link.beta.toFixed(2)} vs {peer.label ?? peer.symbol}
+            {rangeLabel ? ` (${rangeLabel}, ${link.n} pts)` : ` · ${link.n} pts`}. Delayed path, not a hedge.
+          </p>
+        ) : !pending ? (
+          <p className="col-span-full text-xs text-muted-foreground">
+            Correlation waits on a real spark of both indices — session wobble is not a link.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function SleeveRotation({
+  rows,
+  take,
+  pending,
+  quotes,
+  onOpen,
+}: {
+  rows: SleeveMove[];
+  take?: string;
+  pending?: boolean;
+  quotes?: Record<string, { change?: number } | undefined>;
+  onOpen: (symbol: string) => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!pending && rows.length < 2) return null;
+  return (
+    <Card className="mb-4">
+      <CardHeader className="space-y-0">
+        <CardTitle>Rotation</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          PSEi 30 sleeves. Banks are BDO, BPI, MBT, CBC — not every PSE lender. Open a sleeve for every name. Delayed, not a rotation trade.
+        </p>
+        {take ? <p className="mt-1 text-xs text-muted-foreground">{take}</p> : null}
+      </CardHeader>
+      <CardContent className="px-0 pb-2 sm:px-5">
+        {pending && !rows.length ? (
+          <p className="px-5 text-sm text-muted-foreground">Waiting on the tape</p>
+        ) : (
+          <ul>
+            {rows.map((r) => {
+              const ch = r.chg;
+              const live = Number.isFinite(ch);
+              const up = live && ch >= 0;
+              const shown = open === r.id;
+              return (
+                <li key={r.id} className="border-t border-border">
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-center justify-between gap-3 px-5 py-2 text-left"
+                    aria-expanded={shown}
+                    onClick={() => setOpen(shown ? null : r.id)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm">{r.label}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {r.tickers.join(" · ")}
+                        {` · ${r.n} ${r.n === 1 ? "name" : "names"}`}
+                        {r.nLive > 0 && r.nLive < r.n ? ` · ${r.nLive} on tape` : ""}
+                        {r.wt > r.n + 0.05 ? ` · ${r.wt.toFixed(1)}%` : ""}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 tabular-nums text-sm",
+                        !live ? "text-muted-foreground" : up ? "text-ok" : "text-destructive",
+                      )}
+                    >
+                      {live ? `${up ? "+" : ""}${ch.toFixed(2)}%` : "—"}
+                    </span>
+                  </button>
+                  {shown ? (
+                    <ul className="px-5 pb-2">
+                      {r.tickers.map((t) => {
+                        const qch = quotes?.[t]?.change;
+                        const qlive = qch != null && Number.isFinite(qch);
+                        const qup = qlive && (qch as number) >= 0;
+                        return (
+                          <li key={t}>
+                            <button
+                              type="button"
+                              className="flex min-h-11 w-full items-center justify-between gap-3 text-left"
+                              onClick={() => onOpen(t)}
+                            >
+                              <span className="min-w-0">
+                                <span className="block font-mono text-sm">{t}</span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {PSEI_NAMES[t] ?? t}
+                                </span>
+                              </span>
+                              <span
+                                className={cn(
+                                  "shrink-0 tabular-nums text-sm",
+                                  !qlive ? "text-muted-foreground" : qup ? "text-ok" : "text-destructive",
+                                )}
+                              >
+                                {qlive ? `${qup ? "+" : ""}${(qch as number).toFixed(2)}%` : "—"}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function ColliderNotes({ notes }: { notes: string[] }) {
+  if (!notes.length) return null;
+  return (
+    <Card className="mb-4">
+      <CardHeader className="space-y-0">
+        <CardTitle>Name traps</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Dual listings, group sleeves, and short-ticker mix-ups on this watcher. Not a corporate-action feed.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-1.5">
+          {notes.map((n) => (
+            <li key={n} className="text-sm leading-snug">
+              {n}
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );
@@ -265,6 +406,7 @@ export function SessionHeatmap({
   market,
   onOpen,
 }: {
+
   rows: BoardRow[];
   market: string;
   onOpen: (row: BoardRow) => void;

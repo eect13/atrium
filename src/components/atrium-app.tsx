@@ -65,7 +65,6 @@ import { parseWhen } from "@/lib/parse-when";
 import { useAtrium } from "@/lib/store";
 import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
-import { DEFAULT_TAGLINE } from "@/lib/types";
 import { rememberMainWindow } from "@/lib/native-session";
 import { APP_VERSION } from "@/lib/version";
 import { cn } from "@/lib/utils";
@@ -248,20 +247,12 @@ function RailFoot({
   onOptions,
   collapsed,
   onToggle,
-  tagline,
-  onTagline,
 }: {
   optionsOn: boolean;
   onOptions: () => void;
   collapsed?: boolean;
   onToggle?: () => void;
-  tagline: string;
-  onTagline: (v: string) => void;
 }) {
-  const [draft, setDraft] = useState(tagline);
-  useEffect(() => {
-    setDraft(tagline);
-  }, [tagline]);
   return (
     <div className="mt-auto border-t border-border pt-3">
       {onToggle ? (
@@ -279,20 +270,6 @@ function RailFoot({
         </button>
       ) : null}
       <NavButton label="Options" icon={Settings2} on={optionsOn} onClick={onOptions} collapsed={collapsed} />
-      {collapsed ? null : (
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => onTagline(draft.trim() || DEFAULT_TAGLINE)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          maxLength={48}
-          aria-label="Sidebar tagline"
-          placeholder="Tagline"
-          className="mt-1 w-full bg-transparent px-3 py-1 text-xs text-muted-foreground outline-none hover:text-foreground focus:text-foreground"
-        />
-      )}
     </div>
   );
 }
@@ -309,8 +286,6 @@ export function AtriumApp() {
     feeds,
     railCollapsed,
     setRailCollapsed,
-    profile,
-    setProfile,
     setMarketPrefs,
     setBoardQuery,
     setBoardFocus,
@@ -327,8 +302,6 @@ export function AtriumApp() {
       feeds: s.feeds,
       railCollapsed: s.railCollapsed,
       setRailCollapsed: s.setRailCollapsed,
-      profile: s.profile,
-      setProfile: s.setProfile,
       setMarketPrefs: s.setMarketPrefs,
       setBoardQuery: s.setBoardQuery,
       setBoardFocus: s.setBoardFocus,
@@ -569,8 +542,6 @@ export function AtriumApp() {
           onOptions={() => go("options")}
           collapsed={railCollapsed}
           onToggle={() => setRailCollapsed(!railCollapsed)}
-          tagline={profile.tagline}
-          onTagline={(tagline) => setProfile({ tagline })}
         />
       </aside>
 
@@ -602,12 +573,6 @@ export function AtriumApp() {
           <RailFoot
             optionsOn={view === "options"}
             onOptions={() => go("options")}
-            onToggle={() => {
-              setRailCollapsed(true);
-              setMenuOpen(false);
-            }}
-            tagline={profile.tagline}
-            onTagline={(tagline) => setProfile({ tagline })}
           />
         </SheetContent>
       </Sheet>

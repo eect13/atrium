@@ -3,7 +3,7 @@
 
 import { regionOf } from "./region.ts";
 import { PSEI_SYMBOL } from "./yahoo.ts";
-import type { BoardRow, TapeQuote } from "./market-board.ts";
+import { BLUECHIPS, type BoardRow, type TapeQuote } from "./market-board.ts";
 import type { WatchItem, WatchKind } from "./types.ts";
 
 export const NIFTY_SYMBOL = "^NSEI";
@@ -289,7 +289,20 @@ export function deskMarket(regionId?: string | null): DeskMarket {
 
 export function deskYahooSymbols(regionId?: string | null): string[] {
   const m = deskMarket(regionId);
-  return [...new Set([...WORLD_INDICES.map((n) => n.symbol), m.index.symbol, ...m.tape, ...m.names.map((n) => n.symbol)])];
+  return [
+    ...new Set([...WORLD_INDICES.map((n) => n.symbol), m.index.symbol, ...m.tape, ...m.names.map((n) => n.symbol)]),
+  ].filter(yahooTapeSymbol);
+}
+
+/** Yahoo last for SM is SM Energy, not SM Investments. Bare PSEi names stay on the PSE tape. */
+export function yahooTapeSymbol(symbol: string): boolean {
+  const s = symbol.trim();
+  if (!s) return false;
+  if (/^PSEI(\.PS)?$/i.test(s)) return true;
+  if (/\.PS$/i.test(s)) return false;
+  const bare = s.replace(/\.PS$/i, "").toUpperCase();
+  if (BLUECHIPS.has(bare)) return false;
+  return true;
 }
 
 export function asDeskItem(name: DeskName, kind: WatchItem["kind"] = "global"): WatchItem {

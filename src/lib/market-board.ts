@@ -124,7 +124,6 @@ export const DEFAULT_GECKO_IDS = Object.values(BINANCE_PAIRS).map((p) => p.gecko
 
 export const PRIMARY_TABS: { id: BoardTab; label: string; short?: string }[] = [
   { id: "watcher", label: "Watcher" },
-  { id: "starred", label: "Starred" },
   { id: "all", label: "All" },
   { id: "global", label: "Global" },
   { id: "cmdty", label: "Commodities", short: "Cmdty" },
@@ -373,10 +372,10 @@ export function displayLast(
 
 export function normalizeTab(raw?: string): BoardTab {
   if (raw === "pse") return "all";
+  if (raw === "starred") return "watcher";
   if (
     raw === "all" ||
     raw === "watcher" ||
-    raw === "starred" ||
     raw === "blue" ||
     raw === "reit" ||
     raw === "div" ||
@@ -408,7 +407,7 @@ export function tabSortPatch(
   const cur = current?.sort ?? "chg";
   const toPse = pseSleeveTab(next);
   if (toPse && cur === "chg") return { tab: next, sort: "wt", sortDir: -1 };
-  const tapeTab = next === "watcher" || next === "starred" || next === "crypto" || next === "fx" || next === "global" || next === "cmdty";
+  const tapeTab = next === "watcher" || next === "crypto" || next === "fx" || next === "global" || next === "cmdty";
   if (tapeTab && cur === "wt") return { tab: next, sort: "chg", sortDir: -1 };
   return { tab: next };
 }

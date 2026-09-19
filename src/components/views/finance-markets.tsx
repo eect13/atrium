@@ -25,6 +25,7 @@ import {
   displayLast,
   kindBoardRows,
   matchQuery,
+  normalizeTab,
   pairLabel,
   positionPnl,
   positionValue,
@@ -60,7 +61,9 @@ import {
   normalizeSparkRange,
   rememberTape,
   sessionSpark,
+  sparkFetchable,
   tapeSpark,
+  writeTapeSpark,
 } from "@/lib/sparks";
 import { bustPseCache } from "@/lib/sw-client";
 import { useAtrium } from "@/lib/store";
@@ -73,10 +76,12 @@ import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
-import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap } from "./finance-tape";
+import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap, SleeveRotation, ColliderNotes } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
 import { asDeskItem, deskMarket, homeBoardRows, resolveCompare, worldIndex } from "@/lib/desk-market";
 import { fetchFinanceDigest } from "@/lib/digest";
+import { addColliderNote, collidersFor, watchColliderNotes } from "@/lib/colliders";
+import { deskSleeves, indexLink, pseWeightOf, rotationTake, sleeveSession, vsIndex } from "@/lib/desk-stats";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
 
@@ -166,7 +171,6 @@ export function FinanceMarkets() {
     marketPrefs,
     addWatch,
     removeWatch,
-    toggleWatchStar,
     updateWatch,
     setQuoteCcy,
     setMarketPrefs,
@@ -185,7 +189,6 @@ export function FinanceMarkets() {
       marketPrefs: s.marketPrefs ?? DEFAULT_MARKET_PREFS,
       addWatch: s.addWatch,
       removeWatch: s.removeWatch,
-      toggleWatchStar: s.toggleWatchStar,
       updateWatch: s.updateWatch,
       setQuoteCcy: s.setQuoteCcy,
       setMarketPrefs: s.setMarketPrefs,
@@ -212,7 +215,7 @@ export function FinanceMarkets() {
   const [addNeedle, setAddNeedle] = useState("");
   const queryClient = useQueryClient();
 
-  const tab = marketPrefs.tab;
+  const tab = normalizeTab(marketPrefs.tab);
   const sort = marketPrefs.sort;
   const sortDir = marketPrefs.sortDir;
   const range = normalizeSparkRange(marketPrefs.sparkRange);
@@ -305,13 +308,67 @@ export function FinanceMarkets() {
     return out.slice(0, 40);
   }, [watch, tab, markets.data?.screen, pseScreenOn, market, compareSym]);
 
+  const sparkFetchItems = useMemo(() => sparkItems.filter(sparkFetchable), [sparkItems]);
+
   const sparkQ = useQuery({
-    queryKey: ["sparks", range, sparkItems.map((i) => i.id).join(",")],
-    queryFn: () => fetchSparks({ data: { range, items: sparkItems } }),
+    queryKey: ["sparks", range, sparkFetchItems.map((i) => i.id).join(",")],
+    queryFn: () => fetchSparks({ data: { range, items: sparkFetchItems } }),
     staleTime: 5 * 60_000,
-    enabled: marketPrefs.spark && sparkItems.length > 0,
+    retry: 1,
+    enabled: sparkFetchItems.length > 0 && (marketPrefs.spark || tab === "all"),
   });
-  const remoteSparks = sparkQ.data ?? {};
+  const indexSparkQ = useQuery({
+    queryKey: ["sparks", "index", range, market.index.symbol, tab === "all" ? compareSym : ""],
+    queryFn: () =>
+      fetchSparks({
+        data: {
+          range,
+          items: [
+            { id: market.index.symbol, kind: "global" as const },
+            ...(tab === "all" ? [{ id: compareSym, kind: "global" as const }] : []),
+          ],
+        },
+      }),
+    staleTime: 5 * 60_000,
+    retry: 2,
+    enabled: tab === "all" || Boolean(open && (open.item.kind === "stock" || open.item.kind === "global")),
+  });
+  const sheetSparkQ = useQuery({
+    queryKey: ["sparks", "sheet", range, open?.item.symbol ?? ""],
+    queryFn: () => {
+      const item = open?.item;
+      if (!item) return {} as Record<string, number[]>;
+      return fetchSparks({ data: { range, items: [{ id: item.symbol, kind: item.kind }] } });
+    },
+    staleTime: 5 * 60_000,
+    retry: 1,
+    enabled: Boolean(open && sparkFetchable({ id: open.item.symbol, kind: open.item.kind })),
+  });
+  const remoteSparks = useMemo(
+    () => ({ ...sparkQ.data, ...indexSparkQ.data, ...sheetSparkQ.data }),
+    [sparkQ.data, indexSparkQ.data, sheetSparkQ.data],
+  );
+  useEffect(() => {
+    const days = SPARK_RANGES.find((r) => r.id === range)?.days ?? 90;
+    for (const [id, vals] of Object.entries(remoteSparks)) {
+      if (vals && vals.length >= 9) writeTapeSpark(id, vals, days);
+    }
+  }, [remoteSparks, range]);
+
+  function remoteSpark(...ids: (string | undefined)[]) {
+    for (const id of ids) {
+      if (!id) continue;
+      const hit = remoteSparks[id];
+      if (hit && hit.length >= 9) return hit;
+    }
+    const days = SPARK_RANGES.find((r) => r.id === range)?.days ?? 90;
+    for (const id of ids) {
+      if (!id) continue;
+      const tape = tapeSpark(id, days);
+      if (tape && tape.length >= 9) return tape;
+    }
+    return undefined;
+  }
 
   const digestQ = useQuery({
     queryKey: ["finance-digest", market.id],
@@ -330,6 +387,9 @@ export function FinanceMarkets() {
       setMarketPrefs(tabSortPatch("all", { tab: "all", sort: "chg" }));
     }
   }, [market.pseHome, tab, setMarketPrefs]);
+  useEffect(() => {
+    if (marketPrefs.tab !== tab) setMarketPrefs({ tab });
+  }, [marketPrefs.tab, tab, setMarketPrefs]);
 
   const rows = useMemo(() => {
     const searching = query.trim().length > 0;
@@ -337,9 +397,8 @@ export function FinanceMarkets() {
       ? universeRows(quotes, watch, WATCH_CATALOG, watching, liveBlue)
       : (() => {
           const out: BoardRow[] = [];
-          if (tab === "watcher" || tab === "starred") {
-            const src = tab === "starred" ? watch.filter((w) => w.starred) : watch;
-            for (const w of src) {
+          if (tab === "watcher") {
+            for (const w of watch) {
               out.push({ key: w.id, item: w, q: quotes[w.symbol], watching: true });
             }
           } else if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
@@ -503,6 +562,24 @@ export function FinanceMarkets() {
     return markets.data?.movers ?? { gainers: [], losers: [], active: [] };
   }, [tab, quotes, markets.data?.movers, market.pseHome, heatRows]);
 
+  const sleeves = useMemo(() => deskSleeves(region, market.pseHome), [region, market.pseHome]);
+  const rotation = useMemo(
+    () => sleeveSession(sleeves, quotes, market.pseHome ? pseWeightOf : undefined),
+    [sleeves, quotes, market.pseHome],
+  );
+  const compareLink = useMemo(
+    () => indexLink(remoteSpark(market.index.symbol, homeIndex?.id), remoteSpark(compareSym, peer.symbol)),
+    [remoteSparks, market.index.symbol, homeIndex?.id, compareSym, peer.symbol, range],
+  );
+  const colliderNotes = useMemo(() => watchColliderNotes(watch), [watch]);
+
+  function putOnWatch(item: WatchItem, extra?: Partial<WatchItem>) {
+    const note = addColliderNote(watch, item);
+    addWatch({ ...item, ...extra });
+    if (note) toast(`Watching ${item.label}`, { description: note });
+    else toast(`Watching ${item.label}`);
+  }
+
   function onSort(key: BoardSort) {
     if (sortUse === key) {
       setMarketPrefs({ sortDir: sortDir === 1 ? -1 : 1 });
@@ -514,11 +591,12 @@ export function FinanceMarkets() {
   function starRow(item: WatchItem) {
     const hit = watched(item);
     if (hit) {
-      toggleWatchStar(hit.id);
+      removeWatch(hit.id);
+      if (open && (open.item.id === hit.id || open.item.symbol === hit.symbol)) setOpen(null);
+      toast(`Removed ${item.label}`);
       return;
     }
-    addWatch({ ...item, starred: true });
-    toast(`Watching ${item.label}`);
+    putOnWatch(item);
   }
 
   function lastBlock(q: BoardRow["q"], pending: boolean) {
@@ -745,7 +823,7 @@ export function FinanceMarkets() {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="scroll-auto flex max-w-full flex-nowrap gap-2 overflow-x-auto sm:flex-wrap">
           {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS)
-            .filter((s) => s.id !== "wt" || market.pseHome)
+            .filter((s) => s.id !== "wt" || (market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div" || tab === "screen")))
             .map((s) => (
             <Chip key={s.id} active={sortUse === s.id} onClick={() => onSort(s.id)}>
               {s.label}
@@ -880,17 +958,38 @@ export function FinanceMarkets() {
         </div>
       ) : null}
 
+      {!query.trim() && tab === "watcher" ? <ColliderNotes notes={colliderNotes} /> : null}
+
       {!query.trim() && tab === "all" ? (
         <IndexCompare
           home={market.index}
           peer={peer}
           homeQuote={homeIndex}
           peerQuote={quotes[compareSym]}
-          pending={quotesPending}
+          pending={quotesPending || indexSparkQ.isFetching}
           onPick={(sym) => setMarketPrefs({ compareIndex: resolveCompare(region, sym) })}
           onOpen={(q) => {
             const item = asItem(q, q.kind);
             setOpen({ key: q.id, item, q, watching: watching(item) });
+          }}
+          link={compareLink}
+          rangeLabel={sparkLabel}
+        />
+      ) : null}
+
+      {!query.trim() && (tab === "all" || tab === "blue") && sleeves.length ? (
+        <SleeveRotation
+          rows={rotation}
+          take={rotationTake(rotation)}
+          pending={quotesPending}
+          quotes={quotes}
+          onOpen={(sym) => {
+            const q = quotes[sym];
+            const item = asItem(
+              q ?? { id: sym, label: sym, price: 0, kind: "stock", ccy: market.pseHome ? "PHP" : "USD" },
+              market.pseHome ? "stock" : "global",
+            );
+            setOpen({ key: sym, item, q, watching: watching(item) });
           }}
         />
       ) : null}
@@ -904,7 +1003,7 @@ export function FinanceMarkets() {
         />
       ) : null}
 
-      {!query.trim() && tab !== "screen" ? (
+      {!query.trim() && (tab === "all" || tab === "blue" || tab === "crypto") ? (
         <MoversStrip
           gainers={tapeMovers.gainers}
           losers={tapeMovers.losers}
@@ -1008,7 +1107,7 @@ export function FinanceMarkets() {
               Last{sortUse === "last" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </button>
             <button type="button" className="min-h-11 w-14 shrink-0 text-right sm:w-20" onClick={() => onSort("chg")}>
-              24h{sortUse === "chg" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
+              {tab === "crypto" ? "24h" : "Chg"}{sortUse === "chg" ? (sortDir === -1 ? " ↓" : " ↑") : ""}
             </button>
             <span className="inline-block size-11 shrink-0" />
           </div>
@@ -1024,8 +1123,9 @@ export function FinanceMarkets() {
             rows.map((r) => {
               const ch = r.q?.change;
               const up = (ch ?? 0) >= 0;
-              const starred = Boolean(watched(r.item)?.starred);
+              const onList = Boolean(watched(r.item));
               const pending = quotesPending && !r.q;
+              const trap = tab === "watcher" ? collidersFor(r.item)[0]?.note : undefined;
               return (
                 <div key={r.key} className="flex min-w-0 items-center gap-1 border-t border-border px-2 sm:gap-2 sm:px-3">
                   <TickMark label={r.item.label} />
@@ -1034,6 +1134,7 @@ export function FinanceMarkets() {
                       {pairLabel(r.item, r.q, marketPrefs.cryptoUsdt)}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">{rowMeta(r)}</p>
+                    {trap ? <p className="truncate text-xs text-muted-foreground">{trap}</p> : null}
                   </button>
                   {marketPrefs.spark ? (
                     <div className="hidden w-16 shrink-0 sm:block">
@@ -1049,11 +1150,11 @@ export function FinanceMarkets() {
                   <button
                     type="button"
                     className="inline-flex size-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-                    aria-label={starred ? `Unstar ${r.item.label}` : `Star ${r.item.label}`}
-                    aria-pressed={starred}
+                    aria-label={onList ? `Remove ${r.item.label} from watcher` : `Add ${r.item.label} to watcher`}
+                    aria-pressed={onList}
                     onClick={() => starRow(r.item)}
                   >
-                    <Star className={cn("size-4", starred && "fill-primary text-primary")} />
+                    <Star className={cn("size-4", onList && "fill-primary text-primary")} />
                   </button>
                 </div>
               );
@@ -1174,13 +1275,15 @@ export function FinanceMarkets() {
               key={open.key}
               row={open}
               held={watched(open.item)}
-              starred={Boolean(watched(open.item)?.starred)}
               watching={watching(open.item)}
               cryptoUsdt={marketPrefs.cryptoUsdt}
               dualPhp={open.item.kind === "cmdty" ? marketPrefs.cmdtyPhp : marketPrefs.dualPhp}
               showVol={marketPrefs.showVol}
               sparkRange={range}
               quotes={quotes}
+              nameSpark={remoteSpark(open.item.symbol, open.item.id, open.q?.id)}
+              indexSpark={remoteSpark(market.index.symbol, homeIndex?.id)}
+              indexLabel={market.index.label ?? market.index.symbol}
               onPeer={(sym) => {
                 const q = quotes[sym];
                 const item = asItem(
@@ -1189,24 +1292,18 @@ export function FinanceMarkets() {
                 );
                 setOpen({ key: sym, item, q, watching: watching(item) });
               }}
-              onStar={() => starRow(open.item)}
               onWatch={() => {
-                addWatch({ ...open.item, starred: true });
-                toast(`Watching ${open.item.label}`);
+                putOnWatch(open.item);
                 setOpen(null);
               }}
-              onRemove={() => {
-                const hit = watched(open.item);
-                if (hit) removeWatch(hit.id);
-                setOpen(null);
-              }}
+              onRemove={() => starRow(open.item)}
               onHold={(patch) => {
                 const hit = watched(open.item);
                 if (hit) {
                   updateWatch(hit.id, patch);
                   return;
                 }
-                addWatch({ ...open.item, starred: true, ...patch });
+                addWatch({ ...open.item, ...patch });
               }}
             />
           ) : null}
@@ -1230,24 +1327,26 @@ export function FinanceMarkets() {
           </div>
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {addHits.length ? (
-              addHits.map((item) => (
+              addHits.map((item) => {
+                const trap = addColliderNote(watch, item) ?? collidersFor(item)[0]?.note;
+                return (
                 <button
                   key={item.id}
                   type="button"
                   className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-2 text-left hover:bg-muted"
                   onClick={() => {
-                    addWatch({ ...item, starred: true });
-                    toast(`Watching ${item.label}`);
+                    putOnWatch(item);
                     setAddOpen(false);
                   }}
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-mono text-sm">{item.label}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{item.name ?? item.kind}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{trap ?? item.name ?? item.kind}</span>
                   </span>
                   <Plus className="size-4 shrink-0 text-muted-foreground" />
                 </button>
-              ))
+                );
+              })
             ) : addNeedle && remoteAdd.isFetching ? (
               <p className="py-4 text-sm text-muted-foreground">Searching…</p>
             ) : (
@@ -1452,30 +1551,32 @@ function WeightingCard() {
 function QuoteSheet({
   row,
   held,
-  starred,
   watching,
   cryptoUsdt,
   dualPhp,
   showVol,
   sparkRange,
   quotes,
+  nameSpark,
+  indexSpark,
+  indexLabel,
   onPeer,
-  onStar,
   onWatch,
   onRemove,
   onHold,
 }: {
   row: BoardRow;
   held?: WatchItem;
-  starred: boolean;
   watching: boolean;
   cryptoUsdt: boolean;
   dualPhp: boolean;
   showVol: boolean;
   sparkRange: ReturnType<typeof normalizeSparkRange>;
   quotes: Record<string, MarketQuote>;
+  nameSpark?: number[];
+  indexSpark?: number[];
+  indexLabel?: string;
   onPeer: (sym: string) => void;
-  onStar: () => void;
   onWatch: () => void;
   onRemove: () => void;
   onHold: (patch: Partial<WatchItem>) => void;
@@ -1508,6 +1609,10 @@ function QuoteSheet({
   const php = row.q?.php;
   const value = positionValue(qtyN, php);
   const pnl = positionPnl(qtyN, php, avgN);
+  const nameTraps = collidersFor(row.item);
+  const sparkLabel = SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M";
+  const nameLink =
+    row.item.kind === "stock" || row.item.kind === "global" ? vsIndex(nameSpark, indexSpark) : undefined;
 
   function scaleBand(n: number) {
     if (!row.q) return n;
@@ -1525,6 +1630,18 @@ function QuoteSheet({
           <p className="text-xs text-muted-foreground">{note.index}</p>
         </div>
       </div>
+      {nameTraps.length ? (
+        <div className="rounded-lg bg-muted p-4">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Name traps</p>
+          <ul className="mt-2 space-y-1">
+            {nameTraps.map((c) => (
+              <li key={c.id} className="text-sm leading-snug">
+                {c.note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="font-display text-3xl tabular-nums">{shown ? moneyQuote(shown.price, shown.ccy) : "—"}</p>
@@ -1571,6 +1688,13 @@ function QuoteSheet({
             </div>
           ))}
         </div>
+        {row.item.kind === "stock" || row.item.kind === "global" ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {nameLink
+              ? `Spark r ${nameLink.r.toFixed(2)} · β ${nameLink.beta.toFixed(2)} vs ${indexLabel ?? "the home index"} (${sparkLabel}, ${nameLink.n} pts). Delayed path, not a hedge.`
+              : `Index link waits on a real spark vs ${indexLabel ?? "the home index"} — session wobble is not a beta.`}
+          </p>
+        ) : null}
         {(
           [
             { title: "Valuation", items: note.valuation },
@@ -1772,17 +1896,15 @@ function QuoteSheet({
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" className="min-h-11" onClick={onStar}>
-          <Star className={cn("size-4", starred && "fill-primary text-primary")} />
-          {starred ? "Starred" : "Star"}
-        </Button>
         {watching ? (
-          <Button variant="outline" className="min-h-11" onClick={onRemove}>
-            Remove
+          <Button variant="outline" className="min-h-11" aria-label="Remove from watcher" onClick={onRemove}>
+            <Star className="size-4 fill-primary text-primary" />
+            Watching
           </Button>
         ) : (
           <Button className="min-h-11" onClick={onWatch}>
-            Add
+            <Star className="size-4" />
+            Watch
           </Button>
         )}
       </div>

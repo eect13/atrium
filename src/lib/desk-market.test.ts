@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, WORLD_INDICES } from "./desk-market.ts";
+import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, WORLD_INDICES, yahooTapeSymbol } from "./desk-market.ts";
 import { PSEI_SYMBOL } from "./yahoo.ts";
 
 test("Philippines All stays the factory PSE tape", () => {
@@ -34,6 +34,23 @@ test("desk yahoo symbols always include PSEi and Nifty", () => {
     assert.ok(syms.includes(PSEI_SYMBOL), id);
     assert.ok(syms.includes(NIFTY_SYMBOL), id);
   }
+});
+
+test("PH tape does not ask Yahoo for SM / BDO / ICT", () => {
+  const ph = deskYahooSymbols("PH");
+  assert.equal(ph.includes("SM"), false);
+  assert.equal(ph.includes("BDO"), false);
+  assert.equal(ph.includes("ICT"), false);
+  assert.ok(ph.includes("GC=F"));
+  assert.ok(ph.includes("^GSPC"));
+  assert.equal(yahooTapeSymbol("SM"), false);
+  assert.equal(yahooTapeSymbol("BDO.PS"), false);
+  assert.equal(yahooTapeSymbol(PSEI_SYMBOL), true);
+  assert.equal(yahooTapeSymbol("AAPL"), true);
+  assert.equal(yahooTapeSymbol("0700.HK"), true);
+  const us = deskYahooSymbols("US");
+  assert.ok(us.includes("AAPL"));
+  assert.equal(us.includes("SM"), false);
 });
 
 test("digest url is region-local and daily-first", () => {

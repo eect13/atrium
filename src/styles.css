@@ -161,6 +161,40 @@ html.light {
     opacity: 0.1;
   }
 
+  .note-body ul {
+    list-style: disc;
+    padding-left: 1.1rem;
+  }
+  .note-body ul.note-checks {
+    list-style: none;
+    padding-left: 0;
+  }
+  .note-body ul.note-checks > li {
+    position: relative;
+    padding-left: 1.5rem;
+    cursor: text;
+  }
+  .note-body ul.note-checks > li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.2em;
+    width: 0.85em;
+    height: 0.85em;
+    border: 1px solid currentColor;
+    border-radius: 0.15em;
+    opacity: 0.55;
+    cursor: pointer;
+  }
+  .note-body ul.note-checks > li[data-done="true"] {
+    text-decoration: line-through;
+    opacity: 0.55;
+  }
+  .note-body ul.note-checks > li[data-done="true"]::before {
+    background: currentColor;
+    opacity: 0.45;
+  }
+
   @media (hover: hover) and (pointer: fine) {
     .note-autohide {
       max-width: 0;

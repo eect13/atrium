@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeSparkRange, pointsToPath, sessionSpark } from "./sparks.ts";
+import { normalizeSparkRange, pointsToPath, pointsToTape, sessionSpark, sparkFetchable, tapeSpark, writeTapeSpark } from "./sparks.ts";
 
 test("normalizeSparkRange defaults to 3m", () => {
   assert.equal(normalizeSparkRange(undefined), "3m");
@@ -29,4 +29,59 @@ test("pointsToPath uses cubics for a curve", () => {
   assert.match(line, /^M/);
   assert.match(line, /C/);
   assert.match(area, /Z$/);
+});
+
+test("sparkFetchable skips PSE last and keeps Yahoo symbols", () => {
+  assert.equal(sparkFetchable({ id: "BDO", kind: "stock" }), false);
+  assert.equal(sparkFetchable({ id: "BDO.PS", kind: "stock" }), false);
+  assert.equal(sparkFetchable({ id: "PSEI.PS", kind: "global" }), true);
+  assert.equal(sparkFetchable({ id: "^NSEI", kind: "global" }), true);
+  assert.equal(sparkFetchable({ id: "0700.HK", kind: "global" }), true);
+  assert.equal(sparkFetchable({ id: "bitcoin", kind: "crypto" }), true);
+});
+
+test("pointsToTape needs nine prints", () => {
+  assert.deepEqual(pointsToTape([100, 101, 102], 90), []);
+  const pts = pointsToTape(
+    Array.from({ length: 10 }, (_, i) => 100 + i),
+    90,
+    Date.UTC(2026, 8, 19),
+  );
+  assert.equal(pts.length, 10);
+  assert.ok(pts.every((p) => p.p >= 100 && /^\d{4}-\d{2}-\d{2}$/.test(p.d)));
+});
+
+test("writeTapeSpark backfills and keeps today's last", () => {
+  const mem = new Map<string, string>();
+  const store = {
+    getItem: (k: string) => mem.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      mem.set(k, String(v));
+    },
+    removeItem: (k: string) => {
+      mem.delete(k);
+    },
+    clear: () => mem.clear(),
+    key: (i: number) => [...mem.keys()][i] ?? null,
+    get length() {
+      return mem.size;
+    },
+  };
+  Object.defineProperty(globalThis, "localStorage", { value: store, configurable: true });
+  const vals = Array.from({ length: 12 }, (_, i) => 100 + i);
+  writeTapeSpark("PSEI.PS", vals, 90);
+  const first = tapeSpark("PSEI.PS", 90);
+  assert.ok(first && first.length >= 9);
+  const raw = JSON.parse(mem.get("atrium.tape.v1") ?? "{}") as Record<string, { d: string; p: number }[]>;
+  const today = raw["PSEI.PS"]?.at(-1)?.d;
+  assert.ok(today);
+  raw["PSEI.PS"] = [...(raw["PSEI.PS"] ?? []).filter((p) => p.d !== today), { d: today, p: 999 }];
+  mem.set("atrium.tape.v1", JSON.stringify(raw));
+  writeTapeSpark(
+    "PSEI.PS",
+    vals.map((v) => v + 50),
+    90,
+  );
+  const after = tapeSpark("PSEI.PS", 90);
+  assert.equal(after?.at(-1), 999);
 });

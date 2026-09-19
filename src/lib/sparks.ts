@@ -144,6 +144,39 @@ export function tapeSpark(id: string, days: number): number[] | undefined {
   return vals.length >= 3 ? vals : undefined;
 }
 
+export function pointsToTape(values: number[], days: number, end = Date.now()): TapePt[] {
+  if (values.length < 9 || days <= 0) return [];
+  const start = end - days * 86400000;
+  const step = values.length > 1 ? (end - start) / (values.length - 1) : 0;
+  const byD = new Map<string, number>();
+  for (let i = 0; i < values.length; i += 1) {
+    const p = values[i]!;
+    if (!(p > 0)) continue;
+    byD.set(isoDate(new Date(start + i * step)), p);
+  }
+  return [...byD.entries()].map(([d, p]) => ({ d, p })).toSorted((a, b) => a.d.localeCompare(b.d));
+}
+
+/** Backfill a real spark onto the local tape so β can survive a refresh. Does not overwrite today's last. */
+export function writeTapeSpark(id: string, values: number[], days: number) {
+  if (!id || typeof localStorage === "undefined") return;
+  const incoming = pointsToTape(values, days);
+  if (incoming.length < 9) return;
+  const prev = readTape();
+  const existing = prev[id] ?? [];
+  const today = isoDate();
+  const byD = new Map(incoming.map((x) => [x.d, x]));
+  for (const pt of existing) {
+    if (pt.d === today || !byD.has(pt.d)) byD.set(pt.d, pt);
+  }
+  prev[id] = [...byD.values()].toSorted((a, b) => a.d.localeCompare(b.d)).slice(-270);
+  try {
+    localStorage.setItem(TAPE_KEY, JSON.stringify(prev));
+  } catch {
+    /* quota */
+  }
+}
+
 const FETCH_MS = 8_000;
 
 const RANGE_BINANCE: Record<SparkRange, { interval: string; limit: number }> = {
@@ -212,8 +245,27 @@ async function frankfurterSpark(from: string, range: SparkRange): Promise<number
 }
 
 const g = globalThis as typeof globalThis & {
-  __atriumSparks?: { key: string; exp: number; data: Record<string, number[]> };
+  __atriumSparkParts?: Record<string, { exp: number; vals: number[] }>;
 };
+
+/** True when fetchSparks will actually pull a path. PSE last has no Yahoo spark. */
+export function sparkFetchable(item: { id: string; kind: string }) {
+  if (item.kind === "crypto" || item.kind === "fx" || item.kind === "global" || item.kind === "cmdty") return true;
+  if (item.kind === "stock") return /[.^]/.test(item.id) && !/\.PS$/i.test(item.id);
+  return false;
+}
+
+function sparkPart(range: string, id: string) {
+  const hit = g.__atriumSparkParts?.[`${range}|${id}`];
+  if (hit && hit.exp > Date.now() && hit.vals.length >= 4) return hit.vals;
+  return undefined;
+}
+
+function writeSparkPart(range: string, id: string, vals: number[]) {
+  if (vals.length < 4) return;
+  g.__atriumSparkParts ??= {};
+  g.__atriumSparkParts[`${range}|${id}`] = { exp: Date.now() + 5 * 60_000, vals };
+}
 
 export const fetchSparks = createServerFn({ method: "POST" })
   .validator(
@@ -223,21 +275,26 @@ export const fetchSparks = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }): Promise<Record<string, number[]>> => {
-    const key = `${data.range}|${data.items.map((i) => i.id).toSorted().join(",")}`;
-    const hit = g.__atriumSparks;
-    if (hit && hit.key === key && hit.exp > Date.now()) return hit.data;
     const out: Record<string, number[]> = {};
     const geckoToBinance = Object.fromEntries(
       Object.entries(BINANCE_PAIRS).map(([pair, meta]) => [meta.gecko, pair]),
     );
     const jobs: Promise<void>[] = [];
-    for (const item of data.items.slice(0, 40)) {
+    for (const item of data.items.filter(sparkFetchable).slice(0, 40)) {
+      const cached = sparkPart(data.range, item.id);
+      if (cached) {
+        out[item.id] = cached;
+        continue;
+      }
       if (item.kind === "crypto") {
         const pair = geckoToBinance[item.id] ?? (item.id.endsWith("USDT") ? item.id : "");
         if (!pair) continue;
         jobs.push(
           binanceKline(pair, data.range).then((vals) => {
-            if (vals.length) out[item.id] = vals;
+            if (vals.length) {
+              writeSparkPart(data.range, item.id, vals);
+              out[item.id] = vals;
+            }
           }),
         );
       } else if (item.kind === "fx") {
@@ -245,19 +302,24 @@ export const fetchSparks = createServerFn({ method: "POST" })
         if (from === "USD" || from === "EUR" || from === "JPY" || from === "GBP") {
           jobs.push(
             frankfurterSpark(from, data.range).then((vals) => {
-              if (vals.length) out[item.id] = vals;
+              if (vals.length) {
+                writeSparkPart(data.range, item.id, vals);
+                out[item.id] = vals;
+              }
             }),
           );
         }
-      } else if (item.kind === "global" || item.kind === "cmdty") {
+      } else {
         jobs.push(
           fetchYahooSpark(item.id, data.range).then((vals) => {
-            if (vals.length) out[item.id] = vals;
+            if (vals.length) {
+              writeSparkPart(data.range, item.id, vals);
+              out[item.id] = vals;
+            }
           }),
         );
       }
     }
     await Promise.allSettled(jobs);
-    g.__atriumSparks = { key, data: out, exp: Date.now() + 5 * 60_000 };
     return out;
   });

@@ -5,6 +5,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { httpText } from "./http.ts";
+import { APP_VERSION } from "./version.ts";
 
 export type PseStats = {
   ticker: string;
@@ -318,7 +319,7 @@ export async function loadPseStats(ticker: string): Promise<PseStats> {
   try {
     const html = await httpText(`https://stockanalysis.com/quote/pse/${encodeURIComponent(t)}/statistics/`, {
       accept: "text/html",
-      "user-agent": "Atrium/1.2.24 (personal dashboard; PSE multiples)",
+      "user-agent": `Atrium/${APP_VERSION} (personal dashboard; PSE multiples)`,
     });
     const data = parseStockAnalysisStats(html, t);
     const merged = data.source ? data : { ...empty, ...data, source: seed?.source, asOf: data.asOf ?? seed?.asOf };

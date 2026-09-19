@@ -558,12 +558,39 @@ export function staleTagline(raw?: string) {
 
 
 /** Display title for a sticky note — explicit title, else first body line. */
-export function noteTitle(note: { title?: string; html?: string; text: string }) {
+export function noteTitle(note: { title?: string; html?: string; text: string; checks?: { text?: string }[] }) {
   const t = (note.title ?? "").trim();
   if (t) return t;
   const body = notePlain(note.html, note.text).trim();
   const line = body.split("\n").find((l) => l.trim()) ?? "";
-  return line.trim() || "Untitled";
+  if (line.trim()) return line.trim();
+  const check = (note.checks ?? []).find((c) => (c.text ?? "").trim());
+  return (check?.text ?? "").trim() || "Untitled";
+}
+
+/** Fold leftover to-do rows into the body as an inline checklist, then drop the sidecar. */
+export function foldNoteChecks(note: {
+  html?: string;
+  text: string;
+  checks?: { text?: string; done?: boolean }[];
+}): { html: string; text: string } | null {
+  const checks = note.checks ?? [];
+  if (!checks.length) return null;
+  const items = checks
+    .map((c) => {
+      const t = (c.text ?? "")
+        .replace(/&/g, "&" + "amp;")
+        .replace(/</g, "&" + "lt;")
+        .replace(/>/g, "&" + "gt;");
+      return `<li data-done="${c.done ? "true" : "false"}">${t}</li>`;
+    })
+    .join("");
+  const block = `<ul class="note-checks">${items}</ul>`;
+  const base = note.html?.trim()
+    ? note.html
+    : (note.text || "").replace(/&/g, "&" + "amp;").replace(/</g, "&" + "lt;").replace(/\n/g, "<br>");
+  const html = base ? `${base}${block}` : block;
+  return { html, text: notePlain(html, note.text) };
 }
 
 export const WORLD_ZONES = [

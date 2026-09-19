@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
-import { DEFAULT_TAGLINE, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
 import { mapsPin, hasWeatherPin } from "@/lib/weather";
@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils";
 const OPTIONAL = [
   { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Today card, and city or ZIP pin." },
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
-  { id: "finance" as const, label: "Finance watcher", blurb: "Cash books, market board, backup." },
+  { id: "finance" as const, label: "Finance", blurb: "Watcher, tape, cash books, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
   { id: "news" as const, label: "News briefing", blurb: "RSS mosaic in the MSN style." },
 ];
@@ -60,7 +60,6 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
   const setView = useAtrium((s) => s.setView);
   const [name, setName] = useState(profile.name);
   const [city, setCity] = useState(profile.city);
-  const [tagline, setTagline] = useState(profile.tagline);
   const [lat, setLat] = useState(profile.lat == null ? "" : String(profile.lat));
   const [lon, setLon] = useState(profile.lon == null ? "" : String(profile.lon));
   const [locating, setLocating] = useState(false);
@@ -68,10 +67,9 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
   useEffect(() => {
     setName(profile.name);
     setCity(profile.city);
-    setTagline(profile.tagline);
     setLat(profile.lat == null ? "" : String(profile.lat));
     setLon(profile.lon == null ? "" : String(profile.lon));
-  }, [profile.name, profile.city, profile.tagline, profile.lat, profile.lon]);
+  }, [profile.name, profile.city, profile.lat, profile.lon]);
 
   async function useMyLocation() {
     setLocating(true);
@@ -182,24 +180,6 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
         <p className="text-xs text-muted-foreground">
           Type a city or ZIP — suggestions appear as you type. The Weather tab is the main place for this pin.
         </p>
-      </div>
-      <div className="space-y-1 sm:col-span-2">
-        <Label htmlFor="opt-tagline">Sidebar tagline</Label>
-        <Input
-          id="opt-tagline"
-          value={tagline}
-          maxLength={48}
-          placeholder="Tagline (optional)"
-          onChange={(e) => setTagline(e.target.value)}
-          onBlur={(e) => setProfile({ tagline: e.target.value.trim() || DEFAULT_TAGLINE })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              setProfile({ tagline: e.currentTarget.value.trim() || DEFAULT_TAGLINE });
-            }
-          }}
-        />
-        <p className="text-xs text-muted-foreground">Shown at the foot of the sidebar. Stays on this device.</p>
       </div>
       <div className="sm:col-span-2 rounded-xl bg-muted p-5">
         <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Weather pin</p>

@@ -60,7 +60,7 @@ export function FinanceView() {
               : shown === "analyze"
                 ? "Analyze"
                 : shown === "options"
-                  ? "Books options"
+                  ? "Options"
                   : booksName}
           </h2>
           <p className="hidden text-xs text-muted-foreground sm:block">
@@ -69,7 +69,7 @@ export function FinanceView() {
               : shown === "analyze"
                 ? "CFA-style take. You ask — it does not run itself."
                 : shown === "options"
-                  ? "Backup, density, sample — all on this device."
+                  ? "Cash tabs, board, backup — all on this device."
                   : "Register, wallet, backup — all on this device."}
           </p>
         </div>

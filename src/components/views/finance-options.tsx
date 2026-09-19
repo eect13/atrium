@@ -243,7 +243,7 @@ export function FinanceOptions() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Turn Markets or Books off to hide that tab, the cash on the dashboard Finance card, and the float. Keep at least one on. Options stays.
+            Turn Markets or Books off to hide that tab, the matching section on the dashboard Finance card, and the float. The float follows these switches — watcher list when Markets is on, cash when Books is on — with no extra chips. Keep at least one on. Options stays.
           </p>
           <PrefSwitch
             label="Markets"
