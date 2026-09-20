@@ -32,6 +32,7 @@ import type {
   StickyNote,
   Tx,
   CalMode,
+  GCalDesk,
   ViewId,
   WatchItem,
   WidgetKind,
@@ -159,6 +160,8 @@ type Data = {
   boardFocus: string | null;
   calMode: CalMode;
   calCursor: string;
+  gcalCals: GCalDesk[];
+  gcalOff: string[];
   digests: DigestDay[];
   analyzeSeed: { ticker?: string; question?: string; context?: string } | null;
 };
@@ -172,6 +175,8 @@ type State = Data & {
   updateEvent: (id: string, patch: Partial<CalendarEvent>) => void;
   removeEvent: (id: string) => void;
   importEvents: (e: CalendarEvent[]) => number;
+  setGcalCals: (cals: GCalDesk[], off?: string[]) => void;
+  toggleGcal: (id: string) => void;
   addNote: (n: StickyNote) => void;
   updateNote: (id: string, patch: Partial<StickyNote>) => void;
   removeNote: (id: string) => void;
@@ -354,6 +359,8 @@ function blankDesk(): Data {
     boardFocus: null,
     calMode: "month",
     calCursor: "",
+    gcalCals: [],
+    gcalOff: [],
     digests: [],
     analyzeSeed: null,
   };
@@ -464,6 +471,15 @@ export const useAtrium = create<State>()(
         });
         return added;
       },
+      setGcalCals: (cals, off) =>
+        set((s) => ({
+          gcalCals: cals,
+          gcalOff: off ?? s.gcalOff,
+        })),
+      toggleGcal: (id) =>
+        set((s) => ({
+          gcalOff: s.gcalOff.includes(id) ? s.gcalOff.filter((x) => x !== id) : [...s.gcalOff, id],
+        })),
       addNote: (n) => set((s) => ({ notes: [...s.notes, n] })),
       updateNote: (id, patch) =>
         set((s) => ({
@@ -495,17 +511,27 @@ export const useAtrium = create<State>()(
                   : undefined;
               const box = saved
                 ? restoreBox(saved, { w: n.w, h: n.h }, pinnedN)
-                : arrangeNoteBox({ w: n.w, h: n.h }, pinnedN);
+                : arrangeNoteBox({ w: n.w, h: n.h }, pinnedN, pinnedN + 1);
               return { ...n, pinned: true, z, ...box };
             }),
           };
         }),
       unpinNote: (id) =>
-        set((s) => ({
-          notes: s.notes.map((n) =>
+        set((s) => {
+          const next = s.notes.map((n) =>
             n.id === id ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: 32, y: 32 } : n,
-          ),
-        })),
+          );
+          const live = next.filter((n) => n.pinned);
+          let i = 0;
+          return {
+            notes: next.map((n) => {
+              if (!n.pinned) return n;
+              const box = arrangeNoteBox({ w: n.w, h: n.h }, i, live.length);
+              i += 1;
+              return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
+            }),
+          };
+        }),
       pinAllNotes: () =>
         set((s) => {
           if (!s.notes.length) return s;
@@ -520,7 +546,7 @@ export const useAtrium = create<State>()(
           return {
             notes: pinned.map((n) => {
               if (!n.pinned) return n;
-              const box = arrangeNoteBox({ w: n.w, h: n.h }, i);
+              const box = arrangeNoteBox({ w: n.w, h: n.h }, i, pinned.filter((p) => p.pinned).length);
               i += 1;
               return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
             }),
@@ -534,11 +560,12 @@ export const useAtrium = create<State>()(
         })),
       arrangeNotes: () =>
         set((s) => {
+          const live = s.notes.filter((n) => n.pinned).length;
           let i = 0;
           return {
             notes: s.notes.map((n) => {
               if (!n.pinned) return n;
-              const box = arrangeNoteBox({ w: n.w, h: n.h }, i);
+              const box = arrangeNoteBox({ w: n.w, h: n.h }, i, live);
               i += 1;
               return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
             }),
@@ -596,9 +623,10 @@ export const useAtrium = create<State>()(
         set((s) => {
           const windows = s.windows.map((w, i) => ({ ...w, ...placeWindow({ w: w.w, h: w.h }, i) }));
           let pinned = 0;
+          const live = s.notes.filter((n) => n.pinned).length;
           const notes = s.notes.map((n) => {
             if (!n.pinned) return n;
-            const box = arrangeNoteBox({ w: n.w, h: n.h }, pinned);
+            const box = arrangeNoteBox({ w: n.w, h: n.h }, pinned, live);
             pinned += 1;
             return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
           });
@@ -802,7 +830,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 31,
+      version: 32,
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -1017,6 +1045,9 @@ export const useAtrium = create<State>()(
         if (version < 31) {
           p = { ...p, digests: Array.isArray((p as { digests?: unknown }).digests) ? ((p as { digests: DigestDay[] }).digests ?? []).slice(0, 10) : [] };
         }
+        if (version < 32) {
+          p = { ...p, gcalCals: [], gcalOff: [] };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -1049,6 +1080,8 @@ export const useAtrium = create<State>()(
         boardFocus: s.boardFocus,
         calMode: s.calMode,
         calCursor: s.calCursor,
+        gcalCals: s.gcalCals,
+        gcalOff: s.gcalOff,
         digests: s.digests,
       }),
       merge: (persisted, current) => {
@@ -1084,6 +1117,8 @@ export const useAtrium = create<State>()(
           boardFocus: typeof p.boardFocus === "string" || p.boardFocus === null ? p.boardFocus : current.boardFocus,
           calMode: p.calMode === "week" || p.calMode === "day" || p.calMode === "agenda" || p.calMode === "month" ? p.calMode : (current as Data).calMode ?? "month",
           calCursor: typeof p.calCursor === "string" ? p.calCursor : (current as Data).calCursor ?? "",
+          gcalCals: Array.isArray(p.gcalCals) ? p.gcalCals : (current as Data).gcalCals ?? [],
+          gcalOff: Array.isArray(p.gcalOff) ? p.gcalOff : (current as Data).gcalOff ?? [],
           digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
           analyzeSeed: null,
           profile,

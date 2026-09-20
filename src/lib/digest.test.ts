@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asDigestStories, DIGEST_KEEP, mergeDigest, rememberDigest, type DigestDay } from "./digest.ts";
+import { asDigestStories, digestNoise, DIGEST_KEEP, mergeDigest, rememberDigest, type DigestDay } from "./digest.ts";
 
 test("digest keeps ten unique headlines", () => {
   assert.equal(DIGEST_KEEP, 10);
@@ -42,4 +42,16 @@ test("digest parser drops chart junk", () => {
   const rows = asDigestStories(xml);
   assert.equal(rows.length, 1);
   assert.match(rows[0]!.title, /S&P 500/);
+});
+
+test("digest drops Yu-Gi-Oh merch and PSE: card hits", () => {
+  assert.equal(digestNoise("Yu-Gi-Oh! PSE: Dark Magician extended art"), true);
+  assert.equal(digestNoise("PSEi closes higher in Manila"), false);
+  const xml = `<?xml version="1.0"?><rss><channel>
+    <item><title>Yu-Gi-Oh PSE: Blue-Eyes merch store</title><link>https://snkrdunk.com/1</link><source>SNKRDUNK</source></item>
+    <item><title>PSEi climbs as banks lead Manila</title><link>https://reuters.com/2</link><source>Reuters</source></item>
+  </channel></rss>`;
+  const rows = asDigestStories(xml);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0]!.title, /PSEi/);
 });

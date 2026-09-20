@@ -84,6 +84,18 @@ test("home symbol filter keeps the desk exchange", () => {
   assert.equal(rows.some((r) => r.item.symbol === "0700.HK"), true);
 });
 
+test("Vietnam All seeds HOSE names and VN-Index", () => {
+  const vn = deskMarket("VN");
+  assert.equal(vn.pseHome, false);
+  assert.equal(vn.index.symbol, "^VNINDEX");
+  assert.ok(vn.names.some((n) => n.symbol === "VNM.VN"));
+  assert.equal(isHomeSymbol("VNM.VN", "VN"), true);
+  assert.equal(isHomeSymbol("AAPL", "VN"), false);
+  assert.equal(resolveCompare("VN"), "^STI");
+  const rows = homeBoardRows({}, undefined, vn, () => false);
+  assert.ok(rows.some((r) => r.item.symbol === "VNM.VN"));
+});
+
 test("index compare follows the desk and never equals home", () => {
   assert.equal(resolveCompare("PH"), NIFTY_SYMBOL);
   assert.equal(resolveCompare("US"), "^IXIC");

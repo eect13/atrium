@@ -76,11 +76,10 @@ import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_
 import { mixStories } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
-import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap, SleeveRotation, ColliderNotes } from "./finance-tape";
+import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap, SleeveRotation } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
 import { asDeskItem, deskMarket, homeBoardRows, resolveCompare, worldIndex } from "@/lib/desk-market";
 import { fetchFinanceDigest } from "@/lib/digest";
-import { addColliderNote, collidersFor, watchColliderNotes } from "@/lib/colliders";
 import { deskSleeves, indexLink, pseWeightOf, rotationTake, sleeveSession, vsIndex } from "@/lib/desk-stats";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
@@ -571,13 +570,9 @@ export function FinanceMarkets() {
     () => indexLink(remoteSpark(market.index.symbol, homeIndex?.id), remoteSpark(compareSym, peer.symbol)),
     [remoteSparks, market.index.symbol, homeIndex?.id, compareSym, peer.symbol, range],
   );
-  const colliderNotes = useMemo(() => watchColliderNotes(watch), [watch]);
-
   function putOnWatch(item: WatchItem, extra?: Partial<WatchItem>) {
-    const note = addColliderNote(watch, item);
     addWatch({ ...item, ...extra });
-    if (note) toast(`Watching ${item.label}`, { description: note });
-    else toast(`Watching ${item.label}`);
+    toast(`Watching ${item.label}`);
   }
 
   function onSort(key: BoardSort) {
@@ -958,8 +953,6 @@ export function FinanceMarkets() {
         </div>
       ) : null}
 
-      {!query.trim() && tab === "watcher" ? <ColliderNotes notes={colliderNotes} /> : null}
-
       {!query.trim() && tab === "all" ? (
         <IndexCompare
           home={market.index}
@@ -1125,7 +1118,6 @@ export function FinanceMarkets() {
               const up = (ch ?? 0) >= 0;
               const onList = Boolean(watched(r.item));
               const pending = quotesPending && !r.q;
-              const trap = tab === "watcher" ? collidersFor(r.item)[0]?.note : undefined;
               return (
                 <div key={r.key} className="flex min-w-0 items-center gap-1 border-t border-border px-2 sm:gap-2 sm:px-3">
                   <TickMark label={r.item.label} />
@@ -1134,7 +1126,6 @@ export function FinanceMarkets() {
                       {pairLabel(r.item, r.q, marketPrefs.cryptoUsdt)}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">{rowMeta(r)}</p>
-                    {trap ? <p className="truncate text-xs text-muted-foreground">{trap}</p> : null}
                   </button>
                   {marketPrefs.spark ? (
                     <div className="hidden w-16 shrink-0 sm:block">
@@ -1328,7 +1319,6 @@ export function FinanceMarkets() {
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {addHits.length ? (
               addHits.map((item) => {
-                const trap = addColliderNote(watch, item) ?? collidersFor(item)[0]?.note;
                 return (
                 <button
                   key={item.id}
@@ -1341,7 +1331,7 @@ export function FinanceMarkets() {
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-mono text-sm">{item.label}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{trap ?? item.name ?? item.kind}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{item.name ?? item.kind}</span>
                   </span>
                   <Plus className="size-4 shrink-0 text-muted-foreground" />
                 </button>
@@ -1609,7 +1599,6 @@ function QuoteSheet({
   const php = row.q?.php;
   const value = positionValue(qtyN, php);
   const pnl = positionPnl(qtyN, php, avgN);
-  const nameTraps = collidersFor(row.item);
   const sparkLabel = SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M";
   const nameLink =
     row.item.kind === "stock" || row.item.kind === "global" ? vsIndex(nameSpark, indexSpark) : undefined;
@@ -1630,18 +1619,6 @@ function QuoteSheet({
           <p className="text-xs text-muted-foreground">{note.index}</p>
         </div>
       </div>
-      {nameTraps.length ? (
-        <div className="rounded-lg bg-muted p-4">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Name traps</p>
-          <ul className="mt-2 space-y-1">
-            {nameTraps.map((c) => (
-              <li key={c.id} className="text-sm leading-snug">
-                {c.note}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="font-display text-3xl tabular-nums">{shown ? moneyQuote(shown.price, shown.ccy) : "—"}</p>

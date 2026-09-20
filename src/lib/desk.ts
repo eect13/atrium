@@ -92,15 +92,21 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
 }
 
-/** Tile note pads in a 3-col grid (cascade on a phone). Open floats every pad. */
-export function arrangeNoteBox(size: { w: number; h: number }, index = 0): DeskBox {
+/** Tile note pads across the open desk (cascade on a phone). Open floats every pad. */
+export function arrangeNoteBox(size: { w: number; h: number }, index = 0, count = 0): DeskBox {
   if (typeof window === "undefined" || isNarrow()) return placeWindow(size, index);
-  const cols = 3;
+  const n = Math.max(1, count || index + 1);
+  const cols = Math.min(3, n);
+  const rows = Math.max(1, Math.ceil(n / cols));
+  const { minX, minY, padB } = deskMin();
+  const gap = 12;
+  const deskW = Math.max(180, window.innerWidth - minX - 16);
+  const deskH = Math.max(140, window.innerHeight - minY - padB - 8);
+  const cellW = Math.max(180, Math.floor((deskW - gap * (cols - 1)) / cols));
+  const cellH = Math.max(140, Math.floor((deskH - gap * (rows - 1)) / rows));
   const col = index % cols;
   const row = Math.floor(index / cols);
-  const { minX, minY } = deskMin();
-  const gap = 12;
-  return fitBox(minX + 8 + col * (size.w + gap), minY + 8 + row * (size.h + gap), size.w, size.h);
+  return fitBox(minX + 8 + col * (cellW + gap), minY + 8 + row * (cellH + gap), cellW, cellH);
 }
 
 /** Keep a fixed popover on-screen: right-aligned to the anchor, flip above if needed. */

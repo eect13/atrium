@@ -1,4 +1,5 @@
 import { isTauri } from "@/lib/http";
+import { closeAllNativeFloats } from "@/lib/native-float";
 
 const KEY = "atrium.win";
 
@@ -27,6 +28,7 @@ export function rememberMainWindow() {
   let timer = 0;
   let un1: (() => void) | undefined;
   let un2: (() => void) | undefined;
+  let unClose: (() => void) | undefined;
   void (async () => {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
@@ -63,11 +65,21 @@ export function rememberMainWindow() {
     };
     un1 = await win.onMoved(bump);
     un2 = await win.onResized(bump);
+    try {
+      const stopClose = await win.onCloseRequested(async () => {
+        await closeAllNativeFloats();
+      });
+      if (dead) stopClose();
+      else unClose = stopClose;
+    } catch {
+      /* older webview */
+    }
   })();
   return () => {
     dead = true;
     window.clearTimeout(timer);
     un1?.();
     un2?.();
+    unClose?.();
   };
 }

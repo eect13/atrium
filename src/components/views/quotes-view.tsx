@@ -9,7 +9,7 @@ import { FloatBtn } from "@/components/desk-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LOCAL_QUOTES, fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
+import { LOCAL_QUOTES, QUOTE_TOPICS, fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
 export function useDeskQuotes(
@@ -79,18 +79,18 @@ function QuoteCard({
 
 export function QuotesView() {
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"random" | "popular" | "author">("random");
+  const [mode, setMode] = useState<"random" | "popular" | "author">("popular");
   const [person, setPerson] = useState("");
   const [search, setSearch] = useState("");
-  const [topic] = useState("all");
+  const [topic, setTopic] = useState("all");
   const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
   const quotes = useDeskQuotes(
     mode === "author" && search.trim() ? "author" : mode === "popular" ? "popular" : "random",
     mode === "author" ? search : "",
     seed,
-    mode === "author" && search.trim() ? "all" : topic,
-    search.trim() ? "" : person,
+    topic,
+    mode === "author" ? "" : person,
     exact,
   );
   const list = quotes.data?.quotes ?? [];
@@ -146,6 +146,20 @@ export function QuotesView() {
           Popular
         </Chip>
         <FloatBtn kind="quote" />
+      </div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {QUOTE_TOPICS.map((t) => (
+          <Chip
+            key={t.id}
+            active={topic === t.id}
+            onClick={() => {
+              setTopic(t.id);
+              if (mode === "author") setMode("popular");
+            }}
+          >
+            {t.label}
+          </Chip>
+        ))}
       </div>
 
 

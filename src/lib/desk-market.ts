@@ -27,6 +27,17 @@ export const WORLD_INDICES: DeskName[] = [
   { symbol: "^STI", name: "Straits Times", label: "STI" },
   { symbol: "^GSPTSE", name: "S&P/TSX", label: "TSX" },
   { symbol: "^KS11", name: "KOSPI", label: "KOSPI" },
+  { symbol: "^VNINDEX", name: "VN-Index", label: "VN-Index" },
+  { symbol: "^TWII", name: "TAIEX", label: "TAIEX" },
+  { symbol: "^SET.BK", name: "SET Index", label: "SET" },
+  { symbol: "^KLSE", name: "FTSE Bursa", label: "KLCI" },
+  { symbol: "^JKSE", name: "Jakarta Composite", label: "JCI" },
+  { symbol: "^NZ50", name: "S&P/NZX 50", label: "NZX 50" },
+  { symbol: "^SSMI", name: "SMI", label: "SMI" },
+  { symbol: "^BVSP", name: "Bovespa", label: "Bovespa" },
+  { symbol: "^MXX", name: "S&P/BMV IPC", label: "IPC" },
+  { symbol: "^J203.JO", name: "JSE Top 40", label: "JSE 40" },
+  { symbol: "^DFMGI", name: "DFM General", label: "DFM" },
 ];
 
 export function worldIndex(symbol: string): DeskName {
@@ -44,6 +55,12 @@ export function comparePeer(regionId?: string | null): string {
   if (home === "^FTSE") return "^GDAXI";
   if (home === "^STI") return "^HSI";
   if (home === "^STOXX50E") return "^GSPC";
+  if (home === "^VNINDEX") return "^STI";
+  if (home === "^KS11") return "^TWII";
+  if (home === "^TWII") return "^KS11";
+  if (home === "^SET.BK" || home === "^KLSE" || home === "^JKSE") return "^STI";
+  if (home === "^NZ50") return "^AXJO";
+  if (home === "^SSMI") return "^GDAXI";
   return "^GSPC";
 }
 
@@ -181,6 +198,101 @@ const CA_NAMES: DeskName[] = [
   { symbol: "SU.TO", name: "Suncor", label: "SU" },
 ];
 
+
+const VN_NAMES: DeskName[] = [
+  { symbol: "VNM.VN", name: "Vinamilk", label: "VNM" },
+  { symbol: "VIC.VN", name: "Vingroup", label: "VIC" },
+  { symbol: "VHM.VN", name: "Vinhomes", label: "VHM" },
+  { symbol: "VCB.VN", name: "Vietcombank", label: "VCB" },
+  { symbol: "HPG.VN", name: "Hoa Phat", label: "HPG" },
+  { symbol: "GAS.VN", name: "PetroVietnam Gas", label: "GAS" },
+  { symbol: "MSN.VN", name: "Masan", label: "MSN" },
+  { symbol: "BID.VN", name: "BIDV", label: "BID" },
+  { symbol: "FPT.VN", name: "FPT", label: "FPT" },
+  { symbol: "VRE.VN", name: "Vincom Retail", label: "VRE" },
+];
+
+const TH_NAMES: DeskName[] = [
+  { symbol: "PTT.BK", name: "PTT", label: "PTT" },
+  { symbol: "AOT.BK", name: "Airports of Thailand", label: "AOT" },
+  { symbol: "CPALL.BK", name: "CP All", label: "CPALL" },
+  { symbol: "ADVANC.BK", name: "AIS", label: "ADVANC" },
+  { symbol: "KBANK.BK", name: "Kasikornbank", label: "KBANK" },
+  { symbol: "BDMS.BK", name: "Bangkok Dusit", label: "BDMS" },
+];
+
+const MY_NAMES: DeskName[] = [
+  { symbol: "1155.KL", name: "Maybank", label: "MAYBANK" },
+  { symbol: "1023.KL", name: "CIMB", label: "CIMB" },
+  { symbol: "5347.KL", name: "Tenaga", label: "TENAGA" },
+  { symbol: "5183.KL", name: "Petronas Chemicals", label: "PCHEM" },
+  { symbol: "1295.KL", name: "Public Bank", label: "PBBANK" },
+];
+
+const ID_NAMES: DeskName[] = [
+  { symbol: "BBCA.JK", name: "Bank Central Asia", label: "BBCA" },
+  { symbol: "BBRI.JK", name: "Bank Rakyat", label: "BBRI" },
+  { symbol: "TLKM.JK", name: "Telkom Indonesia", label: "TLKM" },
+  { symbol: "BMRI.JK", name: "Bank Mandiri", label: "BMRI" },
+  { symbol: "ASII.JK", name: "Astra International", label: "ASII" },
+];
+
+const KR_NAMES: DeskName[] = [
+  { symbol: "005930.KS", name: "Samsung Electronics", label: "005930" },
+  { symbol: "000660.KS", name: "SK Hynix", label: "000660" },
+  { symbol: "035420.KS", name: "Naver", label: "035420" },
+  { symbol: "035720.KS", name: "Kakao", label: "035720" },
+  { symbol: "005380.KS", name: "Hyundai Motor", label: "005380" },
+];
+
+const TW_NAMES: DeskName[] = [
+  { symbol: "2330.TW", name: "TSMC", label: "2330" },
+  { symbol: "2317.TW", name: "Hon Hai", label: "2317" },
+  { symbol: "2454.TW", name: "MediaTek", label: "2454" },
+  { symbol: "2308.TW", name: "Delta Electronics", label: "2308" },
+];
+
+const NZ_NAMES: DeskName[] = [
+  { symbol: "FPH.NZ", name: "Fisher & Paykel", label: "FPH" },
+  { symbol: "AIA.NZ", name: "Auckland Airport", label: "AIA" },
+  { symbol: "SPK.NZ", name: "Spark", label: "SPK" },
+  { symbol: "MEL.NZ", name: "Meridian Energy", label: "MEL" },
+];
+
+const CH_NAMES: DeskName[] = [
+  { symbol: "NESN.SW", name: "Nestle", label: "NESN" },
+  { symbol: "ROG.SW", name: "Roche", label: "ROG" },
+  { symbol: "NOVN.SW", name: "Novartis", label: "NOVN" },
+  { symbol: "UBSG.SW", name: "UBS", label: "UBSG" },
+];
+
+const BR_NAMES: DeskName[] = [
+  { symbol: "PETR4.SA", name: "Petrobras", label: "PETR4" },
+  { symbol: "VALE3.SA", name: "Vale", label: "VALE3" },
+  { symbol: "ITUB4.SA", name: "Itau Unibanco", label: "ITUB4" },
+  { symbol: "BBDC4.SA", name: "Bradesco", label: "BBDC4" },
+];
+
+const MX_NAMES: DeskName[] = [
+  { symbol: "AMXB.MX", name: "America Movil", label: "AMXB" },
+  { symbol: "WALMEX.MX", name: "Walmart de Mexico", label: "WALMEX" },
+  { symbol: "GFNORTEO.MX", name: "Banorte", label: "GFNORTEO" },
+  { symbol: "FEMSAUBD.MX", name: "Femsa", label: "FEMSA" },
+];
+
+const ZA_NAMES: DeskName[] = [
+  { symbol: "NPN.JO", name: "Naspers", label: "NPN" },
+  { symbol: "FSR.JO", name: "FirstRand", label: "FSR" },
+  { symbol: "SBK.JO", name: "Standard Bank", label: "SBK" },
+  { symbol: "SOL.JO", name: "Sasol", label: "SOL" },
+];
+
+const AE_NAMES: DeskName[] = [
+  { symbol: "EMAAR.AE", name: "Emaar", label: "EMAAR" },
+  { symbol: "FAB.AE", name: "First Abu Dhabi Bank", label: "FAB" },
+  { symbol: "ADNOCDIST.AE", name: "ADNOC Distribution", label: "ADNOCDIST" },
+];
+
 const EU_NAMES: DeskName[] = [
   { symbol: "ASML", name: "ASML" },
   { symbol: "SAP.DE", name: "SAP", label: "SAP" },
@@ -273,6 +385,103 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
     names: EU_NAMES,
     pseHome: false,
     tape: ["^STOXX50E", "^GDAXI", "ASML", PSEI_SYMBOL, NIFTY_SYMBOL, "GC=F"],
+  },
+
+  VN: {
+    index: { symbol: "^VNINDEX", name: "VN-Index", label: "VN-Index" },
+    newsQuery: '"VN-Index" OR "Ho Chi Minh stocks" OR HOSE OR "Vietnam stocks"',
+    newsLocale: "hl=en&gl=VN&ceid=VN:en",
+    names: VN_NAMES,
+    pseHome: false,
+    tape: ["^VNINDEX", "VNM.VN", "VIC.VN", PSEI_SYMBOL, "^STI", "GC=F"],
+  },
+  TH: {
+    index: { symbol: "^SET.BK", name: "SET Index", label: "SET" },
+    newsQuery: '"SET Index" OR "Thai stocks" OR "Bangkok stocks"',
+    newsLocale: "hl=en&gl=TH&ceid=TH:en",
+    names: TH_NAMES,
+    pseHome: false,
+    tape: ["^SET.BK", "PTT.BK", "AOT.BK", PSEI_SYMBOL, "^STI", "GC=F"],
+  },
+  MY: {
+    index: { symbol: "^KLSE", name: "FTSE Bursa", label: "KLCI" },
+    newsQuery: '"KLCI" OR "Bursa Malaysia" OR "Malaysian stocks"',
+    newsLocale: "hl=en&gl=MY&ceid=MY:en",
+    names: MY_NAMES,
+    pseHome: false,
+    tape: ["^KLSE", "1155.KL", "1023.KL", PSEI_SYMBOL, "^STI", "GC=F"],
+  },
+  ID: {
+    index: { symbol: "^JKSE", name: "Jakarta Composite", label: "JCI" },
+    newsQuery: '"Jakarta Composite" OR "Indonesian stocks" OR IDX',
+    newsLocale: "hl=en&gl=ID&ceid=ID:en",
+    names: ID_NAMES,
+    pseHome: false,
+    tape: ["^JKSE", "BBCA.JK", "TLKM.JK", PSEI_SYMBOL, "^STI", "GC=F"],
+  },
+  KR: {
+    index: { symbol: "^KS11", name: "KOSPI", label: "KOSPI" },
+    newsQuery: "KOSPI OR \"Korean stocks\" OR \"Seoul stocks\"",
+    newsLocale: "hl=en&gl=KR&ceid=KR:en",
+    names: KR_NAMES,
+    pseHome: false,
+    tape: ["^KS11", "005930.KS", "000660.KS", PSEI_SYMBOL, "^TWII", "GC=F"],
+  },
+  TW: {
+    index: { symbol: "^TWII", name: "TAIEX", label: "TAIEX" },
+    newsQuery: "TAIEX OR \"Taiwan stocks\" OR TSMC",
+    newsLocale: "hl=en&gl=TW&ceid=TW:en",
+    names: TW_NAMES,
+    pseHome: false,
+    tape: ["^TWII", "2330.TW", "2317.TW", PSEI_SYMBOL, "^KS11", "GC=F"],
+  },
+  NZ: {
+    index: { symbol: "^NZ50", name: "S&P/NZX 50", label: "NZX 50" },
+    newsQuery: '"NZX 50" OR "New Zealand stocks" OR NZX',
+    newsLocale: "hl=en-NZ&gl=NZ&ceid=NZ:en",
+    names: NZ_NAMES,
+    pseHome: false,
+    tape: ["^NZ50", "FPH.NZ", "AIA.NZ", PSEI_SYMBOL, "^AXJO", "GC=F"],
+  },
+  CH: {
+    index: { symbol: "^SSMI", name: "SMI", label: "SMI" },
+    newsQuery: '"Swiss Market Index" OR "Swiss stocks" OR SMI',
+    newsLocale: "hl=en&gl=CH&ceid=CH:en",
+    names: CH_NAMES,
+    pseHome: false,
+    tape: ["^SSMI", "NESN.SW", "ROG.SW", PSEI_SYMBOL, "^GDAXI", "GC=F"],
+  },
+  BR: {
+    index: { symbol: "^BVSP", name: "Bovespa", label: "Bovespa" },
+    newsQuery: "Bovespa OR \"Brazilian stocks\" OR Ibovespa",
+    newsLocale: "hl=en&gl=BR&ceid=BR:en",
+    names: BR_NAMES,
+    pseHome: false,
+    tape: ["^BVSP", "PETR4.SA", "VALE3.SA", PSEI_SYMBOL, "^GSPC", "GC=F"],
+  },
+  MX: {
+    index: { symbol: "^MXX", name: "S&P/BMV IPC", label: "IPC" },
+    newsQuery: '"Mexican stocks" OR BMV OR "IPC index"',
+    newsLocale: "hl=en&gl=MX&ceid=MX:en",
+    names: MX_NAMES,
+    pseHome: false,
+    tape: ["^MXX", "AMXB.MX", "WALMEX.MX", PSEI_SYMBOL, "^GSPC", "GC=F"],
+  },
+  ZA: {
+    index: { symbol: "^J203.JO", name: "JSE Top 40", label: "JSE 40" },
+    newsQuery: '"JSE" OR "South African stocks" OR Johannesburg',
+    newsLocale: "hl=en&gl=ZA&ceid=ZA:en",
+    names: ZA_NAMES,
+    pseHome: false,
+    tape: ["^J203.JO", "NPN.JO", "FSR.JO", PSEI_SYMBOL, "^GSPC", "GC=F"],
+  },
+  AE: {
+    index: { symbol: "^DFMGI", name: "DFM General", label: "DFM" },
+    newsQuery: '"Dubai stocks" OR DFM OR "Abu Dhabi stocks" OR ADX',
+    newsLocale: "hl=en&gl=AE&ceid=AE:en",
+    names: AE_NAMES,
+    pseHome: false,
+    tape: ["^DFMGI", "EMAAR.AE", "FAB.AE", PSEI_SYMBOL, "^GSPC", "GC=F"],
   },
 };
 
@@ -373,7 +582,7 @@ export function digestUrl(regionId?: string | null, window: "1d" | "7d" = "1d") 
 export function isHomeSymbol(symbol: string, regionId?: string | null) {
   const id = (regionId ?? "PH").toUpperCase();
   const s = symbol.trim();
-  if (id === "US") return !/\.(HK|NS|BO|T|SI|L|AX|TO|DE|PA)$/i.test(s);
+  if (id === "US") return !/\.(HK|NS|BO|T|SI|L|AX|TO|DE|PA|VN|HM|KS|KQ|TW|BK|KL|JK|NZ|SW|SA|MX|JO|AE|DU|AD)$/i.test(s);
   if (id === "HK") return /\.HK$/i.test(s);
   if (id === "IN") return /\.(NS|BO)$/i.test(s);
   if (id === "JP") return /\.T$/i.test(s);
@@ -382,5 +591,17 @@ export function isHomeSymbol(symbol: string, regionId?: string | null) {
   if (id === "AU") return /\.AX$/i.test(s);
   if (id === "CA") return /\.(TO|V)$/i.test(s);
   if (id === "EU") return /\.(DE|PA)$/i.test(s) || /^(ASML|SAP|SIE)$/i.test(s);
+  if (id === "VN") return /\.(VN|HM)$/i.test(s);
+  if (id === "TH") return /\.BK$/i.test(s);
+  if (id === "MY") return /\.KL$/i.test(s);
+  if (id === "ID") return /\.JK$/i.test(s);
+  if (id === "KR") return /\.(KS|KQ)$/i.test(s);
+  if (id === "TW") return /\.TW$/i.test(s);
+  if (id === "NZ") return /\.NZ$/i.test(s);
+  if (id === "CH") return /\.SW$/i.test(s);
+  if (id === "BR") return /\.SA$/i.test(s);
+  if (id === "MX") return /\.MX$/i.test(s);
+  if (id === "ZA") return /\.JO$/i.test(s);
+  if (id === "AE") return /\.(AE|DU|AD)$/i.test(s);
   return true;
 }

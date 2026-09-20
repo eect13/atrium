@@ -10,6 +10,9 @@ test("Philippines is the factory desk region", () => {
   assert.equal(regionOf("nope").id, "PH");
   assert.ok(DESK_REGIONS.some((r) => r.id === "US"));
   assert.ok(DESK_REGIONS.some((r) => r.id === "JP"));
+  assert.ok(DESK_REGIONS.some((r) => r.id === "VN"));
+  assert.equal(regionOf("VN").tz, "Asia/Ho_Chi_Minh");
+  assert.equal(regionOf("VN").ccy, "VND");
   assert.equal(isoCountry("PH"), "PH");
   assert.equal(isoCountry("EU"), "");
   assert.equal(isoCountry("nope"), "PH");

@@ -92,6 +92,14 @@ export type CalendarEvent = {
   loc: string;
   source: EventSource;
   allDay?: boolean;
+  /** Google calendar id when source is google — used to hide Family / other. */
+  calId?: string;
+};
+
+export type GCalDesk = {
+  id: string;
+  label: string;
+  lane: "mine" | "family" | "other";
 };
 
 export type NoteStroke = { color: string; w: number; pts: number[] };

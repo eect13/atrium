@@ -26,11 +26,19 @@ export type DigestDay = {
 };
 
 const JUNK =
-  /tradingview|stock price and chart|credit cards?|referral|raffle|live better with|pay mo na/i;
+  /tradingview|stock price and chart|credit cards?|referral|raffle|live better with|pay mo na|yu-?gi-?oh|yugioh|snkrdunk|extended art|trading card|pokemon tcg|cardfight|one piece card|merch store|\bebay\b|stockx/i;
+
+/** Card-game / merch hits that steal the PSE ticker, plus generic chart spam. */
+export function digestNoise(title: string, src = "", link = "") {
+  const blob = `${title} ${src} ${link}`;
+  if (JUNK.test(blob)) return true;
+  if (/\bPSE\s*:/i.test(title) && !/\b(PSEi|Philippine Stock|Manila|PSEI)\b/i.test(title)) return true;
+  return false;
+}
 
 export function asDigestStories(xml: string): DigestStory[] {
   return parseRss(xml)
-    .filter((s) => s.title && !/^untitled$/i.test(s.title) && !JUNK.test(s.title))
+    .filter((s) => s.title && !/^untitled$/i.test(s.title) && !digestNoise(s.title, s.source || "", s.link))
     .map((s) => ({
       title: cleanHeadline(s.title) || s.title,
       link: s.link,

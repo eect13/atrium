@@ -31,6 +31,7 @@ import {
 } from "@/lib/format";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
+import { visibleCalEvents } from "@/lib/google-cal";
 import { useAtrium } from "@/lib/store";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,7 @@ export function WeatherBody() {
 }
 
 export function AgendaBody() {
-  const events = useAtrium((s) => s.events);
+  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff));
   const setView = useAtrium((s) => s.setView);
   const today = events
     .filter((e) => sameDay(e.start, new Date()))
@@ -137,7 +138,7 @@ export function CalendarPeek({
   embedded?: boolean;
   onSelect?: (e: CalendarEvent) => void;
 }) {
-  const events = useAtrium((s) => s.events);
+  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff));
   const setView = useAtrium((s) => s.setView);
   const calPeek = useAtrium((s) => s.calPeek);
   const setCalPeek = useAtrium((s) => s.setCalPeek);

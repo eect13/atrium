@@ -35,7 +35,7 @@ import {
   weekRangeLabel,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
-import { listGoogleEvents } from "@/lib/google-cal";
+import { defaultGcalOff, listGoogleCalendars, listGoogleEvents, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { useAtrium } from "@/lib/store";
@@ -59,7 +59,7 @@ function heading(cursor: Date, mode: CalMode) {
 }
 
 export function CalendarView() {
-  const { events, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor } = useAtrium(
+  const { events, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor, gcalCals, gcalOff, setGcalCals, toggleGcal } = useAtrium(
     useShallow((s) => ({
       events: s.events,
       addEvent: s.addEvent,
@@ -70,8 +70,13 @@ export function CalendarView() {
       calCursor: s.calCursor,
       setCalMode: s.setCalMode,
       setCalCursor: s.setCalCursor,
+      gcalCals: s.gcalCals,
+      gcalOff: s.gcalOff,
+      setGcalCals: s.setGcalCals,
+      toggleGcal: s.toggleGcal,
     })),
   );
+  const shown = useMemo(() => visibleCalEvents(events, gcalOff), [events, gcalOff]);
   const [cursor, setCursor] = useState(() => {
     if (calCursor && !Number.isNaN(+new Date(calCursor))) return new Date(calCursor);
     return new Date();
@@ -130,25 +135,18 @@ export function CalendarView() {
     }
   }
 
-  async function pullGoogle() {
-    const now = new Date();
-    const p = manilaParts(now);
-    const res = await listGoogleEvents({
-      data: {
-        timeMin: fromManila(p.year, p.month, 1).toISOString(),
-        timeMax: fromManila(p.year, p.month + 2, 1).toISOString(),
-      },
-    });
+
+  async function mapGoogle(res: Awaited<ReturnType<typeof listGoogleEvents>>, calendarId?: string) {
     if (res.loginRequired) {
       redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: res.loginUrl });
       toast("Connect Google Calendar, then try again.");
-      return;
+      return null;
     }
     if (res.error) {
       toast(res.error);
-      return;
+      return null;
     }
-    const mapped = res.events.flatMap((g) => {
+    return res.events.flatMap((g) => {
       const dateOnly = Boolean(g.start?.date && !g.start.dateTime);
       const s = g.start?.dateTime || (g.start?.date ? manilaAt(g.start.date, 9).toISOString() : "");
       const e = dateOnly
@@ -159,7 +157,7 @@ export function CalendarView() {
       const endAt = new Date(e);
       if (Number.isNaN(startAt.getTime())) return [];
       return [{
-        id: "g-" + (g.id || uid()),
+        id: "g-" + (calendarId ? calendarId + "-" : "") + (g.id || uid()),
         title: g.summary || "Google event",
         start: startAt.toISOString(),
         end: Number.isNaN(endAt.getTime()) ? startAt.toISOString() : endAt.toISOString(),
@@ -167,19 +165,62 @@ export function CalendarView() {
         loc: g.location || "",
         source: "google" as const,
         allDay: dateOnly || undefined,
+        calId: calendarId,
       }];
     });
+  }
+
+  async function pullGoogle(ids?: string[]) {
+    const now = new Date();
+    const p = manilaParts(now);
+    const range = {
+      timeMin: fromManila(p.year, p.month, 1).toISOString(),
+      timeMax: fromManila(p.year, p.month + 2, 1).toISOString(),
+    };
+    const listed = await listGoogleCalendars();
+    if (listed.loginRequired) {
+      redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: listed.loginUrl });
+      toast("Connect Google Calendar, then try again.");
+      return;
+    }
+    let cals = listed.calendars;
+    let off = gcalOff;
+    if (cals.length) {
+      const first = !gcalCals.length;
+      if (first) off = defaultGcalOff(cals);
+      setGcalCals(cals, first ? off : undefined);
+    } else {
+      cals = gcalCals;
+    }
+    const selected = ids?.length
+      ? ids
+      : (cals.length ? cals.filter((c) => !off.includes(c.id)).map((c) => c.id) : [undefined]);
+    const mapped: CalendarEvent[] = [];
+    for (const calendarId of selected.length ? selected : [undefined]) {
+      const res = await listGoogleEvents({
+        data: { ...range, calendarId: calendarId || undefined },
+      });
+      const rows = await mapGoogle(res, calendarId || undefined);
+      if (rows === null) return;
+      mapped.push(...rows);
+    }
     importedToast(importEvents(mapped));
+  }
+
+  async function flipCal(id: string) {
+    const turningOn = gcalOff.includes(id);
+    toggleGcal(id);
+    if (turningOn) await pullGoogle([id]);
   }
 
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const grid = useMemo(() => monthCells(cursor), [cursor]);
   const onDate = (d: Date) =>
-    events.filter((e) => sameDay(e.start, d)).toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
+    shown.filter((e) => sameDay(e.start, d)).toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
 
   const agendaMonth = isoMonth(cursor);
   const agenda = Object.groupBy(
-    events
+    shown
       .filter((e) => isoDate(new Date(e.start)).startsWith(agendaMonth))
       .toSorted((a, b) => a.start.localeCompare(b.start)),
     (e) => isoDate(new Date(e.start)),
@@ -236,7 +277,7 @@ export function CalendarView() {
             Import ICS
           </span>
         </label>
-        <Button variant="outline" size="sm" onClick={() => downloadICS(events)}>
+        <Button variant="outline" size="sm" onClick={() => downloadICS(shown)}>
           Export
         </Button>
         <Button variant="outline" size="sm" onClick={() => void pullGoogle()}>
@@ -260,6 +301,26 @@ export function CalendarView() {
           Subscribe
         </Button>
       </div>
+      {gcalCals.length ? (
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Google</p>
+          {gcalCals.map((c) => {
+            const on = !gcalOff.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => void flipCal(c.id)}
+                className={`min-h-11 rounded-md border px-3 text-sm ${on ? "border-ring bg-muted text-foreground" : "border-border text-muted-foreground"}`}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+          <p className="text-xs text-muted-foreground">Mine stays on. Family and holidays start hidden.</p>
+        </div>
+      ) : null}
 
       {mode === "month" && (
         <div className="grid grid-cols-7 gap-1.5">

@@ -65,6 +65,24 @@ export async function closeNativeFloat(kind: "note" | "widget", id: string) {
   if (win) await win.close();
 }
 
+/** Close every child float. The store keeps which pads were up so the next open restores them. */
+export async function closeAllNativeFloats() {
+  if (!isTauri()) return;
+  const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  const self = getCurrentWebviewWindow().label;
+  const all = await getAllWebviewWindows();
+  await Promise.all(
+    all.map(async (win) => {
+      if (win.label === self) return;
+      try {
+        await win.close();
+      } catch {
+        /* already gone */
+      }
+    }),
+  );
+}
+
 export async function closeThisWindow() {
   if (!isTauri()) return;
   const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
