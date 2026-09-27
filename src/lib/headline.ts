@@ -16,42 +16,6 @@ export const NEWS_TAGS = [
 ] as const;
 export type NewsTag = (typeof NEWS_TAGS)[number];
 
-const TAG_RULES: { tag: NewsTag; re: RegExp }[] = [
-  {
-    tag: "Sports",
-    re: /\b(nba|pba|uaap|ncaa|ufc|fifa|premier league|la liga|serie a|olympic|olympics|fiba|mpbl|volleyball|tennis|golf|boxing|pacquiao|gilas|azkals|football|soccer|basketball|baseball|mlb|nfl|nhl|f1|formula 1|grand prix|world cup|asian games|sea games|wimbledon)\b/i,
-  },
-  {
-    tag: "Entertainment",
-    re: /\b(hollywood|netflix|k-?pop|concert|box office|oscar|grammy|album|celebrity|actor|actress|movie|film|tv series|billboard|showbiz|met gala|disney|marvel|variety)\b/i,
-  },
-  {
-    tag: "Markets",
-    re: /\b(pse|psEi|stock market|stocks?|equit(?:y|ies)|crypto|bitcoin|forex|bond yield|wall street|nasdaq|dow jones|s&p)\b/i,
-  },
-  {
-    tag: "Business",
-    re: /\b(inflation|gdp|earnings|merger|ipo|economy|economic|ayala|jollibee|san miguel|revenue|unemployment|tariff|trade war|interest rate|bsp)\b|(?<!west )\bbanks?\b/i,
-  },
-  {
-    tag: "AI",
-    re: /\b(artificial intelligence|\ba\.?i\.?\b|openai|chatgpt|anthropic|claude|gemini|llm|large language|grok|deepseek|machine learning|neural net)\b/i,
-  },
-  {
-    tag: "Tech",
-    re: /\b(apple|google|microsoft|semiconductor|iphone|android|spacex|tesla|nvidia|chipmaker)\b/i,
-  },
-  {
-    tag: "Science",
-    re: /\b(nasa|climate|vaccine|cancer|physics|genome|asteroid|space station|quantum)\b/i,
-  },
-  { tag: "Opinion", re: /\b(opinion|editorial|columnist)\b/i },
-  {
-    tag: "Philippines",
-    re: /\b(philippines|filipino|manila|duterte|marcos|senate|malacañang|comelec|\bncr\b|luzon|visayas|mindanao|quezon city|\bcebu\b|\bdavao\b)\b/i,
-  },
-];
-
 const CAT_TAG: Record<string, NewsTag> = {
   ph: "Philippines",
   philippines: "Philippines",
@@ -82,20 +46,32 @@ export function asNewsFilter(raw: string | undefined): NewsTag | "All" {
   return NEWS_TAGS.find((t) => t.toLowerCase() === k.toLowerCase()) ?? "All";
 }
 
-export function tagStory(s: { title: string; desc?: string; src?: string; category?: string }): NewsTag {
-  const hay = `${s.title} ${s.desc ?? ""}`;
-  for (const rule of TAG_RULES) {
-    if (rule.re.test(hay)) return rule.tag;
-  }
-  return asNewsTag(s.category);
+/** Persisted filter. Known sections stay. An explicit desk country (Vietnam) stays. Anything else is All. */
+export function keepNewsChip(raw: string | undefined): string {
+  const known = asNewsFilter(raw);
+  if (known !== "All") return known;
+  const k = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (!k || /^all$/i.test(k)) return "All";
+  if (/^[A-Za-z][A-Za-z .'’-]{1,32}$/.test(k)) return k;
+  return "All";
 }
 
-export function newsTagList<T extends { title: string; desc?: string; src?: string; category?: string }>(
+/** The feed's own section. A World feed with an explicit desk country chips as that country. Titles are not scanned. */
+export function tagStory(s: { title?: string; desc?: string; src?: string; category?: string; region?: string }): string {
+  const section = asNewsTag(s.category);
+  const place = (s.region ?? "").trim();
+  if (section === "World" && place && !/^world$/i.test(place)) return place;
+  return section;
+}
+
+export function newsTagList<T extends { title: string; desc?: string; src?: string; category?: string; region?: string }>(
   items: T[],
-): NewsTag[] {
-  const seen = new Set<NewsTag>();
+): string[] {
+  const seen = new Set<string>();
   for (const it of items) seen.add(tagStory(it));
-  return NEWS_TAGS.filter((t) => seen.has(t));
+  const known = NEWS_TAGS.filter((t) => seen.has(t));
+  const extra = [...seen].filter((t) => !(NEWS_TAGS as readonly string[]).includes(t)).sort((a, b) => a.localeCompare(b));
+  return [...known, ...extra];
 }
 
 const JUNK_STORY =

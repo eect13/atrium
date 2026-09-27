@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asNewsTag, cleanHeadline, keepStory, mixStories, storyAge, storyFingerprint, tagStory } from "./headline.ts";
+import { asNewsTag, cleanHeadline, keepStory, mixStories, newsTagList, storyAge, storyFingerprint, tagStory } from "./headline.ts";
 import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss, NEWS_CATALOG, FEED_PACKS, packIsOn, sortedFeedPacks, sourceRegion } from "./feeds.ts";
 
 test("drops emoji-only X titles", () => {
@@ -170,14 +170,18 @@ test("asNewsTag normalizes short labels", () => {
   assert.equal(asNewsTag("ai"), "AI");
 });
 
-test("tagStory labels sports business entertainment and PH", () => {
-  assert.equal(tagStory({ title: "Gilas beats Japan in FIBA window", category: "Top" }), "Sports");
-  assert.equal(tagStory({ title: "Netflix film opens to record box office", category: "Top" }), "Entertainment");
-  assert.equal(tagStory({ title: "PSE index climbs as banks post earnings", category: "Top" }), "Markets");
-  assert.equal(tagStory({ title: "Senate hears Malacañang budget", category: "World" }), "Philippines");
+test("tagStory keeps the feed section and does not guess from the headline", () => {
+  assert.equal(tagStory({ title: "Gilas beats Japan in FIBA window", category: "Sports" }), "Sports");
+  assert.equal(tagStory({ title: "Gilas beats Japan in FIBA window", category: "World" }), "World");
+  assert.equal(tagStory({ title: "Netflix film opens to record box office", category: "Entertainment" }), "Entertainment");
+  assert.equal(tagStory({ title: "Netflix film opens to record box office", category: "Top" }), "World");
+  assert.equal(tagStory({ title: "PSE index climbs as banks post earnings", category: "Markets" }), "Markets");
+  assert.equal(tagStory({ title: "Senate hears Malacañang budget", category: "World" }), "World");
+  assert.equal(tagStory({ title: "Senate hears Malacañang budget", category: "Philippines" }), "Philippines");
   assert.equal(tagStory({ title: "A quiet diplomatic note", category: "World" }), "World");
   assert.equal(tagStory({ title: "Chip foundry expands in Taiwan", category: "Tech" }), "Tech");
-  assert.equal(tagStory({ title: "A quiet diplomatic note", category: "Philippines" }), "Philippines");
+  assert.equal(tagStory({ title: "OpenAI releases a new GPT model", category: "Tech" }), "Tech");
+  assert.equal(tagStory({ title: "OpenAI releases a new GPT model", category: "AI" }), "AI");
   assert.equal(
     tagStory({
       title: "Palestinian parents fear for children's lives at school",
@@ -214,8 +218,16 @@ test("parseRss reads channel items", () => {
   assert.equal(items[0]?.link, "https://ex.com/1");
 });
 
-test("AI headlines tag as AI", () => {
-  assert.equal(tagStory({ title: "OpenAI releases a new GPT model", category: "Tech" }), "AI");
+test("tagStory uses an explicit desk country and never the headline", () => {
+  assert.equal(tagStory({ title: "Senate hears the budget", category: "World", region: "Vietnam" }), "Vietnam");
+  assert.equal(tagStory({ title: "Senate hears the budget", category: "World" }), "World");
+  assert.equal(tagStory({ title: "Hanoi factory opens", category: "Business", region: "Vietnam" }), "Business");
+  assert.equal(tagStory({ title: "London desk note", category: "World", region: "United Kingdom" }), "United Kingdom");
+  assert.deepEqual(newsTagList([
+    { title: "A", category: "World", region: "Vietnam" },
+    { title: "B", category: "Tech" },
+    { title: "C", category: "World" },
+  ]), ["World", "Tech", "Vietnam"]);
 });
 
 test("NEWS_CATALOG has 50+ unique sources", () => {
@@ -237,6 +249,19 @@ test("feed packs toggle a slice not the whole catalog", () => {
   assert.equal(packIsOn(on, "philippines"), true);
   assert.equal(packIsOn(on, "world"), false);
   assert.ok(on.filter((f) => f.enabled).length < NEWS_CATALOG.length);
+});
+
+test("country headline desks are a Google edition, not an empty search", () => {
+  for (const id of ["vn-desk", "us-desk", "japan-desk", "india-desk", "uk-desk", "korea-desk"]) {
+    const row = NEWS_CATALOG.find((f) => f.id === id);
+    assert.ok(row);
+    assert.match(row!.url, /^https:\/\/news\.google\.com\/rss\?/);
+    assert.doesNotMatch(row!.url, /when:1d|when%3A1d/);
+    assert.ok(row!.region);
+  }
+  const vn = NEWS_CATALOG.find((f) => f.id === "vn-desk");
+  assert.match(vn!.url, /gl=VN/);
+  assert.match(vn!.url, /hl=vi/);
 });
 
 test("sources group by country and Vietnam is its own pack", () => {

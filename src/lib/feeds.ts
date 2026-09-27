@@ -22,6 +22,12 @@ function gFeed(q: string, gl: string, hl = "en") {
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${hl}&gl=${gl}&ceid=${gl}:${hl}`;
 }
 
+/** National front page. A bare `when:1d` search returns nothing and ignores the country. */
+function gTop(gl: string, hl: string) {
+  const lang = hl.split("-")[0];
+  return `https://news.google.com/rss?hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${gl}:${lang}`;
+}
+
 export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag; region?: string }[] = [
   { id: "inquirer", name: "Inquirer", url: "https://www.inquirer.net/fullfeed/", category: "Philippines" },
   { id: "philstar", name: "Philstar", url: "https://www.philstar.com/rss/headlines", category: "Philippines" },
@@ -82,29 +88,29 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "vnexpress", name: "VnExpress", url: "https://e.vnexpress.net/rss/news.rss", category: "World", region: "Vietnam" },
   { id: "vietnamnews", name: "Vietnam News", url: gFeed("site:vietnamnews.vn when:7d", "VN"), category: "World", region: "Vietnam" },
   { id: "tuoitre", name: "Tuoi Tre News", url: gFeed("site:tuoitrenews.vn when:7d", "VN"), category: "World", region: "Vietnam" },
-  { id: "vn-desk", name: "Vietnam headlines", url: gFeed("when:1d", "VN"), category: "World", region: "Vietnam" },
-  { id: "us-desk", name: "US headlines", url: gFeed("when:1d", "US"), category: "World", region: "United States" },
+  { id: "vn-desk", name: "Vietnam headlines", url: gTop("VN", "vi"), category: "World", region: "Vietnam" },
+  { id: "us-desk", name: "US headlines", url: gTop("US", "en-US"), category: "World", region: "United States" },
   { id: "politico", name: "Politico", url: gFeed("site:politico.com when:1d", "US"), category: "World", region: "United States" },
-  { id: "japan-desk", name: "Japan headlines", url: gFeed("when:1d", "JP"), category: "World", region: "Japan" },
+  { id: "japan-desk", name: "Japan headlines", url: gTop("JP", "ja"), category: "World", region: "Japan" },
   { id: "nhk", name: "NHK World", url: gFeed("site:nhk.or.jp when:2d", "JP"), category: "World", region: "Japan" },
   { id: "cna", name: "CNA", url: gFeed("site:channelnewsasia.com when:1d", "SG"), category: "World", region: "Singapore" },
   { id: "straitstimes", name: "Straits Times", url: gFeed("site:straitstimes.com when:1d", "SG"), category: "World", region: "Singapore" },
-  { id: "hk-desk", name: "Hong Kong headlines", url: gFeed("when:1d", "HK"), category: "World", region: "Hong Kong" },
+  { id: "hk-desk", name: "Hong Kong headlines", url: gTop("HK", "zh-HK"), category: "World", region: "Hong Kong" },
   { id: "koreaherald", name: "Korea Herald", url: gFeed("site:koreaherald.com when:2d", "KR"), category: "World", region: "Korea" },
-  { id: "korea-desk", name: "Korea headlines", url: gFeed("when:1d", "KR"), category: "World", region: "Korea" },
+  { id: "korea-desk", name: "Korea headlines", url: gTop("KR", "ko"), category: "World", region: "Korea" },
   { id: "toi", name: "Times of India", url: gFeed("site:timesofindia.indiatimes.com when:1d", "IN"), category: "World", region: "India" },
-  { id: "india-desk", name: "India headlines", url: gFeed("when:1d", "IN"), category: "World", region: "India" },
+  { id: "india-desk", name: "India headlines", url: gTop("IN", "en-IN"), category: "World", region: "India" },
   { id: "bangkokpost", name: "Bangkok Post", url: gFeed("site:bangkokpost.com when:2d", "TH"), category: "World", region: "Thailand" },
   { id: "jakartapost", name: "Jakarta Post", url: gFeed("site:thejakartapost.com when:2d", "ID"), category: "World", region: "Indonesia" },
-  { id: "au-desk", name: "Australia headlines", url: gFeed("when:1d", "AU"), category: "World", region: "Australia" },
-  { id: "uk-desk", name: "UK headlines", url: gFeed("when:1d", "GB"), category: "World", region: "United Kingdom" },
+  { id: "au-desk", name: "Australia headlines", url: gTop("AU", "en-AU"), category: "World", region: "Australia" },
+  { id: "uk-desk", name: "UK headlines", url: gTop("GB", "en-GB"), category: "World", region: "United Kingdom" },
   { id: "thestar", name: "The Star", url: gFeed("site:thestar.com.my when:1d", "MY"), category: "World", region: "Malaysia" },
   { id: "malaymail", name: "Malay Mail", url: gFeed("site:malaymail.com when:2d", "MY"), category: "World", region: "Malaysia" },
-  { id: "my-desk", name: "Malaysia headlines", url: gFeed("when:1d", "MY"), category: "World", region: "Malaysia" },
+  { id: "my-desk", name: "Malaysia headlines", url: gTop("MY", "en-MY"), category: "World", region: "Malaysia" },
   { id: "focustaiwan", name: "Focus Taiwan", url: gFeed("site:focustaiwan.tw when:2d", "TW"), category: "World", region: "Taiwan" },
-  { id: "tw-desk", name: "Taiwan headlines", url: gFeed("when:1d", "TW"), category: "World", region: "Taiwan" },
+  { id: "tw-desk", name: "Taiwan headlines", url: gTop("TW", "zh-TW"), category: "World", region: "Taiwan" },
   { id: "globe", name: "Globe and Mail", url: gFeed("site:theglobeandmail.com when:1d", "CA"), category: "World", region: "Canada" },
-  { id: "ca-desk", name: "Canada headlines", url: gFeed("when:1d", "CA"), category: "World", region: "Canada" },
+  { id: "ca-desk", name: "Canada headlines", url: gTop("CA", "en-CA"), category: "World", region: "Canada" },
 ];
 
 /** One-click packs — never force all 50 on. */
@@ -491,13 +497,26 @@ async function pull(url: string) {
 }
 
 export const fetchFeed = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().min(4).max(2000), name: z.string(), category: z.string() }))
+  .validator(
+    z.object({
+      url: z.string().min(4).max(2000),
+      name: z.string(),
+      category: z.string(),
+      region: z.string().max(40).optional(),
+    }),
+  )
   .handler(async ({ data }) => {
     const url = publicHttpUrl(data.url);
     if (!url) throw new Error("That address is not allowed");
+    const place = (data.region ?? "").trim();
     const xml = await httpText(url);
     return parseRss(xml)
-      .map((s) => ({ ...s, src: data.name, category: data.category }))
+      .map((s) => ({
+        ...s,
+        src: data.name,
+        category: data.category,
+        ...(place ? { region: place } : {}),
+      }))
       .filter(keepStory)
       .map((s) => ({ ...s, title: cleanHeadline(s.title) || s.title }))
       .slice(0, 16);

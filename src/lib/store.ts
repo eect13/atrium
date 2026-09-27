@@ -40,11 +40,11 @@ import type {
 import { applyDeskProfile, DEFAULT_REGION, normalizeMarkets, regionOf } from "./region";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
-import { asNewsFilter, asNewsTag } from "./headline";
-import { FEED_PACKS, NEWS_CATALOG, sourceRegion } from "./feeds";
+import { asNewsTag, keepNewsChip } from "./headline";
+import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
-import { resolveCompareSet } from "./desk-market";
+import { resolveIndexPair } from "./desk-market";
 
 export const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
 
@@ -61,13 +61,16 @@ function withDefaultFeeds(feeds: Feed[], gone: string[] = []) {
   const next = (extra.length ? [...feeds, ...extra] : feeds).filter((f) => !skip.has(f.id));
   return next.map((f) => {
     const def = catalog.get(f.id);
-    return {
+    const region = def ? def.region : f.region;
+    const row: Feed = {
       ...f,
       name: def?.name ?? f.name,
       url: def?.url ?? f.url,
       category: asNewsTag(def?.category ?? f.category),
-      ...(def ? { region: sourceRegion(def) } : {}),
     };
+    if (region) row.region = region;
+    else delete row.region;
+    return row;
   });
 }
 
@@ -461,10 +464,13 @@ export const useAtrium = create<State>()(
           const next = asProfile({ ...s.profile, ...p }, s.profile);
           applyDeskProfile(next);
           const touchedMarkets = p.markets != null || (p.region != null && p.region !== s.profile.region);
-          const compareIndex = touchedMarkets
-            ? resolveCompareSet(next.markets ?? [next.region], s.marketPrefs.compareIndex)
-            : s.marketPrefs.compareIndex;
-          return { profile: next, marketPrefs: { ...s.marketPrefs, compareIndex } };
+          const pair = touchedMarkets
+            ? resolveIndexPair(next.markets ?? [next.region], s.marketPrefs.baseIndex, s.marketPrefs.compareIndex)
+            : null;
+          return {
+            profile: next,
+            marketPrefs: pair ? { ...s.marketPrefs, baseIndex: pair.base, compareIndex: pair.peer } : s.marketPrefs,
+          };
         }),
       addEvent: (e) => set((s) => ({ events: [...s.events, e] })),
       updateEvent: (id, patch) =>
@@ -839,6 +845,12 @@ export const useAtrium = create<State>()(
         set((s) => {
           const marketPrefs = { ...s.marketPrefs, ...p };
           marketPrefs.tab = normalizeTab(marketPrefs.tab);
+          if (p.baseIndex != null || p.compareIndex != null) {
+            const ids = normalizeMarkets(s.profile.markets, s.profile.region);
+            const pair = resolveIndexPair(ids, marketPrefs.baseIndex, marketPrefs.compareIndex);
+            marketPrefs.baseIndex = pair.base;
+            marketPrefs.compareIndex = pair.peer;
+          }
           return { marketPrefs };
         }),
       setDashOrder: (order) => set({ dashOrder: normalizeDash(order) }),
@@ -1068,7 +1080,7 @@ export const useAtrium = create<State>()(
             dashSpan: normalizeDashSpan(p.dashSpan),
             calPeek: p.calPeek === "month" || p.calPeek === "week" || p.calPeek === "auto" ? p.calPeek : "auto",
             newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : "",
-            newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : "All"),
+            newsTag: keepNewsChip(typeof p.newsTag === "string" ? p.newsTag : "All"),
             profile: prev
               ? { ...prev, tagline: staleTagline(prev.tagline) }
               : prev,
@@ -1226,7 +1238,7 @@ export const useAtrium = create<State>()(
           dashSpan: normalizeDashSpan(p.dashSpan ?? current.dashSpan),
           calPeek: ((p.calPeek ?? current.calPeek) === "month" || (p.calPeek ?? current.calPeek) === "week" || (p.calPeek ?? current.calPeek) === "auto") ? (p.calPeek ?? current.calPeek) as "auto" | "month" | "week" : "auto",
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
-          newsTag: asNewsFilter(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
+          newsTag: keepNewsChip(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
           modules: {
             calendar: true,
             weather: (p.modules as { weather?: boolean } | undefined)?.weather !== false,
@@ -1262,7 +1274,14 @@ export const useAtrium = create<State>()(
             screenCap: normalizeScreenCap((prefs as { screenCap?: string } | undefined)?.screenCap),
             screenVol: normalizeScreenVol((prefs as { screenVol?: string } | undefined)?.screenVol),
             screenYld: normalizeScreenYld((prefs as { screenYld?: string } | undefined)?.screenYld),
-            compareIndex: resolveCompareSet(normalizeMarkets(profile.markets, profile.region), (prefs as { compareIndex?: string } | undefined)?.compareIndex),
+            ...(() => {
+              const pair = resolveIndexPair(
+                normalizeMarkets(profile.markets, profile.region),
+                (prefs as { baseIndex?: string } | undefined)?.baseIndex,
+                (prefs as { compareIndex?: string } | undefined)?.compareIndex,
+              );
+              return { baseIndex: pair.base, compareIndex: pair.peer };
+            })(),
           },
         };
       },

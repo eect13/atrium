@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, resolveCompareSet, unionYahooSymbols, WORLD_INDICES, yahooTapeSymbol } from "./desk-market.ts";
+import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, resolveCompareSet, resolveIndexPair, unionYahooSymbols, WORLD_INDICES, yahooTapeSymbol } from "./desk-market.ts";
 import { PSEI_SYMBOL } from "./yahoo.ts";
 
 test("Philippines All stays the factory PSE tape", () => {
@@ -119,7 +119,13 @@ test("index compare follows the desk and never equals home", () => {
   assert.equal(resolveCompareSet(["VN", "US"], "^VNINDEX.VN"), "^STI");
   assert.equal(resolveCompareSet(["US", "VN"], "^GSPC"), "^IXIC");
   assert.equal(resolveCompareSet(["VN"], "^GSPC"), "^GSPC");
+  assert.equal(resolveCompareSet(["US", "IN"], NIFTY_SYMBOL), NIFTY_SYMBOL);
   assert.notEqual(resolveCompareSet(["PH", "VN"]), PSEI_SYMBOL);
+  const nasdaqNifty = resolveIndexPair(["PH", "IN"], "^IXIC", NIFTY_SYMBOL);
+  assert.equal(nasdaqNifty.base, "^IXIC");
+  assert.equal(nasdaqNifty.peer, NIFTY_SYMBOL);
+  assert.equal(resolveIndexPair(["PH"], "", "").base, PSEI_SYMBOL);
+  assert.notEqual(resolveIndexPair(["PH"], "^IXIC", "^IXIC").peer, "^IXIC");
   assert.ok(WORLD_INDICES.some((i) => i.symbol === PSEI_SYMBOL));
   assert.ok(WORLD_INDICES.some((i) => i.symbol === NIFTY_SYMBOL));
   for (const id of ["PH", "US", "HK", "IN", "JP"]) {

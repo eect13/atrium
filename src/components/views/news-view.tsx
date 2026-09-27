@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
 import { FEED_PRESETS, compareRegion, packIsOn, probeFeed, sortedFeedPacks, sourceRegion } from "@/lib/feeds";
-import { NEWS_TAGS, asNewsFilter, asNewsTag, storyAge, tagStory, type NewsTag } from "@/lib/headline";
+import { NEWS_TAGS, asNewsTag, keepNewsChip, newsTagList, storyAge, tagStory } from "@/lib/headline";
 import { DEFAULT_FEEDS, useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
 import { Chip, FIELD_SELECT } from "./finance-chip";
@@ -21,7 +21,7 @@ function storyKey(n: NewsItem, i: number) {
   return `${n.src}|${n.link}|${n.title}|${i}`;
 }
 
-function StoryTag({ tag }: { tag: NewsTag }) {
+function StoryTag({ tag }: { tag: string }) {
   return <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tag}</span>;
 }
 
@@ -60,7 +60,8 @@ export function NewsView({
       setNewsTag: s.setNewsTag,
     })),
   );
-  const filter = asNewsFilter(newsTag);
+  const filter = keepNewsChip(newsTag);
+  const chips = useMemo(() => newsTagList(items), [items]);
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [cat, setCat] = useState<string>("World");
@@ -188,7 +189,7 @@ export function NewsView({
             <Chip active={filter === "All"} onClick={() => setNewsTag("All")}>
               All
             </Chip>
-            {NEWS_TAGS.map((c) => (
+            {chips.map((c) => (
               <Chip key={c} active={filter === c} onClick={() => setNewsTag(c)}>
                 {c}
               </Chip>

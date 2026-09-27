@@ -10,7 +10,7 @@ export const NIFTY_SYMBOL = "^NSEI";
 
 export type DeskName = { symbol: string; name: string; label?: string };
 
-/** World indices the compare picker can take. Home index is the desk region; the other is this list. */
+/** World indices either side of the compare card can take. Neither side is locked to one country. */
 export const WORLD_INDICES: DeskName[] = [
   { symbol: PSEI_SYMBOL, name: "PSEi INDEX", label: "PSEi" },
   { symbol: NIFTY_SYMBOL, name: "Nifty 50", label: "Nifty" },
@@ -44,9 +44,8 @@ export function worldIndex(symbol: string): DeskName {
   return WORLD_INDICES.find((i) => i.symbol === symbol) ?? { symbol, name: symbol, label: symbol.replace(/^\^/, "") };
 }
 
-/** Default "other" index for a desk. PH vs Nifty; US vs Nasdaq; rest vs a regional peer or S&P. */
-export function comparePeer(regionId?: string | null): string {
-  const home = deskMarket(regionId).index.symbol;
+/** Default "other" index for a symbol. PH vs Nifty; S&P vs Nasdaq; rest vs a regional peer. */
+export function peerOf(home: string): string {
   if (home === PSEI_SYMBOL) return NIFTY_SYMBOL;
   if (home === "^GSPC") return "^IXIC";
   if (home === NIFTY_SYMBOL) return "^GSPC";
@@ -66,7 +65,41 @@ export function comparePeer(regionId?: string | null): string {
   if (home === "^GSPTSE") return "^GSPC";
   if (home === "^J200.JO") return "^FTSE";
   if (home === "DFMGI.AE") return "^FTSE";
+  if (home === "^IXIC" || home === "^DJI") return "^GSPC";
   return "^GSPC";
+}
+
+/** Default "other" index for a desk. */
+export function comparePeer(regionId?: string | null): string {
+  return peerOf(deskMarket(regionId).index.symbol);
+}
+
+export function isWorldIndex(symbol?: string | null): boolean {
+  return Boolean(symbol && WORLD_INDICES.some((i) => i.symbol === symbol));
+}
+
+/** Any listed index. A country's home index is allowed — the pick is not a desk lock. */
+export function resolveIndex(picked: string | null | undefined, fallback: string): string {
+  if (isWorldIndex(picked)) return picked as string;
+  if (isWorldIndex(fallback)) return fallback;
+  return "^GSPC";
+}
+
+/** Left and right of the compare card. Empty left follows the first open book. */
+export function resolveIndexPair(
+  ids: string[],
+  base?: string | null,
+  peer?: string | null,
+): { base: string; peer: string } {
+  const list = ids.length ? ids : ["PH"];
+  const home = deskMarket(list[0]).index.symbol;
+  const baseSym = resolveIndex(base, home);
+  let peerSym = resolveIndex(peer, peerOf(baseSym));
+  if (peerSym === baseSym) {
+    const alt = peerOf(baseSym);
+    peerSym = alt !== baseSym ? alt : (WORLD_INDICES.find((i) => i.symbol !== baseSym)?.symbol ?? "^IXIC");
+  }
+  return { base: baseSym, peer: peerSym };
 }
 
 /** Picked compare index, never the home index. */
@@ -78,17 +111,16 @@ export function resolveCompare(regionId?: string | null, picked?: string | null)
   return peer === home ? "^GSPC" : peer;
 }
 
-/** Compare against every open book, not the silent desk region. */
+/** Compare against the first open book, unless the user picked another listed index. */
 export function resolveCompareSet(ids: string[], picked?: string | null): string {
   const list = ids.length ? ids : ["PH"];
-  const homes = new Set(list.map((id) => deskMarket(id).index.symbol));
-  const hit = WORLD_INDICES.find((i) => i.symbol === picked);
-  if (hit && !homes.has(hit.symbol)) return hit.symbol;
+  const base = deskMarket(list[0]).index.symbol;
+  if (isWorldIndex(picked) && picked !== base) return picked as string;
   for (const id of list) {
     const peer = comparePeer(id);
-    if (!homes.has(peer)) return peer;
+    if (peer !== base) return peer;
   }
-  return homes.has("^GSPC") ? "^IXIC" : "^GSPC";
+  return base === "^GSPC" ? "^IXIC" : "^GSPC";
 }
 
 export type DeskMarket = {

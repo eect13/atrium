@@ -44,7 +44,9 @@ export type MarketPrefs = {
   tab: BoardTab;
   sort: BoardSort;
   sortDir: 1 | -1;
-  /** Yahoo symbol for the "other" index on All. Home index is the desk region. */
+  /** Yahoo symbol for the left index on All. Empty follows the first open book until you pick. */
+  baseIndex: string;
+  /** Yahoo symbol for the right index on All. Any listed index, including another country's home. */
   compareIndex: string;
 };
 
@@ -69,6 +71,7 @@ export const DEFAULT_MARKET_PREFS: MarketPrefs = {
   tab: "watcher",
   sort: "chg",
   sortDir: -1,
+  baseIndex: "",
   compareIndex: "^NSEI",
 };
 
@@ -378,6 +381,8 @@ export type NewsItem = {
   date: string;
   src: string;
   category: string;
+  /** Explicit desk country from the feed. Never inferred from the headline or the publisher's HQ. */
+  region?: string;
 };
 
 export type Profile = {

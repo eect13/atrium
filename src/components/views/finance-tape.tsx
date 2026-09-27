@@ -196,6 +196,7 @@ export function IndexCompare({
   homeQuote,
   peerQuote,
   pending,
+  onPickBase,
   onPick,
   onOpen,
   link,
@@ -206,6 +207,7 @@ export function IndexCompare({
   homeQuote?: MarketQuote;
   peerQuote?: MarketQuote;
   pending?: boolean;
+  onPickBase: (symbol: string) => void;
   onPick: (symbol: string) => void;
   onOpen: (q: MarketQuote) => void;
   link?: IndexLink;
@@ -227,34 +229,52 @@ export function IndexCompare({
       <p className="mt-1 font-mono text-xs text-muted-foreground">{name.symbol}</p>
     </button>
   );
-  const options = WORLD_INDICES.filter((i) => i.symbol !== home.symbol);
+  const left = WORLD_INDICES.filter((i) => i.symbol !== peer.symbol);
+  const right = WORLD_INDICES.filter((i) => i.symbol !== home.symbol);
   return (
     <Card className="mb-4">
       <CardHeader className="space-y-0">
-        <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
             <CardTitle>
               {home.label ?? home.symbol} vs {peer.label ?? peer.symbol}
             </CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Home index is this desk. Pick the other. Two delayed lasts — not a pairs trade.
+              Pick both sides. Nasdaq against Nifty, or any other pair. Delayed lasts — not a pairs trade.
             </p>
           </div>
-          <label className="min-w-40">
-            <span className="sr-only">Compare index</span>
-            <select
-              aria-label="Compare index"
-              className={cn(FIELD_SELECT, "h-11 w-full sm:w-44")}
-              value={peer.symbol}
-              onChange={(e) => onPick(e.target.value)}
-            >
-              {options.map((i) => (
-                <option key={i.symbol} value={i.symbol}>
-                  {i.label ?? i.symbol}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-wrap gap-2">
+            <label className="min-w-36">
+              <span className="mb-1 block text-xs text-muted-foreground">Left</span>
+              <select
+                aria-label="Left index"
+                className={cn(FIELD_SELECT, "h-11 w-full sm:w-40")}
+                value={home.symbol}
+                onChange={(e) => onPickBase(e.target.value)}
+              >
+                {left.map((i) => (
+                  <option key={i.symbol} value={i.symbol}>
+                    {i.label ?? i.symbol}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-36">
+              <span className="mb-1 block text-xs text-muted-foreground">Right</span>
+              <select
+                aria-label="Right index"
+                className={cn(FIELD_SELECT, "h-11 w-full sm:w-40")}
+                value={peer.symbol}
+                onChange={(e) => onPick(e.target.value)}
+              >
+                {right.map((i) => (
+                  <option key={i.symbol} value={i.symbol}>
+                    {i.label ?? i.symbol}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="grid gap-2 sm:grid-cols-2">

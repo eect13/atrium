@@ -8,7 +8,7 @@ import { WATCH_CATALOG, type QuoteCcy } from "@/lib/types";
 import { normalizeMarkets, regionOf } from "@/lib/region";
 import { YAHOO_CORE_TAPE } from "@/lib/yahoo";
 import { isPseScreen, isYahooScreen } from "@/lib/screener";
-import { deskMarket, unionYahooSymbols } from "@/lib/desk-market";
+import { deskMarket, resolveIndexPair, unionYahooSymbols } from "@/lib/desk-market";
 
 const MARKET_SNAP = "atrium.markets.snap";
 
@@ -41,6 +41,7 @@ export function useMarkets() {
   const stockTape = useAtrium((s) => s.marketPrefs.stockTape ?? "auto");
   const profile = useAtrium((s) => s.profile);
   const compareIndex = useAtrium((s) => s.marketPrefs.compareIndex);
+  const baseIndex = useAtrium((s) => s.marketPrefs.baseIndex);
   const boardQuery = useAtrium((s) => s.boardQuery);
   const searching = boardQuery.trim().length > 0;
   const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
@@ -49,12 +50,15 @@ export function useMarkets() {
   const hasPse = books.some((m) => m.pseHome);
   const foreign = books.find((m) => !m.pseHome);
   const primary = books[0] ?? deskMarket(profile.region);
+  const pair = resolveIndexPair(marketIds, baseIndex, compareIndex);
   const wantYahoo = marketsOn;
   const yahoo = wantYahoo
     ? [
         ...new Set([
           ...YAHOO_CORE_TAPE,
-          ...unionYahooSymbols(marketIds, compareIndex),
+          ...unionYahooSymbols(marketIds, pair.peer),
+          pair.base,
+          pair.peer,
           ...watch
             .filter((w) => w.kind === "global" || w.kind === "cmdty" || /[.^]/.test(w.symbol))
             .map((w) => w.symbol),

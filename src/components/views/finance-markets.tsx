@@ -88,7 +88,7 @@ import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap, SleeveRotation } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
-import { asDeskItem, deskMarket, homeBoardRows, resolveCompareSet, worldIndex } from "@/lib/desk-market";
+import { asDeskItem, deskMarket, homeBoardRows, resolveIndexPair, worldIndex } from "@/lib/desk-market";
 import { fetchFinanceDigest, mergeDigest } from "@/lib/digest";
 import { DESK_REGIONS, normalizeMarkets, toggleMarket } from "@/lib/region";
 import { deskSleeves, indexLink, pseWeightOf, rotationTake, sleeveSession, vsIndex } from "@/lib/desk-stats";
@@ -281,8 +281,11 @@ export function FinanceMarkets() {
     .map((id) => (id === "bitcoin" ? (quotes.bitcoin ?? quotes.BTC) : id === "ethereum" ? (quotes.ethereum ?? quotes.ETH) : quotes[id]))
     .filter((q): q is MarketQuote => Boolean(q));
   const psei = quotes[PSEI_SYMBOL];
-  const compareSym = resolveCompareSet(marketIds, marketPrefs.compareIndex);
+  const pair = resolveIndexPair(marketIds, marketPrefs.baseIndex, marketPrefs.compareIndex);
+  const compareSym = pair.peer;
+  const baseSym = pair.base;
   const peer = worldIndex(compareSym);
+  const baseName = worldIndex(baseSym);
   const homeIndex = quotes[market.index.symbol] ?? (market.pseHome ? psei : undefined);
   const homeWeek =
     homeIndex?.weekLow != null && homeIndex.weekHigh != null && homeIndex.weekHigh > homeIndex.weekLow
@@ -301,6 +304,7 @@ export function FinanceMarkets() {
     };
     for (const w of watch) push(w.symbol, w.kind);
     push(market.index.symbol, "global");
+    push(baseSym, "global");
     push(compareSym, "global");
     if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
       for (const c of WATCH_CATALOG.filter((w) => w.kind === tab)) push(c.symbol, c.kind);
@@ -321,7 +325,7 @@ export function FinanceMarkets() {
       }
     }
     return out.slice(0, 40);
-  }, [watch, tab, markets.data?.screen, pseScreenOn, hasPse, foreignBooks, compareSym]);
+  }, [watch, tab, markets.data?.screen, pseScreenOn, hasPse, foreignBooks, compareSym, baseSym]);
 
   const sparkFetchItems = useMemo(() => sparkItems.filter(sparkFetchable), [sparkItems]);
 
@@ -333,13 +337,13 @@ export function FinanceMarkets() {
     enabled: sparkFetchItems.length > 0 && (marketPrefs.spark || tab === "all"),
   });
   const indexSparkQ = useQuery({
-    queryKey: ["sparks", "index", range, market.index.symbol, tab === "all" ? compareSym : ""],
+    queryKey: ["sparks", "index", range, baseSym, tab === "all" ? compareSym : ""],
     queryFn: () =>
       fetchSparks({
         data: {
           range,
           items: [
-            { id: market.index.symbol, kind: "global" as const },
+            { id: baseSym, kind: "global" as const },
             ...(tab === "all" ? [{ id: compareSym, kind: "global" as const }] : []),
           ],
         },
@@ -610,8 +614,8 @@ export function FinanceMarkets() {
     [sleeves, quotes, hasPse],
   );
   const compareLink = useMemo(
-    () => indexLink(remoteSpark(market.index.symbol, homeIndex?.id), remoteSpark(compareSym, peer.symbol)),
-    [remoteSparks, market.index.symbol, homeIndex?.id, compareSym, peer.symbol, range],
+    () => indexLink(remoteSpark(baseSym), remoteSpark(compareSym, peer.symbol)),
+    [remoteSparks, baseSym, compareSym, peer.symbol, range],
   );
   function putOnWatch(item: WatchItem, extra?: Partial<WatchItem>) {
     addWatch({ ...item, ...extra });
@@ -1013,12 +1017,25 @@ export function FinanceMarkets() {
 
       {!query.trim() && tab === "all" ? (
         <IndexCompare
-          home={market.index}
+          home={baseName}
           peer={peer}
-          homeQuote={homeIndex}
+          homeQuote={quotes[baseSym]}
           peerQuote={quotes[compareSym]}
           pending={quotesPending || indexSparkQ.isFetching}
-          onPick={(sym) => setMarketPrefs({ compareIndex: resolveCompareSet(marketIds, sym) })}
+          onPickBase={(sym) => {
+            if (sym === compareSym) {
+              setMarketPrefs({ baseIndex: compareSym, compareIndex: baseSym });
+              return;
+            }
+            setMarketPrefs({ baseIndex: sym, compareIndex: compareSym });
+          }}
+          onPick={(sym) => {
+            if (sym === baseSym) {
+              setMarketPrefs({ baseIndex: compareSym, compareIndex: baseSym });
+              return;
+            }
+            setMarketPrefs({ baseIndex: baseSym, compareIndex: sym });
+          }}
           onOpen={(q) => {
             const item = asItem(q, q.kind);
             setOpen({ key: q.id, item, q, watching: watching(item) });

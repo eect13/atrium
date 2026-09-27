@@ -134,7 +134,16 @@ const NAV: {
 
 async function pullFeeds(list: Feed[]) {
   const batches = await Promise.allSettled(
-    list.map((f) => fetchFeed({ data: { url: f.url, name: f.name, category: f.category } })),
+    list.map((f) =>
+      fetchFeed({
+        data: {
+          url: f.url,
+          name: f.name,
+          category: f.category,
+          ...(f.region ? { region: f.region } : {}),
+        },
+      }),
+    ),
   );
   const items: NewsItem[] = [];
   let failed = 0;
