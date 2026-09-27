@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, WORLD_INDICES, yahooTapeSymbol } from "./desk-market.ts";
+import { deskMarket, deskYahooSymbols, digestUrl, homeBoardRows, isHomeSymbol, NIFTY_SYMBOL, resolveCompare, resolveCompareSet, unionYahooSymbols, WORLD_INDICES, yahooTapeSymbol } from "./desk-market.ts";
 import { PSEI_SYMBOL } from "./yahoo.ts";
 
 test("Philippines All stays the factory PSE tape", () => {
@@ -84,10 +84,17 @@ test("home symbol filter keeps the desk exchange", () => {
   assert.equal(rows.some((r) => r.item.symbol === "0700.HK"), true);
 });
 
+test("union yahoo symbols keeps more than one country book", () => {
+  const both = unionYahooSymbols(["PH", "VN"]);
+  assert.ok(both.includes(PSEI_SYMBOL));
+  assert.ok(both.includes("^VNINDEX.VN"));
+  assert.ok(both.includes("VNM.VN"));
+});
+
 test("Vietnam All seeds HOSE names and VN-Index", () => {
   const vn = deskMarket("VN");
   assert.equal(vn.pseHome, false);
-  assert.equal(vn.index.symbol, "^VNINDEX");
+  assert.equal(vn.index.symbol, "^VNINDEX.VN");
   assert.ok(vn.names.some((n) => n.symbol === "VNM.VN"));
   assert.equal(isHomeSymbol("VNM.VN", "VN"), true);
   assert.equal(isHomeSymbol("AAPL", "VN"), false);
@@ -109,6 +116,10 @@ test("index compare follows the desk and never equals home", () => {
   assert.equal(resolveCompare("PH", PSEI_SYMBOL), NIFTY_SYMBOL);
   assert.equal(resolveCompare("US", "^GSPC"), "^IXIC");
   assert.equal(resolveCompare("IN", NIFTY_SYMBOL), "^GSPC");
+  assert.equal(resolveCompareSet(["VN", "US"], "^VNINDEX.VN"), "^STI");
+  assert.equal(resolveCompareSet(["US", "VN"], "^GSPC"), "^IXIC");
+  assert.equal(resolveCompareSet(["VN"], "^GSPC"), "^GSPC");
+  assert.notEqual(resolveCompareSet(["PH", "VN"]), PSEI_SYMBOL);
   assert.ok(WORLD_INDICES.some((i) => i.symbol === PSEI_SYMBOL));
   assert.ok(WORLD_INDICES.some((i) => i.symbol === NIFTY_SYMBOL));
   for (const id of ["PH", "US", "HK", "IN", "JP"]) {

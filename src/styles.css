@@ -216,11 +216,13 @@ html.light {
     }
     .note-format-autohide {
       opacity: 0;
+      pointer-events: none;
       transition: opacity 160ms var(--ease-smooth-out);
     }
     .note-format-autohide:hover,
     .note-format-autohide:focus-within {
       opacity: 1;
+      pointer-events: auto;
     }
   }
 }

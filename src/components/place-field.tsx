@@ -30,17 +30,18 @@ export function PlaceField({
   const [busy, setBusy] = useState(false);
   const picked = useRef(false);
   const seq = useRef(0);
+  const hitFor = useRef("");
 
   useEffect(() => {
     const query = q.trim();
-    if (query.length < 2) {
-      setHits([]);
-      return;
-    }
+    setHits([]);
+    hitFor.current = "";
+    if (query.length < 2) return;
     const t = window.setTimeout(() => {
       const n = ++seq.current;
       void lookupPlaces({ data: { name: query, country } }).then((rows) => {
         if (n !== seq.current) return;
+        hitFor.current = query;
         setHits(rows);
         setOpen(rows.length > 0 && !picked.current);
       });
@@ -53,12 +54,13 @@ export function PlaceField({
     if (!query) {
       onClear?.();
       setHits([]);
+      hitFor.current = "";
       setQ("");
       return;
     }
     setBusy(true);
     try {
-      const rows = hits.length ? hits : await lookupPlaces({ data: { name: query, country } });
+      const rows = hitFor.current === query && hits.length ? hits : await lookupPlaces({ data: { name: query, country } });
       const hit = rows[0];
       if (!hit) return;
       pick(hit);

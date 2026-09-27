@@ -54,6 +54,16 @@ import {
   screensOn,
   yldLabel,
 } from "@/lib/screener";
+
+function usdPerFromFx(fx?: { usdphp?: number; per?: Record<string, number> } | null) {
+  const usdphp = fx?.usdphp;
+  if (!usdphp) return undefined;
+  const out: Record<string, number> = { USD: 1, PHP: 1 / usdphp };
+  for (const [code, php] of Object.entries(fx.per ?? {})) {
+    if (php > 0) out[code.toUpperCase()] = php / usdphp;
+  }
+  return out;
+}
 import { fetchPseIndex } from "@/lib/pse-index";
 import {
   SPARK_RANGES,
@@ -78,8 +88,9 @@ import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap, SleeveRotation } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
-import { asDeskItem, deskMarket, homeBoardRows, resolveCompare, worldIndex } from "@/lib/desk-market";
-import { fetchFinanceDigest } from "@/lib/digest";
+import { asDeskItem, deskMarket, homeBoardRows, resolveCompareSet, worldIndex } from "@/lib/desk-market";
+import { fetchFinanceDigest, mergeDigest } from "@/lib/digest";
+import { DESK_REGIONS, normalizeMarkets, toggleMarket } from "@/lib/region";
 import { deskSleeves, indexLink, pseWeightOf, rotationTake, sleeveSession, vsIndex } from "@/lib/desk-stats";
 
 const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
@@ -95,9 +106,7 @@ function fxToPhp(unit: (typeof FX_UNITS)[number], fx: { usdphp: number; eurphp: 
 function asItem(q: MarketQuote, kind: WatchItem["kind"]): WatchItem {
   const catalog = WATCH_CATALOG.find((w) => w.symbol === q.id || (kind === "stock" && w.symbol === q.label));
   if (catalog) return catalog;
-  const seed = ["US", "HK", "IN", "JP", "SG", "GB", "AU", "CA", "EU"]
-    .flatMap((id) => deskMarket(id).names)
-    .find((n) => n.symbol === q.id);
+  const seed = DESK_REGIONS.flatMap((r) => deskMarket(r.id).names).find((n) => n.symbol === q.id);
   if (seed) return asDeskItem(seed);
   return {
     id: kind === "stock" ? `pse-${q.id}` : q.id,
@@ -178,9 +187,10 @@ export function FinanceMarkets() {
     boardFocus,
     setBoardFocus,
     region,
+    profileMarkets,
+    setProfile,
     digests,
     rememberDigest,
-    setAnalyzeSeed,
   } = useAtrium(
     useShallow((s) => ({
       watch: s.watch,
@@ -196,9 +206,10 @@ export function FinanceMarkets() {
       boardFocus: s.boardFocus,
       setBoardFocus: s.setBoardFocus,
       region: s.profile.region,
+      profileMarkets: s.profile.markets,
+      setProfile: s.setProfile,
       digests: s.digests,
       rememberDigest: s.rememberDigest,
-      setAnalyzeSeed: s.setAnalyzeSeed,
     })),
   );
   const [fromUnit, setFromUnit] = useState<(typeof FX_UNITS)[number]>("USD");
@@ -220,8 +231,12 @@ export function FinanceMarkets() {
   const range = normalizeSparkRange(marketPrefs.sparkRange);
   const sparkLabel = SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M";
   const pseScreenOn = tab === "screen" && isPseScreen(marketPrefs.screen);
-  const market = deskMarket(region);
-  const sortUse = !market.pseHome && sort === "wt" && (tab === "all" || tab === "blue") ? "chg" : sort;
+  const marketIds = normalizeMarkets(profileMarkets, region);
+  const books = marketIds.map((id) => deskMarket(id));
+  const hasPse = books.some((m) => m.pseHome);
+  const market = books[0] ?? deskMarket(region);
+  const foreignBooks = books.filter((m) => !m.pseHome);
+  const sortUse = !hasPse && sort === "wt" && (tab === "all" || tab === "blue") ? "chg" : sort;
 
   function goTab(next: typeof tab) {
     setMarketPrefs(tabSortPatch(next, { tab, sort: sortUse }));
@@ -266,7 +281,7 @@ export function FinanceMarkets() {
     .map((id) => (id === "bitcoin" ? (quotes.bitcoin ?? quotes.BTC) : id === "ethereum" ? (quotes.ethereum ?? quotes.ETH) : quotes[id]))
     .filter((q): q is MarketQuote => Boolean(q));
   const psei = quotes[PSEI_SYMBOL];
-  const compareSym = resolveCompare(region, marketPrefs.compareIndex);
+  const compareSym = resolveCompareSet(marketIds, marketPrefs.compareIndex);
   const peer = worldIndex(compareSym);
   const homeIndex = quotes[market.index.symbol] ?? (market.pseHome ? psei : undefined);
   const homeWeek =
@@ -298,14 +313,15 @@ export function FinanceMarkets() {
       }
     }
     if (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") {
-      if (market.pseHome) {
+      if (hasPse) {
         for (const t of BLUECHIPS) push(t, "stock");
-      } else {
-        for (const n of market.names) push(n.symbol, "global");
+      }
+      for (const book of foreignBooks) {
+        for (const n of book.names) push(n.symbol, "global");
       }
     }
     return out.slice(0, 40);
-  }, [watch, tab, markets.data?.screen, pseScreenOn, market, compareSym]);
+  }, [watch, tab, markets.data?.screen, pseScreenOn, hasPse, foreignBooks, compareSym]);
 
   const sparkFetchItems = useMemo(() => sparkItems.filter(sparkFetchable), [sparkItems]);
 
@@ -370,8 +386,19 @@ export function FinanceMarkets() {
   }
 
   const digestQ = useQuery({
-    queryKey: ["finance-digest", market.id],
-    queryFn: () => fetchFinanceDigest({ data: { region: market.id } }),
+    queryKey: ["finance-digest", marketIds.join(",")],
+    queryFn: async () => {
+      const days = await Promise.all(marketIds.map((id) => fetchFinanceDigest({ data: { region: id } })));
+      const first = days[0];
+      if (!first) return first;
+      const items = mergeDigest(days.flatMap((d) => d?.items ?? []));
+      return {
+        ...first,
+        region: marketIds.join("+").slice(0, 24),
+        market: books.map((b) => b.name).join(" · "),
+        items,
+      };
+    },
     staleTime: 30 * 60_000,
     gcTime: 24 * 60 * 60_000,
     enabled: tab === "all",
@@ -382,10 +409,10 @@ export function FinanceMarkets() {
   }, [digestQ.data, rememberDigest]);
 
   useEffect(() => {
-    if (!market.pseHome && (tab === "blue" || tab === "reit" || tab === "div")) {
+    if (!hasPse && (tab === "blue" || tab === "reit" || tab === "div")) {
       setMarketPrefs(tabSortPatch("all", { tab: "all", sort: "chg" }));
     }
-  }, [market.pseHome, tab, setMarketPrefs]);
+  }, [hasPse, tab, setMarketPrefs]);
   useEffect(() => {
     if (marketPrefs.tab !== tab) setMarketPrefs({ tab });
   }, [marketPrefs.tab, tab, setMarketPrefs]);
@@ -403,6 +430,7 @@ export function FinanceMarkets() {
           } else if (tab === "crypto" || tab === "fx" || tab === "global" || tab === "cmdty") {
             for (const r of kindBoardRows(tab, quotes, WATCH_CATALOG, watching)) out.push(r);
           } else if (tab === "screen") {
+            const usdPer = usdPerFromFx(markets.data?.fx);
             if (pseScreenOn) {
               const sleeve = stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue);
               const screened = applyScreenFilters(
@@ -410,6 +438,7 @@ export function FinanceMarkets() {
                   row: r,
                   pe: r.q?.pe,
                   marketCap: r.q?.marketCap,
+                  ccy: r.q?.ccy,
                   volume: r.q?.volume,
                   yieldPct: r.q?.yieldPct,
                 })),
@@ -418,6 +447,7 @@ export function FinanceMarkets() {
                   cap: marketPrefs.screenCap,
                   vol: marketPrefs.screenVol,
                   yld: marketPrefs.screenYld,
+                  usdPer,
                 },
               );
               for (const hit of screened) out.push(hit.row);
@@ -427,14 +457,24 @@ export function FinanceMarkets() {
                 cap: marketPrefs.screenCap,
                 vol: marketPrefs.screenVol,
                 yld: marketPrefs.screenYld,
+                usdPer,
               });
               for (const q of screened) {
                 const item = asItem(q, "global");
                 out.push({ key: q.id, item, q, watching: watching(item) });
               }
             }
-          } else if (!market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div")) {
-            for (const r of homeBoardRows(quotes, markets.data?.home, market, watching)) out.push(r);
+          } else if (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") {
+            if (hasPse) {
+              for (const r of stockBoardRows(tab === "all" ? "all" : tab, quotes, WATCH_CATALOG, watching, liveBlue)) {
+                out.push(r);
+              }
+            }
+            if (tab === "all" || !hasPse) {
+              for (const book of foreignBooks) {
+                for (const r of homeBoardRows(quotes, markets.data?.home, book, watching)) out.push(r);
+              }
+            }
           } else {
             for (const r of stockBoardRows(tab, quotes, WATCH_CATALOG, watching, liveBlue)) {
               out.push(r);
@@ -450,7 +490,7 @@ export function FinanceMarkets() {
     const filtered = withSpark.filter((r) => matchQuery(query, r.item));
     const sorted = sortRows(filtered, sortUse, sortDir, { cryptoUsdt: marketPrefs.cryptoUsdt });
     return query.trim() ? rankByQuery(sorted, query) : sorted;
-  }, [tab, watch, quotes, query, sortUse, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen, markets.data?.home, pseScreenOn, market]);
+  }, [tab, watch, quotes, query, sortUse, sortDir, marketPrefs.cryptoUsdt, marketPrefs.screenPe, marketPrefs.screenCap, marketPrefs.screenVol, marketPrefs.screenYld, liveBlue, range, remoteSparks, markets.data?.screen, markets.data?.home, markets.data?.fx, pseScreenOn, hasPse, foreignBooks]);
 
   useEffect(() => {
     if (!boardFocus) return;
@@ -471,7 +511,8 @@ export function FinanceMarkets() {
     const pse = Object.values(quotes)
       .filter((x) => x.kind === "stock")
       .map((x) => asItem(x, "stock" as const));
-    const pool = [...WATCH_CATALOG, ...pse].filter(
+    const seeds = books.flatMap((b) => b.names.map((n) => asDeskItem(n)));
+    const pool = [...WATCH_CATALOG, ...pse, ...seeds].filter(
       (item, i, all) => all.findIndex((x) => x.symbol === item.symbol) === i,
     );
     const free = pool.filter((item) => !watching(item));
@@ -496,7 +537,7 @@ export function FinanceMarkets() {
           ]
         : [];
     return [...local, ...remote, ...extra].slice(0, 16);
-  }, [addQuery, addNeedle, quotes, watch, remoteAdd.data]);
+  }, [addQuery, addNeedle, quotes, watch, remoteAdd.data, books]);
 
   const positions = useMemo(() => {
     return watch
@@ -527,11 +568,13 @@ export function FinanceMarkets() {
   const pnlParts = positions.map((p) => p.pnl).filter((n): n is number => n != null);
   const totalPnl = pnlParts.length ? pnlParts.reduce((a, b) => a + b, 0) : null;
   const heatRows = useMemo(
-    () =>
-      market.pseHome
-        ? stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue)
-        : homeBoardRows(quotes, markets.data?.home, market, watching),
-    [quotes, liveBlue, watch, market, markets.data?.home],
+    () => {
+      const out: BoardRow[] = [];
+      if (hasPse) out.push(...stockBoardRows("blue", quotes, WATCH_CATALOG, watching, liveBlue));
+      for (const book of foreignBooks) out.push(...homeBoardRows(quotes, markets.data?.home, book, watching));
+      return out;
+    },
+    [quotes, liveBlue, watch, hasPse, foreignBooks, markets.data?.home],
   );
   const tapeMovers = useMemo(() => {
     if (tab === "crypto") {
@@ -544,7 +587,7 @@ export function FinanceMarkets() {
         active,
       };
     }
-    if (!market.pseHome) {
+    if (foreignBooks.length && !hasPse) {
       const board = heatRows
         .map((r) => r.q)
         .filter((q): q is NonNullable<typeof q> => Boolean(q && q.change != null));
@@ -559,12 +602,12 @@ export function FinanceMarkets() {
       };
     }
     return markets.data?.movers ?? { gainers: [], losers: [], active: [] };
-  }, [tab, quotes, markets.data?.movers, market.pseHome, heatRows]);
+  }, [tab, quotes, markets.data?.movers, hasPse, foreignBooks, heatRows]);
 
-  const sleeves = useMemo(() => deskSleeves(region, market.pseHome), [region, market.pseHome]);
+  const sleeves = useMemo(() => deskSleeves(hasPse ? "PH" : market.id, hasPse), [hasPse, market.id]);
   const rotation = useMemo(
-    () => sleeveSession(sleeves, quotes, market.pseHome ? pseWeightOf : undefined),
-    [sleeves, quotes, market.pseHome],
+    () => sleeveSession(sleeves, quotes, hasPse ? pseWeightOf : undefined),
+    [sleeves, quotes, hasPse],
   );
   const compareLink = useMemo(
     () => indexLink(remoteSpark(market.index.symbol, homeIndex?.id), remoteSpark(compareSym, peer.symbol)),
@@ -658,7 +701,7 @@ export function FinanceMarkets() {
 
       <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
         {PRIMARY_TABS.map((t) => (
-          <Chip key={t.id} active={tab === t.id || (t.id === "all" && market.pseHome && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => goTab(t.id)}>
+          <Chip key={t.id} active={tab === t.id || (t.id === "all" && hasPse && (tab === "blue" || tab === "reit" || tab === "div"))} onClick={() => goTab(t.id)}>
             {t.short ? (
               <>
                 <span className="sm:hidden">{t.short}</span>
@@ -670,7 +713,7 @@ export function FinanceMarkets() {
           </Chip>
         ))}
       </div>
-      {market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") ? (
+      {hasPse && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div") ? (
         <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
           <Chip active={tab === "all"} onClick={() => goTab("all")}>
             PSE
@@ -682,11 +725,26 @@ export function FinanceMarkets() {
           ))}
         </div>
       ) : null}
+      <div className="scroll-auto mb-3 flex flex-nowrap gap-2 overflow-x-auto pb-1">
+        {DESK_REGIONS.map((r) => {
+          const on = marketIds.includes(r.id);
+          return (
+            <Chip
+              key={r.id}
+              active={on}
+              onClick={() => {
+                const next = toggleMarket(marketIds, r.id);
+                setProfile({ markets: next });
+              }}
+            >
+              {r.id}
+            </Chip>
+          );
+        })}
+      </div>
       {tab === "all" && !query.trim() ? (
         <p className="mb-3 text-xs text-muted-foreground">
-          {market.pseHome
-            ? "Philippines — PSE tape. Factory desk."
-            : `${market.name} tape. Delayed Yahoo last, not a broker book.`}
+          {books.map((b) => b.name).join(" · ")}. Watcher holds any name you add — country chips only change All.
         </p>
       ) : null}
       {tab === "screen" ? (
@@ -818,7 +876,7 @@ export function FinanceMarkets() {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="scroll-auto flex max-w-full flex-nowrap gap-2 overflow-x-auto sm:flex-wrap">
           {(tab === "screen" ? [...BOARD_SORTS, ...SCREEN_SORTS] : BOARD_SORTS)
-            .filter((s) => s.id !== "wt" || (market.pseHome && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div" || tab === "screen")))
+            .filter((s) => s.id !== "wt" || (hasPse && (tab === "all" || tab === "blue" || tab === "reit" || tab === "div" || tab === "screen")))
             .map((s) => (
             <Chip key={s.id} active={sortUse === s.id} onClick={() => onSort(s.id)}>
               {s.label}
@@ -960,7 +1018,7 @@ export function FinanceMarkets() {
           homeQuote={homeIndex}
           peerQuote={quotes[compareSym]}
           pending={quotesPending || indexSparkQ.isFetching}
-          onPick={(sym) => setMarketPrefs({ compareIndex: resolveCompare(region, sym) })}
+          onPick={(sym) => setMarketPrefs({ compareIndex: resolveCompareSet(marketIds, sym) })}
           onOpen={(q) => {
             const item = asItem(q, q.kind);
             setOpen({ key: q.id, item, q, watching: watching(item) });
@@ -979,8 +1037,8 @@ export function FinanceMarkets() {
           onOpen={(sym) => {
             const q = quotes[sym];
             const item = asItem(
-              q ?? { id: sym, label: sym, price: 0, kind: "stock", ccy: market.pseHome ? "PHP" : "USD" },
-              market.pseHome ? "stock" : "global",
+              q ?? { id: sym, label: sym, price: 0, kind: "stock", ccy: hasPse ? "PHP" : "USD" },
+              hasPse ? "stock" : "global",
             );
             setOpen({ key: sym, item, q, watching: watching(item) });
           }}
@@ -989,10 +1047,10 @@ export function FinanceMarkets() {
 
       {!query.trim() && tab === "all" ? (
         <DigestCard
-          today={digestQ.data ?? digests.find((d) => d.region === market.id)}
-          history={digests.filter((d) => d.region === market.id)}
+          today={digestQ.data ?? digests[0]}
+          history={digests}
           pending={digestQ.isPending && !digestQ.data}
-          market={market.name}
+          market={books.map((b) => b.name).join(" · ")}
         />
       ) : null}
 
@@ -1011,11 +1069,16 @@ export function FinanceMarkets() {
       ) : null}
 
       {!query.trim() && (tab === "all" || tab === "blue") ? (
-        market.pseHome ? (
-          <PseHeatmap rows={heatRows} onOpen={setOpen} />
-        ) : (
-          <SessionHeatmap rows={heatRows} market={market.name} onOpen={setOpen} />
-        )
+        <>
+          {hasPse ? <PseHeatmap rows={heatRows.filter((r) => r.item.kind === "stock")} onOpen={setOpen} /> : null}
+          {foreignBooks.length ? (
+            <SessionHeatmap
+              rows={heatRows.filter((r) => r.item.kind !== "stock")}
+              market={foreignBooks.map((b) => b.name).join(" · ")}
+              onOpen={setOpen}
+            />
+          ) : null}
+        </>
       ) : null}
 
       {tab === "watcher" && positions.length > 0 ? (
@@ -1155,7 +1218,7 @@ export function FinanceMarkets() {
               {query.trim()
                 ? `No market matches “${query.trim()}”.`
                 : tab === "watcher"
-                  ? "Empty watcher — tap + to add from PSE, Global, or Crypto."
+                  ? "Empty watcher — tap + to add a name from any market."
                   : tab === "screen"
                     ? "No names match those filters — loosen PE, cap, volume, or yield."
                     : "Nothing in this board."}
@@ -1173,7 +1236,7 @@ export function FinanceMarkets() {
               ? pseScreenOn
                 ? "Official PSEi 30 on the public-tape seed. PE / P/B / yield are not Yahoo US. Delayed, not a full-market screen, not for trading."
                 : "Yahoo list of up to 100 names, then PE, cap, volume, and yield on this desk. Delayed, not a full-market screen, not for trading."
-              : tab === "global" || tab === "cmdty"
+              : tab === "cmdty"
                 ? "Last from Yahoo Finance. Delayed, not for trading. Commodities stay in dollars unless you turn on peso convert."
                 : `Spark range is on the board — ${SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use Binance, FX uses Frankfurter, PSE names use this desk's tape. PSEi last from Yahoo. Not for trading.`}
           </p>
@@ -1574,7 +1637,6 @@ function QuoteSheet({
   const [qty, setQty] = useState(held?.qty != null ? String(held.qty) : "");
   const [avg, setAvg] = useState(held?.avg != null ? String(held.avg) : "");
   const [pdfHref, setPdfHref] = useState<string | null>(null);
-  const setAnalyzeSeed = useAtrium((s) => s.setAnalyzeSeed);
   useEffect(() => {
     return () => {
       if (pdfHref) URL.revokeObjectURL(pdfHref);
@@ -1788,28 +1850,6 @@ function QuoteSheet({
         >
           <FileDown className="size-4" />
           Research PDF
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11"
-          onClick={() => {
-            setAnalyzeSeed({
-              ticker: row.item.label,
-              question: `CFA take on ${row.item.label} (${row.item.name ?? row.item.label}). Last ${note.last}, ${note.change}.`,
-              context: [
-                note.issuerLine,
-                `Last ${note.last} ${note.change} ${note.volume}`,
-                `PE ${note.metrics.pe}  P/B ${note.metrics.pb}  Yld ${note.metrics.yld}  52w ${note.metrics.ch1y}  SMA50 ${note.metrics.sma50}  RSI ${note.metrics.rsi}`,
-                ...note.expert.slice(0, 4),
-              ]
-                .filter(Boolean)
-                .join("\n"),
-            });
-            toast(`Analyzer seeded with ${row.item.label}`);
-          }}
-        >
-          Analyze
         </Button>
         {pdfHref ? (
           <a

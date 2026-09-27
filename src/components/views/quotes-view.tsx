@@ -170,7 +170,7 @@ export function QuotesView() {
           e.preventDefault();
           const n = person.trim();
           if (n.length < 2) return;
-          if (exact) goAuthor(n);
+          goAuthor(n);
         }}
       >
                 <div className="relative min-w-0 flex-1">
@@ -178,7 +178,6 @@ export function QuotesView() {
           value={person}
           onChange={(e) => {
             setPerson(e.target.value);
-            if (mode === "author") setSearch("");
           }}
           placeholder="Type a name — Albert, Maya, Seneca"
           className="h-11 min-w-0 w-full"

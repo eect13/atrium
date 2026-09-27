@@ -27,7 +27,7 @@ export const WORLD_INDICES: DeskName[] = [
   { symbol: "^STI", name: "Straits Times", label: "STI" },
   { symbol: "^GSPTSE", name: "S&P/TSX", label: "TSX" },
   { symbol: "^KS11", name: "KOSPI", label: "KOSPI" },
-  { symbol: "^VNINDEX", name: "VN-Index", label: "VN-Index" },
+  { symbol: "^VNINDEX.VN", name: "VN-Index", label: "VN-Index" },
   { symbol: "^TWII", name: "TAIEX", label: "TAIEX" },
   { symbol: "^SET.BK", name: "SET Index", label: "SET" },
   { symbol: "^KLSE", name: "FTSE Bursa", label: "KLCI" },
@@ -36,8 +36,8 @@ export const WORLD_INDICES: DeskName[] = [
   { symbol: "^SSMI", name: "SMI", label: "SMI" },
   { symbol: "^BVSP", name: "Bovespa", label: "Bovespa" },
   { symbol: "^MXX", name: "S&P/BMV IPC", label: "IPC" },
-  { symbol: "^J203.JO", name: "JSE Top 40", label: "JSE 40" },
-  { symbol: "^DFMGI", name: "DFM General", label: "DFM" },
+  { symbol: "^J200.JO", name: "JSE Top 40", label: "JSE 40" },
+  { symbol: "DFMGI.AE", name: "DFM General", label: "DFM" },
 ];
 
 export function worldIndex(symbol: string): DeskName {
@@ -55,12 +55,17 @@ export function comparePeer(regionId?: string | null): string {
   if (home === "^FTSE") return "^GDAXI";
   if (home === "^STI") return "^HSI";
   if (home === "^STOXX50E") return "^GSPC";
-  if (home === "^VNINDEX") return "^STI";
+  if (home === "^VNINDEX.VN") return "^STI";
   if (home === "^KS11") return "^TWII";
   if (home === "^TWII") return "^KS11";
   if (home === "^SET.BK" || home === "^KLSE" || home === "^JKSE") return "^STI";
-  if (home === "^NZ50") return "^AXJO";
+  if (home === "^AXJO" || home === "^NZ50") return home === "^NZ50" ? "^AXJO" : "^NZ50";
   if (home === "^SSMI") return "^GDAXI";
+  if (home === "^BVSP") return "^MXX";
+  if (home === "^MXX") return "^BVSP";
+  if (home === "^GSPTSE") return "^GSPC";
+  if (home === "^J200.JO") return "^FTSE";
+  if (home === "DFMGI.AE") return "^FTSE";
   return "^GSPC";
 }
 
@@ -71,6 +76,19 @@ export function resolveCompare(regionId?: string | null, picked?: string | null)
   if (hit && hit.symbol !== home) return hit.symbol;
   const peer = comparePeer(regionId);
   return peer === home ? "^GSPC" : peer;
+}
+
+/** Compare against every open book, not the silent desk region. */
+export function resolveCompareSet(ids: string[], picked?: string | null): string {
+  const list = ids.length ? ids : ["PH"];
+  const homes = new Set(list.map((id) => deskMarket(id).index.symbol));
+  const hit = WORLD_INDICES.find((i) => i.symbol === picked);
+  if (hit && !homes.has(hit.symbol)) return hit.symbol;
+  for (const id of list) {
+    const peer = comparePeer(id);
+    if (!homes.has(peer)) return peer;
+  }
+  return homes.has("^GSPC") ? "^IXIC" : "^GSPC";
 }
 
 export type DeskMarket = {
@@ -274,7 +292,7 @@ const BR_NAMES: DeskName[] = [
 ];
 
 const MX_NAMES: DeskName[] = [
-  { symbol: "AMXB.MX", name: "America Movil", label: "AMXB" },
+  { symbol: "AMXL.MX", name: "America Movil", label: "AMX" },
   { symbol: "WALMEX.MX", name: "Walmart de Mexico", label: "WALMEX" },
   { symbol: "GFNORTEO.MX", name: "Banorte", label: "GFNORTEO" },
   { symbol: "FEMSAUBD.MX", name: "Femsa", label: "FEMSA" },
@@ -284,17 +302,15 @@ const ZA_NAMES: DeskName[] = [
   { symbol: "NPN.JO", name: "Naspers", label: "NPN" },
   { symbol: "FSR.JO", name: "FirstRand", label: "FSR" },
   { symbol: "SBK.JO", name: "Standard Bank", label: "SBK" },
-  { symbol: "SOL.JO", name: "Sasol", label: "SOL" },
+  { symbol: "SOL.JO", name: "Sasol", label: "Sasol" },
 ];
 
 const AE_NAMES: DeskName[] = [
   { symbol: "EMAAR.AE", name: "Emaar", label: "EMAAR" },
-  { symbol: "FAB.AE", name: "First Abu Dhabi Bank", label: "FAB" },
-  { symbol: "ADNOCDIST.AE", name: "ADNOC Distribution", label: "ADNOCDIST" },
 ];
 
 const EU_NAMES: DeskName[] = [
-  { symbol: "ASML", name: "ASML" },
+  { symbol: "ASML.AS", name: "ASML", label: "ASML" },
   { symbol: "SAP.DE", name: "SAP", label: "SAP" },
   { symbol: "SIE.DE", name: "Siemens", label: "SIE" },
   { symbol: "ALV.DE", name: "Allianz", label: "ALV" },
@@ -340,7 +356,7 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
   },
   JP: {
     index: { symbol: "^N225", name: "Nikkei 225", label: "Nikkei" },
-    newsQuery: '"Nikkei" OR "Tokyo stocks" OR TSE',
+    newsQuery: '"Nikkei" OR "Tokyo stocks" OR "Tokyo Stock Exchange"',
     newsLocale: "hl=en&gl=JP&ceid=JP:en",
     names: JP_NAMES,
     pseHome: false,
@@ -356,7 +372,7 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
   },
   GB: {
     index: { symbol: "^FTSE", name: "FTSE 100", label: "FTSE" },
-    newsQuery: '"FTSE 100" OR "London stocks" OR LSE',
+    newsQuery: '"FTSE 100" OR "London stocks" OR "London Stock Exchange"',
     newsLocale: "hl=en-GB&gl=GB&ceid=GB:en",
     names: GB_NAMES,
     pseHome: false,
@@ -384,16 +400,16 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
     newsLocale: "hl=en&gl=DE&ceid=DE:en",
     names: EU_NAMES,
     pseHome: false,
-    tape: ["^STOXX50E", "^GDAXI", "ASML", PSEI_SYMBOL, NIFTY_SYMBOL, "GC=F"],
+    tape: ["^STOXX50E", "^GDAXI", "ASML.AS", PSEI_SYMBOL, NIFTY_SYMBOL, "GC=F"],
   },
 
   VN: {
-    index: { symbol: "^VNINDEX", name: "VN-Index", label: "VN-Index" },
-    newsQuery: '"VN-Index" OR "Ho Chi Minh stocks" OR HOSE OR "Vietnam stocks"',
+    index: { symbol: "^VNINDEX.VN", name: "VN-Index", label: "VN-Index" },
+    newsQuery: '"VN-Index" OR "Ho Chi Minh Stock Exchange" OR "Vietnam stocks"',
     newsLocale: "hl=en&gl=VN&ceid=VN:en",
     names: VN_NAMES,
     pseHome: false,
-    tape: ["^VNINDEX", "VNM.VN", "VIC.VN", PSEI_SYMBOL, "^STI", "GC=F"],
+    tape: ["^VNINDEX.VN", "VNM.VN", "VIC.VN", PSEI_SYMBOL, "^STI", "GC=F"],
   },
   TH: {
     index: { symbol: "^SET.BK", name: "SET Index", label: "SET" },
@@ -413,7 +429,7 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
   },
   ID: {
     index: { symbol: "^JKSE", name: "Jakarta Composite", label: "JCI" },
-    newsQuery: '"Jakarta Composite" OR "Indonesian stocks" OR IDX',
+    newsQuery: '"Jakarta Composite" OR "Indonesian stocks" OR "Indonesia Stock Exchange"',
     newsLocale: "hl=en&gl=ID&ceid=ID:en",
     names: ID_NAMES,
     pseHome: false,
@@ -445,7 +461,7 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
   },
   CH: {
     index: { symbol: "^SSMI", name: "SMI", label: "SMI" },
-    newsQuery: '"Swiss Market Index" OR "Swiss stocks" OR SMI',
+    newsQuery: '"Swiss Market Index" OR "Swiss stocks"',
     newsLocale: "hl=en&gl=CH&ceid=CH:en",
     names: CH_NAMES,
     pseHome: false,
@@ -465,23 +481,23 @@ const MARKETS: Record<string, Omit<DeskMarket, "id" | "name" | "yahooRegion">> =
     newsLocale: "hl=en&gl=MX&ceid=MX:en",
     names: MX_NAMES,
     pseHome: false,
-    tape: ["^MXX", "AMXB.MX", "WALMEX.MX", PSEI_SYMBOL, "^GSPC", "GC=F"],
+    tape: ["^MXX", "AMXL.MX", "WALMEX.MX", PSEI_SYMBOL, "^GSPC", "GC=F"],
   },
   ZA: {
-    index: { symbol: "^J203.JO", name: "JSE Top 40", label: "JSE 40" },
-    newsQuery: '"JSE" OR "South African stocks" OR Johannesburg',
+    index: { symbol: "^J200.JO", name: "JSE Top 40", label: "JSE 40" },
+    newsQuery: '"JSE Top 40" OR "Johannesburg Stock Exchange" OR "South African stocks"',
     newsLocale: "hl=en&gl=ZA&ceid=ZA:en",
     names: ZA_NAMES,
     pseHome: false,
-    tape: ["^J203.JO", "NPN.JO", "FSR.JO", PSEI_SYMBOL, "^GSPC", "GC=F"],
+    tape: ["^J200.JO", "NPN.JO", "FSR.JO", PSEI_SYMBOL, "^GSPC", "GC=F"],
   },
   AE: {
-    index: { symbol: "^DFMGI", name: "DFM General", label: "DFM" },
-    newsQuery: '"Dubai stocks" OR DFM OR "Abu Dhabi stocks" OR ADX',
+    index: { symbol: "DFMGI.AE", name: "DFM General", label: "DFM" },
+    newsQuery: '"Dubai Financial Market" OR "DFM General" OR "Abu Dhabi Securities Exchange"',
     newsLocale: "hl=en&gl=AE&ceid=AE:en",
     names: AE_NAMES,
     pseHome: false,
-    tape: ["^DFMGI", "EMAAR.AE", "FAB.AE", PSEI_SYMBOL, "^GSPC", "GC=F"],
+    tape: ["DFMGI.AE", "EMAAR.AE", PSEI_SYMBOL, "^GSPC", "GC=F"],
   },
 };
 
@@ -496,11 +512,14 @@ export function deskMarket(regionId?: string | null): DeskMarket {
   };
 }
 
-export function deskYahooSymbols(regionId?: string | null): string[] {
+export function deskYahooSymbols(regionId?: string | null, compare?: string | null): string[] {
   const m = deskMarket(regionId);
-  return [
-    ...new Set([...WORLD_INDICES.map((n) => n.symbol), m.index.symbol, ...m.tape, ...m.names.map((n) => n.symbol)]),
-  ].filter(yahooTapeSymbol);
+  const peer = resolveCompare(regionId, compare);
+  return [...new Set([m.index.symbol, peer, ...m.tape, ...m.names.map((n) => n.symbol)])].filter(yahooTapeSymbol);
+}
+
+export function unionYahooSymbols(ids: string[], compare?: string | null): string[] {
+  return [...new Set(ids.flatMap((id) => deskYahooSymbols(id, compare)))];
 }
 
 /** Yahoo last for SM is SM Energy, not SM Investments. Bare PSEi names stay on the PSE tape. */
@@ -590,7 +609,7 @@ export function isHomeSymbol(symbol: string, regionId?: string | null) {
   if (id === "GB") return /\.L$/i.test(s);
   if (id === "AU") return /\.AX$/i.test(s);
   if (id === "CA") return /\.(TO|V)$/i.test(s);
-  if (id === "EU") return /\.(DE|PA)$/i.test(s) || /^(ASML|SAP|SIE)$/i.test(s);
+  if (id === "EU") return /\.(DE|PA|AS|MI|MC|BR|HE)$/i.test(s);
   if (id === "VN") return /\.(VN|HM)$/i.test(s);
   if (id === "TH") return /\.BK$/i.test(s);
   if (id === "MY") return /\.KL$/i.test(s);

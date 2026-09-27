@@ -9,7 +9,6 @@ import { FloatBtn } from "@/components/desk-chrome";
 import { AgendaBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
 import { DASH_LABEL, DASH_SPAN_N, DEFAULT_DASH, cycleDashSpan, dashSpanClass, moveDash, type DashCard } from "@/lib/dash";
 import { deskZone } from "@/lib/format";
-import { regionOf } from "@/lib/region";
 import { useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -41,6 +40,7 @@ export function DashboardView({
     );
   const [drag, setDrag] = useState<DashCard | null>(null);
   const from = useRef<DashCard | null>(null);
+  const hover = useRef<DashCard | null>(null);
 
   const visible = dashOrder.filter((id) => {
     if (id === "weather") return modules.weather !== false;
@@ -65,7 +65,7 @@ export function DashboardView({
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date().toLocaleDateString(deskZone().locale, { year: "numeric", timeZone: deskZone().tz })}
-            {` · ${regionOf(profile.region).name}`}
+            {` · ${(profile.tz || deskZone().tz).split("/").pop()?.replace(/_/g, " ")}`}
             {profile.city.trim() ? (
               <>
                 {" · "}
@@ -116,6 +116,7 @@ export function DashboardView({
     if (dashLocked || e.button !== 0) return;
     e.preventDefault();
     from.current = id;
+    hover.current = id;
     setDrag(id);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
@@ -124,12 +125,15 @@ export function DashboardView({
     if (!from.current) return;
     const node = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-dash]");
     const to = node?.getAttribute("data-dash") as DashCard | null;
+    if (to) hover.current = to;
     if (to && to !== drag) setDrag(to);
   }
 
   function drop() {
-    if (from.current && drag && from.current !== drag) setDashOrder(moveDash(dashOrder, from.current, drag));
+    const target = hover.current ?? drag;
+    if (from.current && target && from.current !== target) setDashOrder(moveDash(dashOrder, from.current, target));
     from.current = null;
+    hover.current = null;
     setDrag(null);
   }
 

@@ -14,7 +14,7 @@ import {
   withoutCvc,
   writeBooksSnap,
 } from "./books";
-import { arrangeNoteBox, isNarrow, normalizeWinBox, placeWindow, restoreBox, type DeskBox } from "./desk";
+import { arrangeNoteBox, isNarrow, normalizeWinBox, packNoteSeat, placeWindow, restoreBox, type DeskBox } from "./desk";
 import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, staleTagline, uid } from "./format";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
@@ -37,14 +37,14 @@ import type {
   WatchItem,
   WidgetKind,
 } from "./types";
-import { applyDeskRegion, DEFAULT_REGION, regionOf } from "./region";
+import { applyDeskProfile, DEFAULT_REGION, normalizeMarkets, regionOf } from "./region";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { asNewsFilter, asNewsTag } from "./headline";
-import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
+import { FEED_PACKS, NEWS_CATALOG, sourceRegion } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
-import { resolveCompare } from "./desk-market";
+import { resolveCompareSet } from "./desk-market";
 
 export const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
 
@@ -53,11 +53,12 @@ export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({
   enabled: (STARTER_FEED_IDS as readonly string[]).includes(f.id),
 }));
 
-function withDefaultFeeds(feeds: Feed[]) {
+function withDefaultFeeds(feeds: Feed[], gone: string[] = []) {
+  const skip = new Set(gone);
   const have = new Set(feeds.map((f) => f.id));
-  const extra = DEFAULT_FEEDS.filter((f) => !have.has(f.id));
+  const extra = DEFAULT_FEEDS.filter((f) => !have.has(f.id) && !skip.has(f.id));
   const catalog = new Map(DEFAULT_FEEDS.map((f) => [f.id, f]));
-  const next = extra.length ? [...feeds, ...extra] : feeds;
+  const next = (extra.length ? [...feeds, ...extra] : feeds).filter((f) => !skip.has(f.id));
   return next.map((f) => {
     const def = catalog.get(f.id);
     return {
@@ -65,6 +66,7 @@ function withDefaultFeeds(feeds: Feed[]) {
       name: def?.name ?? f.name,
       url: def?.url ?? f.url,
       category: asNewsTag(def?.category ?? f.category),
+      ...(def ? { region: sourceRegion(def) } : {}),
     };
   });
 }
@@ -147,6 +149,7 @@ type Data = {
   txs: Tx[];
   watch: WatchItem[];
   feeds: Feed[];
+  feedGone: string[];
   quoteCcy: QuoteCcy;
   marketPrefs: MarketPrefs;
   dashOrder: DashCard[];
@@ -248,14 +251,31 @@ function asProfile(raw?: Partial<Profile> | null, fallback?: Profile): Profile {
   const demo = name === "Eric" && (city === "Las Piñas" || city === "Las Pinas");
   const line = typeof raw?.tagline === "string" ? raw.tagline.trim() : (fallback?.tagline ?? "");
   const tagline = staleTagline(line) || (fallback?.tagline ? staleTagline(fallback.tagline) : "");
-  if (demo) return { name: "", city: "", lat: null, lon: null, tagline, region: DEFAULT_REGION };
+  if (demo) {
+    return {
+      name: "",
+      city: "",
+      lat: null,
+      lon: null,
+      tagline,
+      region: DEFAULT_REGION,
+      tz: regionOf(DEFAULT_REGION).tz,
+      locale: regionOf(DEFAULT_REGION).locale,
+      markets: [DEFAULT_REGION],
+    };
+  }
+  const region = regionOf(raw?.region ?? fallback?.region).id;
+  const r = regionOf(region);
   return {
     name,
     city,
     lat: asCoord(raw?.lat ?? fallback?.lat),
     lon: asCoord(raw?.lon ?? fallback?.lon),
     tagline,
-    region: regionOf(raw?.region ?? fallback?.region).id,
+    region,
+    tz: typeof raw?.tz === "string" && raw.tz.trim() ? raw.tz.trim() : (fallback?.tz || r.tz),
+    locale: typeof raw?.locale === "string" && raw.locale.trim() ? raw.locale.trim() : (fallback?.locale || r.locale),
+    markets: normalizeMarkets(raw?.markets ?? fallback?.markets, region),
   };
 }
 
@@ -330,7 +350,7 @@ function initial(): Data { return blankDesk(); }
 function blankDesk(): Data {
   const empty = emptyBooks("");
   return {
-    profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION },
+    profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION, tz: regionOf(DEFAULT_REGION).tz, locale: regionOf(DEFAULT_REGION).locale, markets: [DEFAULT_REGION] },
     theme: "dark",
     view: "dashboard",
     modules: { calendar: true, weather: true, notes: true, finance: true, news: true, quotes: true },
@@ -346,6 +366,7 @@ function blankDesk(): Data {
     txs: empty.txs,
     watch: [],
     feeds: NEWS_CATALOG.map((f) => ({ ...f, enabled: false })),
+    feedGone: [],
     quoteCcy: "PHP",
     marketPrefs: { ...DEFAULT_MARKET_PREFS },
     dashOrder: [...DEFAULT_DASH],
@@ -437,16 +458,12 @@ export const useAtrium = create<State>()(
         }),
       setProfile: (p) =>
         set((s) => {
-          const next = { ...s.profile, ...p };
-          next.lat = asCoord(next.lat);
-          next.lon = asCoord(next.lon);
-          const line = typeof next.tagline === "string" ? next.tagline.trim() : "";
-          next.tagline = (line || DEFAULT_TAGLINE).slice(0, 48);
-          if (typeof next.name === "string") next.name = next.name.trim();
-          if (typeof next.city === "string") next.city = next.city.trim();
-          next.region = regionOf(next.region).id;
-          applyDeskRegion(next.region);
-          const compareIndex = resolveCompare(next.region, s.marketPrefs.compareIndex);
+          const next = asProfile({ ...s.profile, ...p }, s.profile);
+          applyDeskProfile(next);
+          const touchedMarkets = p.markets != null || (p.region != null && p.region !== s.profile.region);
+          const compareIndex = touchedMarkets
+            ? resolveCompareSet(next.markets ?? [next.region], s.marketPrefs.compareIndex)
+            : s.marketPrefs.compareIndex;
           return { profile: next, marketPrefs: { ...s.marketPrefs, compareIndex } };
         }),
       addEvent: (e) => set((s) => ({ events: [...s.events, e] })),
@@ -458,24 +475,61 @@ export const useAtrium = create<State>()(
       importEvents: (incoming) => {
         let added = 0;
         set((s) => {
-          const ids = new Set(s.events.map((e) => e.id));
-          const stamps = new Set(s.events.map((e) => `${e.start}|${e.title}`));
-          const extra = incoming.filter((e) => {
-            if (ids.has(e.id) || stamps.has(`${e.start}|${e.title}`)) return false;
-            ids.add(e.id);
-            stamps.add(`${e.start}|${e.title}`);
-            return true;
-          });
-          added = extra.length;
-          return extra.length ? { events: [...s.events, ...extra] } : s;
+          const events = s.events.slice();
+          const indexById = new Map(events.map((e, i) => [e.id, i]));
+          const extra: typeof incoming = [];
+          let changed = false;
+          const stampOf = (e: { start: string; title: string }) => `${e.start}|${e.title}`;
+          for (const e of incoming) {
+            let idx = indexById.get(e.id);
+            if (idx == null && e.source === "google" && e.calId) {
+              const prefix = `g-${e.calId}-`;
+              if (e.id.startsWith(prefix)) idx = indexById.get(`g-${e.id.slice(prefix.length)}`);
+            }
+            if (idx == null && e.source === "google") {
+              idx = events.findIndex((x) => x.source === "google" && !x.calId && stampOf(x) === stampOf(e));
+              if (idx < 0) idx = undefined;
+            }
+            if (idx != null && e.source === "google") {
+              const prev = events[idx]!;
+              if (prev.id !== e.id) indexById.delete(prev.id);
+              events[idx] = {
+                ...prev,
+                id: e.id,
+                title: e.title,
+                start: e.start,
+                end: e.end,
+                loc: e.loc,
+                cat: e.cat,
+                allDay: e.allDay,
+                calId: e.calId ?? prev.calId,
+                source: "google",
+              };
+              indexById.set(e.id, idx);
+              changed = true;
+              continue;
+            }
+            if (idx != null) continue;
+            const stamp = stampOf(e);
+            if (events.some((x) => stampOf(x) === stamp) || extra.some((x) => stampOf(x) === stamp)) continue;
+            extra.push(e);
+            added += 1;
+          }
+          if (!changed && !extra.length) return s;
+          return { events: extra.length ? [...events, ...extra] : events };
         });
         return added;
       },
       setGcalCals: (cals, off) =>
-        set((s) => ({
-          gcalCals: cals,
-          gcalOff: off ?? s.gcalOff,
-        })),
+        set((s) => {
+          if (off) return { gcalCals: cals, gcalOff: off };
+          const known = new Set(s.gcalCals.map((c) => c.id));
+          const still = s.gcalOff.filter((id) => cals.some((c) => c.id === id));
+          const fresh = (s.gcalCals.length ? cals.filter((c) => !known.has(c.id)) : cals)
+            .filter((c) => c.lane !== "mine")
+            .map((c) => c.id);
+          return { gcalCals: cals, gcalOff: [...new Set([...still, ...fresh])] };
+        }),
       toggleGcal: (id) =>
         set((s) => ({
           gcalOff: s.gcalOff.includes(id) ? s.gcalOff.filter((x) => x !== id) : [...s.gcalOff, id],
@@ -518,46 +572,54 @@ export const useAtrium = create<State>()(
         }),
       unpinNote: (id) =>
         set((s) => {
-          const next = s.notes.map((n) =>
-            n.id === id ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: 32, y: 32 } : n,
+          const note = s.notes.find((n) => n.id === id);
+          if (!note?.pinned) return s;
+          const parked = s.notes.filter((n) => n.id !== id && !n.pinned);
+          const seat = packNoteSeat(
+            parked.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
+            { w: note.w, h: note.h },
           );
-          const live = next.filter((n) => n.pinned);
-          let i = 0;
           return {
-            notes: next.map((n) => {
-              if (!n.pinned) return n;
-              const box = arrangeNoteBox({ w: n.w, h: n.h }, i, live.length);
-              i += 1;
-              return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
-            }),
+            notes: s.notes.map((n) =>
+              n.id === id
+                ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: seat.x, y: seat.y, w: seat.w, h: seat.h }
+                : n,
+            ),
           };
         }),
       pinAllNotes: () =>
         set((s) => {
           if (!s.notes.length) return s;
           let z = nextZ(s);
-          const pinned = s.notes.map((n) => {
-            if (n.pinned) return n;
-            const zz = z;
-            z += 1;
-            return { ...n, pinned: true, z: zz };
-          });
+          const opening = s.notes.filter((n) => !n.pinned);
           let i = 0;
           return {
-            notes: pinned.map((n) => {
-              if (!n.pinned) return n;
-              const box = arrangeNoteBox({ w: n.w, h: n.h }, i, pinned.filter((p) => p.pinned).length);
+            notes: s.notes.map((n) => {
+              if (n.pinned) return n;
+              const zz = z;
+              z += 1;
+              const saved =
+                n.fx != null ? { x: n.fx, y: n.fy ?? n.y, w: n.fw ?? n.w, h: n.fh ?? n.h } : undefined;
+              const box = saved
+                ? restoreBox(saved, { w: n.w, h: n.h }, i)
+                : arrangeNoteBox({ w: n.w, h: n.h }, i, opening.length);
               i += 1;
-              return { ...n, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
+              return { ...n, pinned: true, z: zz, ...box, fx: box.x, fy: box.y, fw: box.w, fh: box.h };
             }),
           };
         }),
       unpinAllNotes: () =>
-        set((s) => ({
-          notes: s.notes.map((n) =>
-            n.pinned ? { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: 32, y: 32 } : n,
-          ),
-        })),
+        set((s) => {
+          const parked = s.notes.filter((n) => !n.pinned).map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }));
+          return {
+            notes: s.notes.map((n) => {
+              if (!n.pinned) return n;
+              const seat = packNoteSeat(parked, { w: n.w, h: n.h });
+              parked.push(seat);
+              return { ...n, pinned: false, fx: n.x, fy: n.y, fw: n.w, fh: n.h, x: seat.x, y: seat.y, w: seat.w, h: seat.h };
+            }),
+          };
+        }),
       arrangeNotes: () =>
         set((s) => {
           const live = s.notes.filter((n) => n.pinned).length;
@@ -801,15 +863,21 @@ export const useAtrium = create<State>()(
           const pack = FEED_PACKS.find((p) => p.id === packId);
           if (!pack) return s;
           const ids = new Set(pack.ids);
-          return { feeds: s.feeds.map((f) => (ids.has(f.id) ? { ...f, enabled: on } : f)) };
+          const feedGone = on ? s.feedGone.filter((id) => !ids.has(id)) : s.feedGone;
+          const feeds = withDefaultFeeds(s.feeds, feedGone).map((f) => (ids.has(f.id) ? { ...f, enabled: on } : f));
+          return { feeds, feedGone };
         }),
       enableStarterFeeds: () => set((s) => ({ feeds: seedStarterFeeds(s.feeds) })),
       addFeed: (f) =>
         set((s) => {
           if (s.feeds.some((x) => x.url === f.url || x.id === f.id)) return s;
-          return { feeds: [...s.feeds, f] };
+          return { feeds: [...s.feeds, f], feedGone: s.feedGone.filter((id) => id !== f.id) };
         }),
-      removeFeed: (id) => set((s) => ({ feeds: s.feeds.filter((f) => f.id !== id) })),
+      removeFeed: (id) =>
+        set((s) => ({
+          feeds: s.feeds.filter((f) => f.id !== id),
+          feedGone: s.feedGone.includes(id) ? s.feedGone : [...s.feedGone, id],
+        })),
       setRailCollapsed: (railCollapsed) => set({ railCollapsed }),
       setBoardQuery: (boardQuery) => set({ boardQuery }),
       setBoardFocus: (boardFocus) => set({ boardFocus }),
@@ -1046,7 +1114,12 @@ export const useAtrium = create<State>()(
           p = { ...p, digests: Array.isArray((p as { digests?: unknown }).digests) ? ((p as { digests: DigestDay[] }).digests ?? []).slice(0, 10) : [] };
         }
         if (version < 32) {
-          p = { ...p, gcalCals: [], gcalOff: [] };
+          const raw = p as { gcalCals?: unknown; gcalOff?: unknown };
+          p = {
+            ...p,
+            gcalCals: Array.isArray(raw.gcalCals) ? raw.gcalCals : [],
+            gcalOff: Array.isArray(raw.gcalOff) ? raw.gcalOff : [],
+          };
         }
         return p as Data;
       },
@@ -1067,6 +1140,7 @@ export const useAtrium = create<State>()(
         txs: s.txs,
         watch: s.watch,
         feeds: s.feeds,
+        feedGone: s.feedGone,
         quoteCcy: s.quoteCcy,
         marketPrefs: s.marketPrefs,
         dashOrder: s.dashOrder,
@@ -1141,7 +1215,8 @@ export const useAtrium = create<State>()(
           budgets: p.budgets ?? current.budgets,
           txs: p.txs ?? current.txs,
           watch: p.watch ?? current.watch,
-          feeds: withDefaultFeeds(p.feeds ?? current.feeds),
+          feeds: withDefaultFeeds(p.feeds ?? current.feeds, Array.isArray((p as { feedGone?: unknown }).feedGone) ? ((p as { feedGone: string[] }).feedGone) : current.feedGone),
+          feedGone: Array.isArray((p as { feedGone?: unknown }).feedGone) ? ((p as { feedGone: string[] }).feedGone) : current.feedGone,
           quoteCcy: QUOTE_CCY.includes((p.quoteCcy as QuoteCcy) ?? "PHP")
             ? ((p.quoteCcy as QuoteCcy) ?? "PHP")
             : current.quoteCcy,
@@ -1168,7 +1243,8 @@ export const useAtrium = create<State>()(
             sort: (() => {
               const t = normalizeTab(prefs?.tab);
               const s = normalizeSort(prefs?.sort);
-              const pseHome = regionOf(profile.region).id === "PH";
+              const marketsOn = normalizeMarkets(profile.markets, profile.region);
+              const pseHome = marketsOn.includes("PH");
               if (!pseHome && s === "wt") return "chg";
               if (s === "chg" && pseHome && (t === "all" || t === "blue" || t === "reit" || t === "div")) return "wt";
               return s;
@@ -1186,13 +1262,13 @@ export const useAtrium = create<State>()(
             screenCap: normalizeScreenCap((prefs as { screenCap?: string } | undefined)?.screenCap),
             screenVol: normalizeScreenVol((prefs as { screenVol?: string } | undefined)?.screenVol),
             screenYld: normalizeScreenYld((prefs as { screenYld?: string } | undefined)?.screenYld),
-            compareIndex: resolveCompare(profile.region, (prefs as { compareIndex?: string } | undefined)?.compareIndex),
+            compareIndex: resolveCompareSet(normalizeMarkets(profile.markets, profile.region), (prefs as { compareIndex?: string } | undefined)?.compareIndex),
           },
         };
       },
       onRehydrateStorage: () => (state) => {
         if (state?.theme) applyTheme(state.theme);
-        applyDeskRegion(state?.profile?.region);
+        applyDeskProfile(state?.profile ?? { region: DEFAULT_REGION });
       },
     },
   ),

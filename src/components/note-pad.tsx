@@ -232,6 +232,7 @@ export function NoteFormat({
   canDraw = true,
   canUndo,
   canRedo = false,
+  docked = false,
   onDraw,
   onUndo,
   onRedo,
@@ -243,6 +244,7 @@ export function NoteFormat({
   canDraw?: boolean;
   canUndo: boolean;
   canRedo?: boolean;
+  docked?: boolean;
   onDraw?: () => void;
   onUndo: () => void;
   onRedo?: () => void;
@@ -251,7 +253,10 @@ export function NoteFormat({
 }) {
   return (
     <div
-      className="note-format-autohide relative z-[4] flex flex-wrap items-center gap-0.5 border-t border-current/10 px-1 pt-0.5"
+      className={cn(
+        "relative z-[4] flex flex-wrap items-center gap-0.5 border-t border-current/10 px-1 pt-0.5",
+        !docked && "note-format-autohide",
+      )}
       style={{ color: ink }}
       onPointerDown={(e) => e.stopPropagation()}
       data-no-drag

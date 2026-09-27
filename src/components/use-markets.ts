@@ -5,10 +5,10 @@ import { fetchMarkets, VS_PARAM, type MarketSnapshot } from "@/lib/prices";
 import { rememberTape } from "@/lib/sparks";
 import { useAtrium } from "@/lib/store";
 import { WATCH_CATALOG, type QuoteCcy } from "@/lib/types";
-import { regionOf } from "@/lib/region";
+import { normalizeMarkets, regionOf } from "@/lib/region";
 import { YAHOO_CORE_TAPE } from "@/lib/yahoo";
 import { isPseScreen, isYahooScreen } from "@/lib/screener";
-import { deskMarket, deskYahooSymbols } from "@/lib/desk-market";
+import { deskMarket, unionYahooSymbols } from "@/lib/desk-market";
 
 const MARKET_SNAP = "atrium.markets.snap";
 
@@ -39,18 +39,25 @@ export function useMarkets() {
   const tab = useAtrium((s) => s.marketPrefs.tab);
   const screen = useAtrium((s) => s.marketPrefs.screen);
   const stockTape = useAtrium((s) => s.marketPrefs.stockTape ?? "auto");
-  const region = useAtrium((s) => s.profile.region);
+  const profile = useAtrium((s) => s.profile);
+  const compareIndex = useAtrium((s) => s.marketPrefs.compareIndex);
   const boardQuery = useAtrium((s) => s.boardQuery);
   const searching = boardQuery.trim().length > 0;
   const ids = watch.filter((w) => w.kind === "crypto").map((w) => w.symbol);
-  const market = deskMarket(region);
+  const marketIds = normalizeMarkets(profile.markets, profile.region);
+  const books = marketIds.map((id) => deskMarket(id));
+  const hasPse = books.some((m) => m.pseHome);
+  const foreign = books.find((m) => !m.pseHome);
+  const primary = books[0] ?? deskMarket(profile.region);
   const wantYahoo = marketsOn;
   const yahoo = wantYahoo
     ? [
         ...new Set([
           ...YAHOO_CORE_TAPE,
-          ...deskYahooSymbols(region),
-          ...watch.filter((w) => w.kind === "global" || w.kind === "cmdty").map((w) => w.symbol),
+          ...unionYahooSymbols(marketIds, compareIndex),
+          ...watch
+            .filter((w) => w.kind === "global" || w.kind === "cmdty" || /[.^]/.test(w.symbol))
+            .map((w) => w.symbol),
           ...(tab === "global" || searching
             ? WATCH_CATALOG.filter((w) => w.kind === "global").map((w) => w.symbol)
             : []),
@@ -61,11 +68,13 @@ export function useMarkets() {
       ]
     : [];
   const screener = marketsOn && tab === "screen" && isYahooScreen(screen) ? screen : undefined;
-  const yahooRegion = regionOf(region).yahoo;
+  const foreignIds = books.filter((m) => !m.pseHome).map((m) => m.id);
+  const deskId = foreignIds[0] ?? primary.id;
+  const yahooRegion = regionOf(deskId).yahoo;
   const wantPse =
     marketsOn &&
     (searching ||
-      market.pseHome ||
+      hasPse ||
       tab === "blue" ||
       tab === "reit" ||
       tab === "div" ||
@@ -73,7 +82,7 @@ export function useMarkets() {
       watch.some((w) => w.kind === "stock"));
   const wantHome =
     marketsOn &&
-    !market.pseHome &&
+    Boolean(foreign) &&
     (searching || tab === "all" || tab === "watcher");
   const wantCrypto =
     marketsOn &&
@@ -83,10 +92,10 @@ export function useMarkets() {
       tab === "all" ||
       watch.some((w) => w.kind === "crypto"));
   return useQuery({
-    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, wantHome, screener, yahooRegion, stockTape],
+    queryKey: ["markets", ids, quoteCcy, yahoo, wantPse, wantCrypto, wantHome, screener, yahooRegion, foreignIds, stockTape],
     queryFn: async () => {
       const data = await fetchMarkets({
-        data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, wantHome, screener, yahooRegion },
+        data: { ids, vs: VS_PARAM[quoteCcy], yahoo, wantPse, wantCrypto, wantHome, screener, yahooRegion, desk: deskId, desks: foreignIds.length ? foreignIds : [deskId] },
       });
       writeSnap(MARKET_SNAP, { ids, quoteCcy, data });
       if (data.quotes) rememberTape(data.quotes);

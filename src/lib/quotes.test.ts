@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorSlug, exactAuthor, liveQuotePool, matchQuoteQuery, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss, topicLocals } from "./quotes.ts";
+import { authorMatches, authorSlug, exactAuthor, liveQuotePool, matchQuoteQuery, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss, topicLocals } from "./quotes.ts";
 
 const SNIP = `
 <a href="/quotes/albert_einstein_121993" class="b-qt qt_121993 oncl_q" title="view quote">We cannot solve our problems with the same thinking we used when we created them.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_121993 oncl_a" title="view author">Albert Einstein</a>
@@ -117,6 +117,12 @@ test("exactAuthor matches BrainyQuote slug, not a substring", () => {
   assert.equal(exactAuthor(q, "Albert Einstein"), true);
   assert.equal(exactAuthor(q, "Einstein"), false);
   assert.equal(exactAuthor(q, "albert-einstein"), true);
+});
+
+test("authorMatches accepts a surname", () => {
+  assert.equal(authorMatches("Albert Einstein", "Einstein"), true);
+  assert.equal(authorMatches("Marcus Aurelius", "Aurelius"), true);
+  assert.equal(authorMatches("Albert Einstein", "stein"), false);
 });
 
 test("matchQuoteQuery looks in line and person", () => {

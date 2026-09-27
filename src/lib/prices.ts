@@ -1,13 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { QuoteCcy, WatchItem, WatchKind } from "./types";
+import { BOOK_CCY } from "./types";
 import { BINANCE_PAIRS, DEFAULT_GECKO_IDS, BLUECHIPS } from "./market-board";
 import { sessionSpark } from "./sparks";
 import { fetchYahooLast, fetchYahooScreener, searchYahooTickers, type YahooLast, isYahooIndex, pseTickerFromYahoo } from "./yahoo";
 import { WATCH_CATALOG } from "./types";
 import { SCREEN_FETCH, isYahooScreen } from "./screener";
 import { httpJson, isTauri } from "./http";
-import { isHomeSymbol } from "./desk-market";
+import { deskMarket, isHomeSymbol } from "./desk-market";
+import type { BookFx } from "./books";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
 export type PriceResult = { failed?: boolean; quotes: PriceMap };
@@ -70,7 +72,7 @@ export type MarketQuote = {
 
 export type MarketSnapshot = {
   failed?: boolean;
-  fx: { usdphp: number; eurphp: number; jpyphp: number; gbpphp: number };
+  fx: BookFx;
   movers: { gainers: MarketQuote[]; losers: MarketQuote[]; active: MarketQuote[] };
   quotes: Record<string, MarketQuote>;
   screen?: MarketQuote[];
@@ -89,16 +91,11 @@ type GeckoRow = {
   spark?: number[];
 };
 
-const VS = z.enum(["php", "usd", "eur", "gbp", "jpy"]);
+const VS_CODES = BOOK_CCY.map((c) => c.toLowerCase()) as unknown as [string, ...string[]];
+const VS = z.enum(VS_CODES);
 type Vs = z.infer<typeof VS>;
 
-export const VS_PARAM = {
-  PHP: "php",
-  USD: "usd",
-  EUR: "eur",
-  GBP: "gbp",
-  JPY: "jpy",
-} as const satisfies Record<QuoteCcy, Vs>;
+export const VS_PARAM = Object.fromEntries(VS_CODES.map((v) => [v.toUpperCase(), v])) as Record<QuoteCcy, Vs>;
 
 function asCcy(vs: Vs): QuoteCcy {
   return vs.toUpperCase() as QuoteCcy;
@@ -110,10 +107,13 @@ function fxQuote(id: string, label: string, price: number): MarketQuote {
 
 function phpPer(vs: Vs, fx: MarketSnapshot["fx"]) {
   if (vs === "php") return 1;
+  const extra = fx.per?.[vs.toUpperCase()];
+  if (extra) return extra;
   if (vs === "usd") return fx.usdphp;
   if (vs === "eur") return fx.eurphp;
   if (vs === "jpy") return fx.jpyphp;
-  return fx.gbpphp;
+  if (vs === "gbp") return fx.gbpphp;
+  return 0;
 }
 
 function fromPhp(php: number, vs: Vs, fx: MarketSnapshot["fx"] | null): { price: number; ccy: QuoteCcy } {
@@ -131,11 +131,20 @@ async function loadFx(): Promise<MarketSnapshot["fx"] | null> {
     const jpy = json.rates?.JPY;
     const gbp = json.rates?.GBP;
     if (!php) return null;
+    const per: Record<string, number> = { USD: php, PHP: 1 };
+    for (const [code, rate] of Object.entries(json.rates ?? {})) {
+      const n = Number(rate);
+      if (!code || !(n > 0)) continue;
+      per[code.toUpperCase()] = php / n;
+    }
+    per.USD = php;
+    per.PHP = 1;
     return {
       usdphp: php,
-      eurphp: eur ? php / eur : php,
-      jpyphp: jpy ? php / jpy : 0,
-      gbpphp: gbp ? php / gbp : 0,
+      eurphp: per.EUR ?? (eur ? php / eur : php),
+      jpyphp: per.JPY ?? (jpy ? php / jpy : 0),
+      gbpphp: per.GBP ?? (gbp ? php / gbp : 0),
+      per,
     };
   } catch {
     return null;
@@ -334,6 +343,9 @@ function asYahooQuote(row: YahooLast, fx: MarketSnapshot["fx"] | null): MarketQu
   } else if (ccy === "JPY" && fx?.jpyphp) {
     php = row.price * fx.jpyphp;
     usd = fx.usdphp ? php / fx.usdphp : undefined;
+  } else if (fx?.per?.[ccy]) {
+    php = row.price * fx.per[ccy];
+    usd = fx.usdphp ? php / fx.usdphp : undefined;
   }
   if (index) {
     php = undefined;
@@ -478,16 +490,17 @@ function assemble(
   }
   const ccy = asCcy(vs);
   for (const row of gecko) {
-    const php = vs === "php" || !fx ? row.current_price : row.current_price * phpPer(vs, fx);
-    const usd = fx?.usdphp ? php / fx.usdphp : vs === "usd" ? row.current_price : undefined;
+    const php = row.current_price;
+    const converted = fromPhp(php, vs, fx);
+    const usd = fx?.usdphp ? php / fx.usdphp : vs === "usd" ? converted.price : undefined;
     quotes[row.id] = {
       id: row.id,
       label: row.symbol.toUpperCase(),
       name: row.name,
-      price: row.current_price,
+      price: converted.price,
       change: row.price_change_percentage_24h ?? 0,
       kind: "crypto",
-      ccy,
+      ccy: converted.ccy,
       php,
       usd,
       volume: row.total_volume,
@@ -529,12 +542,14 @@ function assemble(
       quotes[pseSym] = overlayFund(quotes[pseSym]!, y);
       continue;
     }
+    const bare = y.id.toUpperCase();
+    if (!y.id.includes(".") && !isYahooIndex(y.id) && BLUECHIPS.has(bare) && quotes[bare]?.kind === "stock") {
+      continue;
+    }
     if (quotes[y.id]?.kind === "stock") {
       quotes[y.id] = overlayFund(quotes[y.id]!, y);
       continue;
     }
-    const bare = y.id.replace(/\.PS$/i, "").toUpperCase();
-    if (BLUECHIPS.has(bare) && !isYahooIndex(y.id)) continue;
     quotes[y.id] = y;
     const hit = WATCH_CATALOG.find((w) => w.symbol === y.id && (w.kind === "global" || w.kind === "cmdty"));
     if (hit && hit.id !== y.id) quotes[hit.id] = y;
@@ -589,6 +604,8 @@ export const fetchMarkets = createServerFn({ method: "POST" })
       wantHome: z.boolean().optional(),
       screener: z.string().optional(),
       yahooRegion: z.string().optional(),
+      desk: z.string().optional(),
+      desks: z.array(z.string()).max(8).optional(),
     }),
   )
   .handler(async ({ data }): Promise<MarketSnapshot> => {
@@ -599,11 +616,14 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     const yahooSyms = [...new Set((data.yahoo ?? []).filter(Boolean))];
     const screener = isYahooScreen(data.screener?.trim() || "") ? data.screener!.trim() : "";
     const yahooRegion = data.yahooRegion?.trim() || "US";
+    const deskId = data.desk?.trim() || yahooRegion;
+    const deskIds = [...new Set((data.desks?.length ? data.desks : [deskId]).map((id) => id.trim()).filter(Boolean))].slice(0, 6);
+    const homeRegions = [...new Set(deskIds.map((id) => deskMarket(id).yahooRegion || "US"))];
     const extraGecko = (data.ids ?? []).filter(
       (id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z^=]{1,12}$/.test(id) && !id.includes("="),
     );
     const geckoIds = [...new Set(extraGecko)];
-    const key = `${vs}|g:${geckoIds.toSorted().join(",")}|y:${yahooSyms.toSorted().join(",")}|p:${wantPse ? 1 : 0}|c:${wantCrypto ? 1 : 0}|h:${wantHome ? 1 : 0}|s:${screener}|r:${yahooRegion}`;
+    const key = `${vs}|g:${geckoIds.toSorted().join(",")}|y:${yahooSyms.toSorted().join(",")}|p:${wantPse ? 1 : 0}|c:${wantCrypto ? 1 : 0}|h:${wantHome ? 1 : 0}|s:${screener}|r:${yahooRegion}|d:${deskIds.toSorted().join(",")}`;
     const snap = g.__atriumMarkets;
     if (snap && snap.key === key && snap.exp > Date.now()) return snap.data;
     const needHome = wantHome && screener !== "most_actives";
@@ -613,14 +633,20 @@ export const fetchMarkets = createServerFn({ method: "POST" })
       wantPse ? getPseTape() : Promise.resolve({ rows: [] as MarketQuote[] }),
       yahooSyms.length ? fetchYahooLast(yahooSyms) : Promise.resolve([]),
       screener ? fetchYahooScreener(screener, yahooRegion, SCREEN_FETCH) : Promise.resolve([]),
-      yahooSyms.length && screener !== "most_actives"
+      yahooSyms.length && homeRegions.includes("US") && screener !== "most_actives"
         ? fetchYahooScreener("most_actives", "US", SCREEN_FETCH)
         : Promise.resolve([]),
-      needHome ? fetchYahooScreener("most_actives", yahooRegion, SCREEN_FETCH, { fallback: yahooRegion === "US" }) : Promise.resolve([]),
+      needHome
+        ? Promise.all(
+            homeRegions.map((region) =>
+              fetchYahooScreener("most_actives", region, SCREEN_FETCH, { fallback: region === "US" }).catch(() => []),
+            ),
+          ).then((lists) => lists.flat())
+        : Promise.resolve([]),
     ]);
     let gecko: GeckoRow[] = [];
-    if (geckoIds.length) gecko = await loadGecko(geckoIds, vs);
-    else if (wantCrypto && !binance.length) gecko = await loadGecko(DEFAULT_GECKO_IDS, vs);
+    if (geckoIds.length) gecko = await loadGecko(geckoIds, "php");
+    else if (wantCrypto && !binance.length) gecko = await loadGecko(DEFAULT_GECKO_IDS, "php");
     const fundBySym = new Map<string, YahooLast>();
     for (const row of [...activeRaw, ...screenRaw, ...homeRaw]) fundBySym.set(row.symbol, row);
     const yahoo = yahooRaw.map((row) => {
@@ -631,7 +657,7 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     const screen = screenRaw.map((row) => asYahooQuote(row, fx));
     const home = (wantHome && screener === "most_actives" ? screenRaw : homeRaw)
       .map((row) => asYahooQuote(row, fx))
-      .filter((q) => isHomeSymbol(q.id, yahooRegion));
+      .filter((q) => deskIds.some((id) => isHomeSymbol(q.id, id)));
     const snapshot = assemble(vs, fx, gecko, pse, binance, yahoo, screen, home);
     if (!snapshot.failed) {
       g.__atriumMarkets = {

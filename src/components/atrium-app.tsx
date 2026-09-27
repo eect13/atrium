@@ -59,7 +59,7 @@ import { resolveCommand, suggestCommands } from "@/lib/desk-search";
 import { fetchFeed } from "@/lib/feeds";
 import { mixStories } from "@/lib/headline";
 import { NOTE_COLORS, deskZone, isoDate, uid } from "@/lib/format";
-import { applyDeskRegion, regionOf } from "@/lib/region";
+import { applyDeskProfile, regionOf } from "@/lib/region";
 import { useModHint } from "@/lib/keys";
 import { parseWhen } from "@/lib/parse-when";
 import { useAtrium } from "@/lib/store";
@@ -146,9 +146,10 @@ async function pullFeeds(list: Feed[]) {
 }
 
 function ViewFallback() {
-  const region = useAtrium((s) => s.profile.region);
+  const profile = useAtrium((s) => s.profile);
   const z = deskZone();
   const today = new Date();
+  const city = (profile.tz || z.tz).split("/").pop()?.replace(/_/g, " ");
   return (
     <div className="p-1">
       <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Today</p>
@@ -162,7 +163,7 @@ function ViewFallback() {
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
         {today.toLocaleDateString(z.locale, { year: "numeric", timeZone: z.tz })}
-        {` · ${regionOf(region).name}`}
+        {city ? ` · ${city}` : ""}
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Skeleton className="h-28 rounded-lg" />
@@ -173,13 +174,13 @@ function ViewFallback() {
 }
 
 function DeskClock() {
-  const region = useAtrium((s) => s.profile.region);
+  const profile = useAtrium((s) => s.profile);
   const [clock, setClock] = useState("");
   useEffect(() => {
-    applyDeskRegion(region);
+    applyDeskProfile(profile);
     const tick = () => {
       const z = deskZone();
-      const r = regionOf(region);
+      const city = (profile.tz || z.tz).split("/").pop()?.replace(/_/g, " ") || z.tz;
       setClock(
         `${new Date().toLocaleString(z.locale, {
           weekday: "short",
@@ -187,17 +188,17 @@ function DeskClock() {
           minute: "2-digit",
           second: "2-digit",
           timeZone: z.tz,
-        })} · ${r.id}`,
+        })} · ${city}`,
       );
     };
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [region]);
+  }, [profile.tz, profile.locale, profile.region]);
   return (
     <>
       <span className="tabular-nums text-[0.65rem] uppercase tracking-[0.08em] text-muted-foreground lg:hidden">
-        {regionOf(region).id}
+        {(profile.tz || regionOf(profile.region).tz).split("/").pop()?.replace(/_/g, " ")}
       </span>
       <span className="hidden tabular-nums text-xs text-muted-foreground lg:inline">{clock}</span>
     </>
@@ -675,7 +676,7 @@ export function AtriumApp() {
             <ThemeToggle />
           </div>
         </header>
-        <main className="scroll-auto min-h-0 min-w-0 flex-1 bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto scroll-auto bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6">
           <ViewCrash>
           {view === "dashboard" && (
             <Suspense fallback={<ViewFallback />}>

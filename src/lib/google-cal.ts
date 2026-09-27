@@ -29,6 +29,13 @@ function normalize(data: unknown): GCalEvent[] {
   return [];
 }
 
+function nextToken(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const token = (data as { nextPageToken?: unknown; next_page_token?: unknown }).nextPageToken
+    ?? (data as { next_page_token?: unknown }).next_page_token;
+  return typeof token === "string" && token ? token : undefined;
+}
+
 function normalizeCals(data: unknown): RawCal[] {
   if (!data) return [];
   if (Array.isArray(data)) return data as RawCal[];
@@ -47,9 +54,6 @@ export function gcalLane(c: RawCal): GCalDesk {
   if (primary) return { id, label: "Mine", lane: "mine" };
   if (/family/i.test(label)) return { id, label: label === "Family" ? "Family" : label, lane: "family" };
   if (/holiday|birthday/i.test(label)) return { id, label, lane: "other" };
-  if (/^(owner)$/i.test(c.accessRole || "") && !/holiday|birthday/i.test(label)) {
-    return { id, label, lane: "mine" };
-  }
   return { id, label, lane: "other" };
 }
 
@@ -57,10 +61,23 @@ export function defaultGcalOff(cals: GCalDesk[]): string[] {
   return cals.filter((c) => c.lane !== "mine").map((c) => c.id);
 }
 
-export function visibleCalEvents<T extends { source: string; calId?: string }>(events: T[], off: string[]): T[] {
+export function mineCalId(cals: { id: string; lane: string }[] | undefined) {
+  return cals?.find((c) => c.lane === "mine")?.id;
+}
+
+/** Untagged Google rows follow Mine, so hiding Family does not leave them stuck on. */
+export function visibleCalEvents<T extends { source: string; calId?: string }>(
+  events: T[],
+  off: string[],
+  mineId?: string,
+): T[] {
   if (!off.length) return events;
   const hide = new Set(off);
-  return events.filter((e) => e.source !== "google" || !e.calId || !hide.has(e.calId));
+  return events.filter((e) => {
+    if (e.source !== "google") return true;
+    const id = e.calId || mineId;
+    return !id || !hide.has(id);
+  });
 }
 
 export const listGoogleCalendars = createServerFn({ method: "POST" }).handler(async () => {
@@ -106,7 +123,7 @@ export const listGoogleEvents = createServerFn({ method: "POST" })
       const args: Record<string, unknown> = {
         timeMin: data.timeMin,
         timeMax: data.timeMax,
-        maxResults: 40,
+        maxResults: 250,
         singleEvents: true,
         orderBy: "startTime",
       };
@@ -115,7 +132,22 @@ export const listGoogleEvents = createServerFn({ method: "POST" })
       last = result;
       if (result.loginRequired) return { loginRequired: true, loginUrl: result.loginUrl, events: [] as GCalEvent[] };
       if (result.ok) {
-        return { loginRequired: false, events: normalize(result.data) };
+        const events = normalize(result.data);
+        let token = nextToken(result.data);
+        const seen = new Set<string>();
+        if (token) seen.add(token);
+        for (let page = 0; page < 3 && token; page += 1) {
+          const more = await callTool(tool, { ...args, pageToken: token }, { connectorType: ConnectorType.GoogleCalendar });
+          if (!more.ok) break;
+          const batch = normalize(more.data);
+          if (!batch.length) break;
+          events.push(...batch);
+          const next = nextToken(more.data);
+          if (!next || seen.has(next)) break;
+          seen.add(next);
+          token = next;
+        }
+        return { loginRequired: false, events };
       }
     }
     return {

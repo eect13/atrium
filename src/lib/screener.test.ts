@@ -23,6 +23,14 @@ test("normalizeScreen accepts style and sector lists", () => {
   assert.equal(normalizeScreen("junk"), "day_gainers");
 });
 
+test("cap filter converts a local-currency cap into dollars", () => {
+  const rows = [{ id: "vnd", pe: 12, marketCap: 2_500_000_000_000, ccy: "VND", volume: 1, yieldPct: 0 }];
+  const raw = applyScreenFilters(rows, { cap: "mega" });
+  const usd = applyScreenFilters(rows, { cap: "micro", usdPer: { VND: 1 / 25_000 } });
+  assert.deepEqual(raw.map((r) => r.id), ["vnd"]);
+  assert.deepEqual(usd.map((r) => r.id), ["vnd"]);
+});
+
 test("capBand splits mega mid micro", () => {
   assert.equal(capBand(80_000_000), "micro");
   assert.equal(capBand(800_000_000), "small");

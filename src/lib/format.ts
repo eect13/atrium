@@ -360,26 +360,16 @@ export function maskedMoney(n: number, mask: boolean, ccy: string = "PHP") {
   return mask ? `${ccySymbol(ccy)} ••••` : money(n, ccy);
 }
 
-const QUOTE_SYM: Record<string, string> = {
-  PHP: "₱",
-  USD: "$",
-  EUR: "€",
-  GBP: "£",
-  JPY: "¥",
-  HKD: "HK$",
-  KRW: "₩",
-  SGD: "S$",
-  AUD: "A$",
-  CAD: "C$",
-  CHF: "CHF ",
-  CNY: "CN¥",
-  INR: "₹",
-};
+const QUOTE_SYM: Record<string, string> = Object.fromEntries(
+  Object.entries(CCY_META).map(([id, meta]) => [id, meta.symbol]),
+);
+
+const ZERO_DECIMAL = new Set(["JPY", "KRW", "VND", "IDR", "CLP", "HUF", "ISK"]);
 
 /** Market quote that keeps cents for FX and drops them for large notionals. */
 export function moneyQuote(n: number, ccy = "PHP") {
   const abs = Math.abs(Number(n));
-  const digits = ccy === "JPY" || ccy === "KRW" ? 0 : abs >= 100_000 ? 0 : abs >= 1 ? 2 : 4;
+  const digits = ZERO_DECIMAL.has(ccy) ? 0 : abs >= 100_000 ? 0 : abs >= 1 ? 2 : 4;
   const num = Number(n).toLocaleString("en-US", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,

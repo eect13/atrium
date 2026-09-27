@@ -42,6 +42,10 @@ export function parseWhen(text: string, now = new Date()) {
     hour = 9;
     minute = 0;
     title = title.replace(/tomorrow/gi, "").trim();
+  } else if (/\btonight\b/.test(lower)) {
+    hour = 19;
+    minute = 0;
+    title = title.replace(/tonight/gi, "").trim();
   } else if (/\btoday\b/.test(lower)) {
     hour = Math.min(23, p.hour + 1);
     minute = 0;

@@ -2,6 +2,51 @@ import { isTauri } from "./http.ts";
 
 export { isTauri };
 
+const KEEP_KEY = "atrium.float.keep";
+
+function keepCount() {
+  try {
+    if (typeof localStorage === "undefined") return 0;
+    const n = Number(localStorage.getItem(KEEP_KEY) || "0");
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** True while the main window is closing floats on purpose. Child realms share localStorage, not JS memory. */
+export function floatKeepRequested() {
+  return keepCount() > 0;
+}
+
+export function beginFloatKeep() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(KEEP_KEY, String(keepCount() + 1));
+  } catch {
+    /* private mode */
+  }
+}
+
+export function endFloatKeep() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const n = keepCount() - 1;
+    if (n <= 0) localStorage.removeItem(KEEP_KEY);
+    else localStorage.setItem(KEEP_KEY, String(n));
+  } catch {
+    /* private mode */
+  }
+}
+
+function releaseFloatKeepSoon() {
+  if (typeof window === "undefined") {
+    endFloatKeep();
+    return;
+  }
+  window.setTimeout(() => endFloatKeep(), 400);
+}
+
 function labelFor(kind: "note" | "widget", id: string) {
   const safe = id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "x";
   return `${kind}-${safe}`;
@@ -15,6 +60,7 @@ async function watchGone(label: string, win: { once: (ev: string, cb: () => void
   try {
     await win.once("tauri://destroyed", () => {
       goneWatch.delete(label);
+      if (floatKeepRequested()) return;
       onGone();
     });
   } catch {
@@ -60,27 +106,37 @@ export async function openNativeFloat(
 
 export async function closeNativeFloat(kind: "note" | "widget", id: string) {
   if (!isTauri()) return;
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const win = await WebviewWindow.getByLabel(labelFor(kind, id));
-  if (win) await win.close();
+  beginFloatKeep();
+  try {
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const win = await WebviewWindow.getByLabel(labelFor(kind, id));
+    if (win) await win.close();
+  } finally {
+    releaseFloatKeepSoon();
+  }
 }
 
 /** Close every child float. The store keeps which pads were up so the next open restores them. */
 export async function closeAllNativeFloats() {
   if (!isTauri()) return;
-  const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const self = getCurrentWebviewWindow().label;
-  const all = await getAllWebviewWindows();
-  await Promise.all(
-    all.map(async (win) => {
-      if (win.label === self) return;
-      try {
-        await win.close();
-      } catch {
-        /* already gone */
-      }
-    }),
-  );
+  beginFloatKeep();
+  try {
+    const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const self = getCurrentWebviewWindow().label;
+    const all = await getAllWebviewWindows();
+    await Promise.all(
+      all.map(async (win) => {
+        if (win.label === self) return;
+        try {
+          await win.close();
+        } catch {
+          /* already gone */
+        }
+      }),
+    );
+  } finally {
+    releaseFloatKeepSoon();
+  }
 }
 
 export async function closeThisWindow() {
@@ -104,7 +160,7 @@ export function watchNativeClose(onClose: () => void) {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const win = getCurrentWebviewWindow();
     const stop = await win.onCloseRequested(() => {
-      if (dead) return;
+      if (dead || floatKeepRequested()) return;
       onClose();
     });
     if (dead) stop();

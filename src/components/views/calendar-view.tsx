@@ -17,7 +17,6 @@ import {
   fmtDate,
   fmtWhen,
   fromManila,
-  fromManilaInput,
   isoDate,
   isoMonth,
   isAllDayEvent,
@@ -27,7 +26,6 @@ import {
   monthCells,
   sameDay,
   toManilaInput,
-  toZoneInput,
   fromZoneInput,
   resolveEventTz,
   WORLD_ZONES,
@@ -35,7 +33,7 @@ import {
   weekRangeLabel,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
-import { defaultGcalOff, listGoogleCalendars, listGoogleEvents, visibleCalEvents } from "@/lib/google-cal";
+import { listGoogleCalendars, listGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { useAtrium } from "@/lib/store";
@@ -76,7 +74,10 @@ export function CalendarView() {
       toggleGcal: s.toggleGcal,
     })),
   );
-  const shown = useMemo(() => visibleCalEvents(events, gcalOff), [events, gcalOff]);
+  const shown = useMemo(
+    () => visibleCalEvents(events, gcalOff, mineCalId(gcalCals)),
+    [events, gcalOff, gcalCals],
+  );
   const [cursor, setCursor] = useState(() => {
     if (calCursor && !Number.isNaN(+new Date(calCursor))) return new Date(calCursor);
     return new Date();
@@ -110,6 +111,7 @@ export function CalendarView() {
     setLoc("");
     setCat("work");
     setAllDay(false);
+    setEventTz("desk");
     setOpen(true);
   }
 
@@ -121,6 +123,7 @@ export function CalendarView() {
     setCat(ev.cat);
     setLoc(ev.loc);
     setAllDay(Boolean(ev.allDay) || isAllDayEvent(ev));
+    setEventTz("desk");
     setOpen(true);
   }
 
@@ -148,10 +151,9 @@ export function CalendarView() {
     }
     return res.events.flatMap((g) => {
       const dateOnly = Boolean(g.start?.date && !g.start.dateTime);
-      const s = g.start?.dateTime || (g.start?.date ? manilaAt(g.start.date, 9).toISOString() : "");
-      const e = dateOnly
-        ? manilaAt(g.start!.date!, 10).toISOString()
-        : g.end?.dateTime || (g.end?.date ? manilaAt(g.end.date, 10).toISOString() : s);
+      const s = g.start?.dateTime || (g.start?.date ? manilaAt(g.start.date, 0).toISOString() : "");
+      const exclusive = g.end?.date ? manilaAt(g.end.date, 0).toISOString() : "";
+      const e = g.end?.dateTime || exclusive || s;
       if (!s) return [];
       const startAt = new Date(s);
       const endAt = new Date(e);
@@ -171,10 +173,9 @@ export function CalendarView() {
   }
 
   async function pullGoogle(ids?: string[]) {
-    const now = new Date();
-    const p = manilaParts(now);
+    const p = manilaParts(cursor);
     const range = {
-      timeMin: fromManila(p.year, p.month, 1).toISOString(),
+      timeMin: fromManila(p.year, p.month - 1, 1).toISOString(),
       timeMax: fromManila(p.year, p.month + 2, 1).toISOString(),
     };
     const listed = await listGoogleCalendars();
@@ -183,24 +184,24 @@ export function CalendarView() {
       toast("Connect Google Calendar, then try again.");
       return;
     }
-    let cals = listed.calendars;
-    let off = gcalOff;
-    if (cals.length) {
-      const first = !gcalCals.length;
-      if (first) off = defaultGcalOff(cals);
-      setGcalCals(cals, first ? off : undefined);
-    } else {
-      cals = gcalCals;
+    const state = useAtrium.getState();
+    let cals = listed.calendars.length ? listed.calendars : state.gcalCals;
+    if (listed.calendars.length) {
+      setGcalCals(cals);
+      cals = useAtrium.getState().gcalCals.length ? useAtrium.getState().gcalCals : cals;
     }
-    const selected = ids?.length
-      ? ids
-      : (cals.length ? cals.filter((c) => !off.includes(c.id)).map((c) => c.id) : [undefined]);
+    const off = useAtrium.getState().gcalOff;
+    const selected = ids?.length ? ids : cals.filter((c) => !off.includes(c.id)).map((c) => c.id);
+    if (!selected.length) {
+      toast(cals.length ? "Those calendars are hidden" : "No Google calendars yet");
+      return;
+    }
     const mapped: CalendarEvent[] = [];
-    for (const calendarId of selected.length ? selected : [undefined]) {
+    for (const calendarId of selected) {
       const res = await listGoogleEvents({
-        data: { ...range, calendarId: calendarId || undefined },
+        data: { ...range, calendarId },
       });
-      const rows = await mapGoogle(res, calendarId || undefined);
+      const rows = await mapGoogle(res, calendarId);
       if (rows === null) return;
       mapped.push(...rows);
     }
@@ -558,8 +559,8 @@ export function CalendarView() {
                     return;
                   }
                   if (allDay) {
-                    const day = isoDate(startAt);
-                    endAt = manilaAt(day, 23, 59);
+                    const day = start.slice(0, 10);
+                    endAt = fromZoneInput(`${day}T23:59`, tz) ?? endAt;
                   } else if (endAt.getTime() <= startAt.getTime()) {
                     endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
                   }

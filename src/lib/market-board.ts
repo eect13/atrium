@@ -125,7 +125,6 @@ export const DEFAULT_GECKO_IDS = Object.values(BINANCE_PAIRS).map((p) => p.gecko
 export const PRIMARY_TABS: { id: BoardTab; label: string; short?: string }[] = [
   { id: "watcher", label: "Watcher" },
   { id: "all", label: "All" },
-  { id: "global", label: "Global" },
   { id: "cmdty", label: "Commodities", short: "Cmdty" },
   { id: "screen", label: "Screener" },
   { id: "crypto", label: "Crypto" },
@@ -371,7 +370,7 @@ export function displayLast(
 }
 
 export function normalizeTab(raw?: string): BoardTab {
-  if (raw === "pse") return "all";
+  if (raw === "pse" || raw === "global") return "all";
   if (raw === "starred") return "watcher";
   if (
     raw === "all" ||
@@ -381,7 +380,6 @@ export function normalizeTab(raw?: string): BoardTab {
     raw === "div" ||
     raw === "crypto" ||
     raw === "fx" ||
-    raw === "global" ||
     raw === "cmdty" ||
     raw === "screen"
   ) {

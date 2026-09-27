@@ -65,7 +65,7 @@ export function NotesFloatBtn() {
 export function DeskMenu() {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinAllNotes, unpinAllNotes, arrangeNotes } =
+  const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinAllNotes, unpinAllNotes } =
     useAtrium(
       useShallow((s) => ({
         openWindow: s.openWindow,
@@ -77,7 +77,6 @@ export function DeskMenu() {
         notes: s.notes,
         pinAllNotes: s.pinAllNotes,
         unpinAllNotes: s.unpinAllNotes,
-        arrangeNotes: s.arrangeNotes,
       })),
     );
   const items: { kind: WidgetKind; label: string }[] = [
@@ -181,7 +180,6 @@ export function DeskMenu() {
                 className="mt-1 flex h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => {
                   homeWindows();
-                  arrangeNotes();
                   setOpen(false);
                 }}
               >

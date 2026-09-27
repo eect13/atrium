@@ -15,7 +15,8 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
-import { STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { QUOTE_CCY, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
+import { CCY_META } from "@/lib/format";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
 import { mapsPin, hasWeatherPin } from "@/lib/weather";
@@ -23,8 +24,8 @@ import { locateMe, locationBlockedCopy } from "@/lib/locate";
 import { PlaceField } from "@/components/place-field";
 import { DeskStorage } from "./finance-options";
 import { Chip, FIELD_SELECT } from "./finance-chip";
-import { FEED_PACKS, packIsOn } from "@/lib/feeds";
-import { DESK_REGIONS, regionOf } from "@/lib/region";
+import { packIsOn, sortedFeedPacks } from "@/lib/feeds";
+import { DESK_REGIONS, clockZones, normalizeMarkets, regionOf, toggleMarket } from "@/lib/region";
 import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
@@ -58,6 +59,8 @@ const JUMP = [
 
 function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: (p: Partial<Profile>) => void }) {
   const setView = useAtrium((s) => s.setView);
+  const quoteCcy = useAtrium((s) => s.quoteCcy);
+  const setQuoteCcy = useAtrium((s) => s.setQuoteCcy);
   const [name, setName] = useState(profile.name);
   const [city, setCity] = useState(profile.city);
   const [lat, setLat] = useState(profile.lat == null ? "" : String(profile.lat));
@@ -117,42 +120,68 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
         />
       </div>
       <div className="space-y-1 sm:col-span-2">
-        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">Desk region</p>
+        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">Clock</p>
         <select
-          aria-label="Desk region"
-          className={cn(FIELD_SELECT, "mt-2 sm:hidden")}
-          value={profile.region || "PH"}
+          aria-label="Clock timezone"
+          className={cn(FIELD_SELECT, "mt-2")}
+          value={profile.tz || regionOf(profile.region).tz}
           onChange={(e) => {
-            const r = regionOf(e.target.value);
-            setProfile({ region: r.id });
-            toast(r.factory ? "Philippines — factory desk" : `Desk region: ${r.name}`);
+            const tz = e.target.value;
+            const hit = DESK_REGIONS.find((r) => r.tz === tz);
+            setProfile({ tz, locale: hit?.locale || profile.locale });
+            toast(`Clock: ${clockZones().find((z) => z.id === tz)?.label ?? tz}`);
           }}
         >
-          {DESK_REGIONS.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-              {r.factory ? " · default" : ""}
+          {clockZones().map((z) => (
+            <option key={z.id} value={z.id}>
+              {z.label}
             </option>
           ))}
         </select>
-        <div className="mt-2 hidden flex-wrap gap-2 sm:flex">
-          {DESK_REGIONS.map((r) => (
-            <Chip
-              key={r.id}
-              active={(profile.region || "PH") === r.id}
-              onClick={() => {
-                setProfile({ region: r.id });
-                toast(r.factory ? "Philippines — factory desk" : `Desk region: ${r.name}`);
-              }}
-            >
-              {r.name}
-              {r.factory ? " · default" : ""}
-            </Chip>
+        <p className="text-xs text-muted-foreground">Calendar and weather hours follow this clock. Changing it does not hide any market.</p>
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">Tape currency</p>
+        <select
+          aria-label="Tape currency"
+          className={cn(FIELD_SELECT, "mt-2")}
+          value={quoteCcy}
+          onChange={(e) => {
+            const ccy = e.target.value as (typeof QUOTE_CCY)[number];
+            setQuoteCcy(ccy);
+            toast(`Tape currency: ${ccy}`);
+          }}
+        >
+          {QUOTE_CCY.map((c) => (
+            <option key={c} value={c}>
+              {c} · {CCY_META[c].name}
+            </option>
           ))}
+        </select>
+        <p className="text-xs text-muted-foreground">Last prices on Markets. Cash books keep the currency you set on each account.</p>
+      </div>
+      <div className="space-y-1 sm:col-span-2">
+        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">Markets on All</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {DESK_REGIONS.map((r) => {
+            const on = normalizeMarkets(profile.markets, profile.region).includes(r.id);
+            return (
+              <Chip
+                key={r.id}
+                active={on}
+                onClick={() => {
+                  const markets = toggleMarket(profile.markets ?? [profile.region], r.id);
+                  setProfile({ markets });
+                  toast(on && markets.length === 1 ? "Keep at least one market" : on ? `Hidden ${r.name}` : `Showing ${r.name}`);
+                }}
+              >
+                {r.name}
+              </Chip>
+            );
+          })}
         </div>
         <p className="text-xs text-muted-foreground">
-          Clock, calendar, and weather follow this country. Philippines is the factory default. Books currency stays
-          what you set on Cash.
+          Turn on Vietnam, the US, or any book together. The watcher can also hold a name from a market that is off — search Add and pin it.
         </p>
       </div>
       <div className="space-y-1">
@@ -507,7 +536,7 @@ export function OptionsView() {
               Sources stay off until you pick them. A pack turns a slice on — not the whole catalog.
             </p>
             <div className="flex flex-wrap gap-2">
-              {FEED_PACKS.map((p) => {
+              {sortedFeedPacks().map((p) => {
                 const on = packIsOn(feeds, p.id);
                 return (
                   <Chip key={p.id} active={on} onClick={() => setFeedPack(p.id, !on)}>
@@ -517,7 +546,7 @@ export function OptionsView() {
               })}
             </div>
             <p className="text-xs text-muted-foreground">
-              {FEED_PACKS.map((p) => `${p.label}: ${p.hint}`).join(" · ")}
+              {sortedFeedPacks().map((p) => `${p.label}: ${p.hint}`).join(" · ")}
             </p>
             <Button variant="outline" onClick={() => setView("news")}>
               Open briefing

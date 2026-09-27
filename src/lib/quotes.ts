@@ -410,10 +410,23 @@ export function exactAuthor(q: DeskQuote, name: string) {
   return authorSlug(q.author) === slug || q.author.toLowerCase() === name.trim().toLowerCase();
 }
 
+export function authorMatches(author: string, name: string) {
+  const slug = authorSlug(name);
+  const a = authorSlug(author);
+  if (!a || slug.length < 2) return false;
+  const parts = a.split("-").filter(Boolean);
+  return (
+    a === slug
+    || a.startsWith(`${slug}-`)
+    || slug.startsWith(`${a}-`)
+    || parts[0] === slug
+    || parts[parts.length - 1] === slug
+    || author.toLowerCase() === name.toLowerCase()
+  );
+}
+
 function matchAuthor(q: DeskQuote, name: string, slug: string) {
-  const a = authorSlug(q.author);
-  if (!a) return false;
-  return a === slug || a.startsWith(`${slug}-`) || slug.startsWith(`${a}-`) || q.author.toLowerCase() === name.toLowerCase();
+  return authorMatches(q.author, name) || authorMatches(q.author, slug);
 }
 
 export const fetchQuotes = createServerFn({ method: "POST" })

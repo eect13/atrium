@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
-import { FEED_PACKS, FEED_PRESETS, packIsOn, probeFeed } from "@/lib/feeds";
+import { FEED_PRESETS, compareRegion, packIsOn, probeFeed, sortedFeedPacks, sourceRegion } from "@/lib/feeds";
 import { NEWS_TAGS, asNewsFilter, asNewsTag, storyAge, tagStory, type NewsTag } from "@/lib/headline";
 import { DEFAULT_FEEDS, useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
@@ -75,15 +75,15 @@ export function NewsView({
   });
   const hero = shown[0];
   const rest = shown.slice(1);
-  const defaultIds = useMemo(() => new Set(DEFAULT_FEEDS.map((f) => f.id)), []);
   const catalog = useMemo(() => {
-    const groups = new Map<NewsTag, typeof FEED_PRESETS>();
+    const groups = new Map<string, typeof FEED_PRESETS>();
     for (const p of FEED_PRESETS) {
-      const list = groups.get(p.category) ?? [];
+      const region = sourceRegion(p);
+      const list = groups.get(region) ?? [];
       list.push(p);
-      groups.set(p.category, list);
+      groups.set(region, list);
     }
-    return NEWS_TAGS.filter((t) => groups.has(t)).map((tag) => ({ tag, items: groups.get(tag)! }));
+    return [...groups.keys()].sort(compareRegion).map((tag) => ({ tag, items: groups.get(tag)! }));
   }, []);
   const listed = useMemo(() => {
     const needle = catalogQ.trim().toLowerCase();
@@ -303,7 +303,7 @@ export function NewsView({
             <div>
               <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Packs</p>
               <div className="flex flex-wrap gap-2">
-                {FEED_PACKS.map((p) => {
+                {sortedFeedPacks().map((p) => {
                   const on = packIsOn(feeds, p.id);
                   return (
                     <Chip
@@ -397,19 +397,20 @@ export function NewsView({
                   <div className="min-w-0">
                     <p className="truncate text-sm">{f.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {asNewsTag(f.category)} · {f.url.replace(/^https?:\/\//, "")}
+                      {sourceRegion(f)} · {asNewsTag(f.category)} · {f.url.replace(/^https?:\/\//, "")}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {defaultIds.has(f.id) ? null : (
-                      <button
-                        type="button"
-                        className="px-2 text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => removeFeed(f.id)}
-                      >
-                        Remove
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="px-2 text-xs text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        removeFeed(f.id);
+                        toast(`Removed ${f.name}`);
+                      }}
+                    >
+                      Remove
+                    </button>
                     <Switch checked={f.enabled} onCheckedChange={() => toggleFeed(f.id)} />
                   </div>
                 </div>

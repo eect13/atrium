@@ -29,9 +29,12 @@ test("parsePostal reads JP 7-digit and ignores junk", () => {
   assert.equal(parsePostal(""), null);
 });
 
-test("postalCountries prefers US for 5-digit even on a PH desk", () => {
-  assert.equal(postalCountries("PH", "us")[0], "us");
+test("postalCountries tries the desk before a foreign ZIP hint", () => {
+  assert.equal(postalCountries("KR", "us")[0], "kr");
+  assert.equal(postalCountries("KR", "us")[1], "us");
+  assert.equal(postalCountries("US", "us")[0], "us");
   assert.equal(postalCountries("PH", "ph")[0], "ph");
+  assert.equal(postalCountries("SG", "in")[0], "sg");
   assert.ok(postalCountries("AU", "ph")[0] === "au");
 });
 

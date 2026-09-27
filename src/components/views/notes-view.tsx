@@ -14,8 +14,6 @@ import {
   addNotePhotos,
   useInkRedo,
 } from "@/components/note-pad";
-import { ResizeHandles } from "@/components/float-window";
-import { resizeFrom, type ResizeHandle } from "@/lib/desk";
 import { inkOnPaper, NOTE_COLORS, noteTitle, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
@@ -37,31 +35,56 @@ export function NotesView() {
   );
   const board = useRef<HTMLDivElement>(null);
   const [inkId, setInkId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ from: string; to: string } | null>(null);
   const boardNotes = notes.filter((n) => !n.pinned);
   const pinned = notes.filter((n) => n.pinned);
   const layout = notesLayout === "list" ? "list" : "board";
+  const ordered = [...boardNotes].sort((a, b) => a.y - b.y || a.x - b.x);
+  let shown = ordered;
+  if (drag && drag.from !== drag.to) {
+    const ids = ordered.map((n) => n.id);
+    const from = ids.indexOf(drag.from);
+    const to = ids.indexOf(drag.to);
+    if (from >= 0 && to >= 0) {
+      ids.splice(from, 1);
+      ids.splice(to, 0, drag.from);
+      const byId = new Map(ordered.map((n) => [n.id, n]));
+      shown = ids.map((id) => byId.get(id)!);
+    }
+  }
+  const previewRef = useRef(shown);
+  previewRef.current = shown;
 
   function spawn(color: string) {
+    const y = ordered.reduce((m, n) => Math.min(m, n.y), 0) - 10;
     addNote({
       id: uid(),
       text: "",
       color,
-      x: 32 + Math.random() * 80,
-      y: 32 + Math.random() * 60,
+      x: 0,
+      y,
       z: notes.reduce((m, n) => Math.max(m, n.z), 1) + 1,
-      w: 240,
-      h: 220,
+      w: 280,
+      h: 240,
       pinned: false,
+    });
+  }
+
+  function finishDrag() {
+    const order = previewRef.current;
+    setDrag(null);
+    order.forEach((n, i) => {
+      if (n.y !== i * 10 || n.x !== 0) updateNote(n.id, { y: i * 10, x: 0 });
     });
   }
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-2 bg-background/95 py-2 backdrop-blur">
         <h2 className="font-display text-2xl font-medium tracking-tight">Sticky notes</h2>
         <p className="text-sm text-muted-foreground">
           <span className="lg:hidden">Board or list. Pin floats on the desk.</span>
-          <span className="hidden lg:inline">Title + body, colors, format tools. Drag the title bar; edges resize.</span>
+          <span className="hidden lg:inline">Scroll the board. Drag a title to reorder. Pin floats on the desk.</span>
         </p>
         <div className="grow" />
         <NotesFloatBtn />
@@ -85,77 +108,34 @@ export function NotesView() {
         ))}
         <AddColorWheel onPick={spawn} />
       </div>
-      {layout === "list" ? (
-        <div className="space-y-2">
-          {boardNotes.map((n) => {
-            const ink = inkOnPaper(n.color);
-            return (
-              <article
-                key={n.id}
-                className="overflow-hidden rounded-lg shadow-[var(--shadow-border)]"
-                style={{ backgroundColor: n.color, color: ink }}
-              >
-                <NoteFormat
-                  ink={ink}
-                  drawing={false}
-                  canDraw={false}
-                  canUndo={false}
-                  onUndo={() => undefined}
-                  onClear={() => undefined}
-                  onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
-                />
-                <NotePhotos photos={n.photos ?? []} onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })} />
-                <NoteEditor note={n} ink={ink} drawing={false} onUpdate={(patch) => updateNote(n.id, patch)} />
-                <div className="group/bar flex items-center justify-end px-1 pb-1" style={{ color: ink }}>
-                  <NoteTools
-                    ink={ink}
-                    color={n.color}
-                    reveal="always"
-                    onColor={(color) => updateNote(n.id, { color })}
-                    onFloat={() => pinNote(n.id)}
-                    onDelete={() => removeNote(n.id)}
-                  />
-                </div>
-              </article>
-            );
-          })}
-          {!boardNotes.length && (
-            <p className="p-8 text-sm text-muted-foreground">
-              {notes.length
-                ? "Pinned notes are floating on the desktop. Pick a color for a new one."
-                : "Pick a paper color — white and gray first, or the wheel."}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div
-          ref={board}
-          className="scroll-auto relative min-h-[24rem] rounded-xl border border-dashed border-border bg-muted/40 sm:min-h-[32rem]"
-        >
-          {boardNotes.map((n) => (
-            <BoardNote
-              key={n.id}
-              note={n}
-              drawing={inkId === n.id}
-              board={board}
-              onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
-              onRaise={() => raise("note", n.id)}
-              onMove={(x, y) => updateNote(n.id, { x, y })}
-              onResize={(w, h) => updateNote(n.id, { w, h })}
-              onUpdate={(patch) => updateNote(n.id, patch)}
-              onPin={() => pinNote(n.id)}
-              onDelete={() => removeNote(n.id)}
-            />
-          ))}
-          {!boardNotes.length && (
-            <p className="p-8 text-sm text-muted-foreground">
-              {notes.length
-                ? "Pinned notes are floating on the desktop. Pick a color for a new one."
-                : "Pick a paper color — white and gray first, or the wheel."}
-            </p>
-          )}
-        </div>
-      )}
+      <div
+        ref={board}
+        className={layout === "list" ? "flex flex-col gap-3" : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"}
+      >
+        {shown.map((n) => (
+          <BoardNote
+            key={n.id}
+            note={n}
+            drawing={inkId === n.id}
+            dragging={drag?.from === n.id}
+            onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
+            onRaise={() => raise("note", n.id)}
+            onDragStart={() => setDrag({ from: n.id, to: n.id })}
+            onDragOver={(over) => setDrag((d) => (d?.from === n.id ? { from: n.id, to: over } : d))}
+            onDragEnd={finishDrag}
+            onUpdate={(patch) => updateNote(n.id, patch)}
+            onPin={() => pinNote(n.id)}
+            onDelete={() => removeNote(n.id)}
+          />
+        ))}
+        {!shown.length && (
+          <p className="p-8 text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
+            {notes.length
+              ? "Pinned notes are floating on the desktop. Pick a color for a new one."
+              : "Pick a paper color — white and gray first, or the wheel."}
+          </p>
+        )}
+      </div>
       {pinned.length > 0 && (
         <div className="mt-4">
           <h3 className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">
@@ -194,109 +174,81 @@ export function NotesView() {
 function BoardNote({
   note,
   drawing,
-  board,
+  dragging,
   onDraw,
   onRaise,
-  onMove,
-  onResize,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
   onUpdate,
   onPin,
   onDelete,
 }: {
   note: StickyNote;
   drawing: boolean;
-  board: React.RefObject<HTMLDivElement | null>;
+  dragging: boolean;
   onDraw: () => void;
   onRaise: () => void;
-  onMove: (x: number, y: number) => void;
-  onResize: (w: number, h: number) => void;
+  onDragStart: () => void;
+  onDragOver: (overId: string) => void;
+  onDragEnd: () => void;
   onUpdate: (patch: Partial<StickyNote>) => void;
   onPin: () => void;
   onDelete: () => void;
 }) {
   const ink = inkOnPaper(note.color);
-  const article = useRef<HTMLElement>(null);
   const boardRedo = useInkRedo();
 
-  function drag(e: React.PointerEvent, kind: "move" | ResizeHandle) {
-    if (e.button !== 0) return;
+  function nudgeScroll(clientY: number) {
+    const scroller = (document.querySelector("main") as HTMLElement | null) ?? undefined;
+    if (!scroller) return;
+    const r = scroller.getBoundingClientRect();
+    if (clientY > r.bottom - 64) scroller.scrollTop += 22;
+    else if (clientY < r.top + 72) scroller.scrollTop -= 22;
+  }
+
+  function drag(e: React.PointerEvent) {
+    if (e.button !== 0 || drawing) return;
+    if ((e.target as HTMLElement).closest("button,input,label,[data-no-drag]")) return;
     onRaise();
-    const el = article.current;
-    if (!el) return;
-    const start = { x: note.x, y: note.y, w: note.w, h: note.h };
-    const ox = e.clientX;
-    const oy = e.clientY;
-    let nx = start.x;
-    let ny = start.y;
-    let nw = start.w;
-    let nh = start.h;
+    onDragStart();
     const ac = new AbortController();
-    const { signal } = ac;
     const move = (ev: PointerEvent) => {
-      const r = board.current?.getBoundingClientRect();
-      if (!r) return;
-      if (kind === "move") {
-        nx = Math.min(Math.max(0, r.width - nw), Math.max(0, start.x + (ev.clientX - ox)));
-        ny = Math.min(Math.max(0, r.height - nh), Math.max(0, start.y + (ev.clientY - oy)));
-        el.style.left = `${nx}px`;
-        el.style.top = `${ny}px`;
-      } else {
-        const next = resizeFrom(kind, start, ev.clientX - ox, ev.clientY - oy, 180, 160);
-        nw = Math.min(Math.max(180, next.w), r.width);
-        nh = Math.min(Math.max(160, next.h), r.height);
-        nx = Math.min(Math.max(0, next.x), Math.max(0, r.width - nw));
-        ny = Math.min(Math.max(0, next.y), Math.max(0, r.height - nh));
-        el.style.left = `${nx}px`;
-        el.style.top = `${ny}px`;
-        el.style.width = `${nw}px`;
-        el.style.height = `${nh}px`;
-      }
+      nudgeScroll(ev.clientY);
+      const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("[data-note-id]");
+      const id = hit?.getAttribute("data-note-id");
+      if (id && id !== note.id) onDragOver(id);
     };
     const stop = () => {
       ac.abort();
-      if (kind === "move") onMove(nx, ny);
-      else {
-        onMove(nx, ny);
-        onResize(nw, nh);
-      }
+      onDragEnd();
     };
-    window.addEventListener("pointermove", move, { signal });
-    window.addEventListener("pointerup", stop, { signal });
-    window.addEventListener("pointercancel", stop, { signal });
+    window.addEventListener("pointermove", move, { signal: ac.signal });
+    window.addEventListener("pointerup", stop, { signal: ac.signal });
+    window.addEventListener("pointercancel", stop, { signal: ac.signal });
   }
 
   return (
     <article
-      ref={article}
-      className="group absolute flex flex-col overflow-hidden rounded-sm shadow-[var(--shadow-border)]"
-      style={{
-        left: note.x,
-        top: note.y,
-        width: note.w,
-        height: note.h,
-        backgroundColor: note.color,
-        color: ink,
-        zIndex: note.z,
-      }}
+      data-note-id={note.id}
+      className={`flex h-72 flex-col overflow-hidden rounded-sm shadow-[var(--shadow-border)] ${dragging ? "opacity-70" : ""}`}
+      style={{ backgroundColor: note.color, color: ink }}
     >
       <header
         className="group/bar relative z-[2] flex h-9 shrink-0 cursor-grab touch-none items-center gap-1 border-b border-current/10 px-1 active:cursor-grabbing"
-        onPointerDown={(e) => {
-          if (drawing) return;
-          if ((e.target as HTMLElement).closest("button,input,label,[data-no-drag]")) return;
-          drag(e, "move");
-        }}
+        onPointerDown={drag}
       >
         <span className="min-w-0 grow truncate px-1.5 text-xs font-semibold opacity-80">{noteTitle(note)}</span>
         <NoteTools
           ink={ink}
           color={note.color}
+          reveal="always"
           onColor={(color) => onUpdate({ color })}
           onFloat={onPin}
           onDelete={onDelete}
         />
       </header>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-auto">
         <NoteInk
           strokes={note.ink ?? []}
           color={ink}
@@ -312,6 +264,7 @@ function BoardNote({
       <NoteFormat
         ink={ink}
         drawing={drawing}
+        docked
         canUndo={Boolean(note.ink?.length)}
         canRedo={boardRedo.canRedoFor(note.id)}
         onDraw={onDraw}
@@ -323,7 +276,6 @@ function BoardNote({
         }}
         onPhoto={(files) => void addNotePhotos(note.photos, files).then((photos) => onUpdate({ photos }))}
       />
-      <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>
   );
 }

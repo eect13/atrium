@@ -146,7 +146,7 @@ export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLa
       : "—";
 
   const tags: string[] = [];
-  if (inSleeve(BLUECHIPS, code, ticker, row.item.id)) tags.push("PSEi");
+  if ((!q || q.kind === "stock") && inSleeve(BLUECHIPS, code, ticker, row.item.id)) tags.push("PSEi");
   if (code === PSEI_SYMBOL || ticker === "PSEi") tags.push("PSEi");
   if (inSleeve(REITS, code, ticker)) tags.push("REIT");
   if (inSleeve(DIVIDENDS, code, ticker)) tags.push("DivY");
@@ -357,7 +357,7 @@ export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLa
   }
   if (q?.beta && q.beta > 0) tape.push(`Beta ${q.beta.toFixed(2)} on the public tape.`);
 
-  const wt = nameWeight(code) ?? nameWeight(ticker);
+  const wt = !q || q.kind === "stock" ? nameWeight(code) ?? nameWeight(ticker) : null;
   if (wt != null) {
     indexFactor.push(`${ticker} is ${wt.toFixed(2)}% of the PSEi (official free-float weights) — a systematic factor in any local-equity book.`);
   }

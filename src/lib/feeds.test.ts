@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { asNewsTag, cleanHeadline, keepStory, mixStories, storyAge, storyFingerprint, tagStory } from "./headline.ts";
-import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss, NEWS_CATALOG, FEED_PACKS, packIsOn } from "./feeds.ts";
+import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss, NEWS_CATALOG, FEED_PACKS, packIsOn, sortedFeedPacks, sourceRegion } from "./feeds.ts";
 
 test("drops emoji-only X titles", () => {
   assert.equal(keepStory({ title: "🤍🔥 - x.com", src: "X", category: "X" }), false);
@@ -237,5 +237,16 @@ test("feed packs toggle a slice not the whole catalog", () => {
   assert.equal(packIsOn(on, "philippines"), true);
   assert.equal(packIsOn(on, "world"), false);
   assert.ok(on.filter((f) => f.enabled).length < NEWS_CATALOG.length);
+});
+
+test("sources group by country and Vietnam is its own pack", () => {
+  assert.equal(sourceRegion({ id: "vnexpress", category: "World", region: "Vietnam" }), "Vietnam");
+  assert.equal(sourceRegion({ id: "bbc", category: "World" }), "United Kingdom");
+  assert.equal(sourceRegion({ id: "inquirer", category: "Philippines" }), "Philippines");
+  assert.equal(sourceRegion({ category: "World" }), "World");
+  const packs = sortedFeedPacks().map((p) => p.id);
+  assert.ok(packs.indexOf("vietnam") < packs.indexOf("world"));
+  assert.ok(packs.includes("malaysia"));
+  assert.ok(NEWS_CATALOG.some((f) => f.region === "Vietnam"));
 });
 

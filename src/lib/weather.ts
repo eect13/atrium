@@ -81,8 +81,13 @@ const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
 const cache = new Map<string, { exp: number; staleExp: number; data: WeatherPayload }>();
 
-function cacheKey(lat: number, lon: number) {
-  return `v12:${lat.toFixed(3)},${lon.toFixed(3)}`;
+function cacheKey(lat: number, lon: number, tz: string) {
+  return `v13:${lat.toFixed(3)},${lon.toFixed(3)},${tz}`;
+}
+
+function zoneName(tz?: string) {
+  if (tz && /^[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)+$/.test(tz)) return tz;
+  return deskZone().tz;
 }
 
 function stamp(d: Date) {
@@ -136,12 +141,12 @@ async function getWeather(url: URL, ms: number, tries = 4): Promise<Response | n
 
 const weatherInflight = new Map<string, Promise<WeatherPayload>>();
 
-async function fromAirQuality(lat: number, lon: number): Promise<number | undefined> {
+async function fromAirQuality(lat: number, lon: number, tz: string): Promise<number | undefined> {
   const url = new URL("https://air-quality-api.open-meteo.com/v1/air-quality");
   url.searchParams.set("latitude", String(lat));
   url.searchParams.set("longitude", String(lon));
   url.searchParams.set("current", "us_aqi");
-  url.searchParams.set("timezone", deskZone().tz);
+  url.searchParams.set("timezone", tz);
   try {
     const res = await getWeather(url, FETCH_MS);
     if (!res?.ok) return undefined;
@@ -153,7 +158,7 @@ async function fromAirQuality(lat: number, lon: number): Promise<number | undefi
   }
 }
 
-async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload | null> {
+async function fromOpenMeteo(lat: number, lon: number, tz: string): Promise<WeatherPayload | null> {
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(lat));
   url.searchParams.set("longitude", String(lon));
@@ -166,7 +171,7 @@ async function fromOpenMeteo(lat: number, lon: number): Promise<WeatherPayload |
     "daily",
     "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max",
   );
-  url.searchParams.set("timezone", deskZone().tz);
+  url.searchParams.set("timezone", tz);
   url.searchParams.set("forecast_days", "7");
   url.searchParams.set("forecast_hours", "24");
   url.searchParams.set("cell_selection", "nearest");
@@ -257,15 +262,14 @@ async function fromMetNo(lat: number, lon: number): Promise<WeatherPayload | nul
 }
 
 /** Open-Meteo (ECMWF blend) first — Met.no is Nordic-centric and used to win a race. */
-async function firstWeather(lat: number, lon: number): Promise<WeatherPayload | null> {
+async function firstWeather(lat: number, lon: number, tz: string): Promise<WeatherPayload | null> {
   const [forecast, aqi] = await Promise.all([
-    (async () => (await fromOpenMeteo(lat, lon)) ?? (await fromMetNo(lat, lon)))(),
-    fromAirQuality(lat, lon),
+    (async () => (await fromOpenMeteo(lat, lon, tz)) ?? (await fromMetNo(lat, lon)))(),
+    fromAirQuality(lat, lon, tz),
   ]);
   if (!forecast?.current || !forecast.daily) return forecast;
   if (aqi != null) forecast.current.us_aqi = aqi;
   if (!forecast.daily.sunrise?.[0]) {
-    const tz = deskZone().tz;
     forecast.daily.sunrise = forecast.daily.time.map((t) => solarDay(lat, lon, new Date(`${t}T12:00:00Z`), tz).sunrise ?? "");
     forecast.daily.sunset = forecast.daily.time.map((t) => solarDay(lat, lon, new Date(`${t}T12:00:00Z`), tz).sunset ?? "");
   }
@@ -277,16 +281,18 @@ export const fetchWeather = createServerFn({ method: "POST" })
     z.object({
       lat: z.coerce.number().finite(),
       lon: z.coerce.number().finite(),
+      tz: z.string().max(80).optional(),
     }),
   )
   .handler(async ({ data }): Promise<WeatherPayload> => {
-    const key = cacheKey(data.lat, data.lon);
+    const tz = zoneName(data.tz);
+    const key = cacheKey(data.lat, data.lon, tz);
     const hit = cache.get(key);
     if (hit && hit.exp > Date.now()) return hit.data;
     const pending = weatherInflight.get(key);
     if (pending) return pending;
     const run = (async (): Promise<WeatherPayload> => {
-      const payload = await firstWeather(data.lat, data.lon);
+      const payload = await firstWeather(data.lat, data.lon, tz);
       if (payload && !payload.error) {
         cache.set(key, { exp: Date.now() + CACHE_MS, staleExp: Date.now() + STALE_MS, data: payload });
         return payload;
@@ -374,7 +380,6 @@ async function lookupPostal(postal: string, deskCc: string, hint?: PostalHint) {
   const first = countries[0] ?? "";
   const hit =
     (await lookupNominatimPostal(postal, first)) ??
-    (first ? await lookupNominatimPostal(postal, "") : null) ??
     (await lookupZippopotam(postal, countries));
   return hit;
 }

@@ -1,5 +1,6 @@
 import type { CalendarEvent } from "./types";
 import { parseICS } from "./ics";
+import { deskZone } from "./format";
 import IcsWorker from "./ics.worker.ts?worker";
 
 const MIN_WORKER_BYTES = 16_000;
@@ -38,6 +39,6 @@ export function parseICSAsync(text: string, timeoutMs = 8_000): Promise<Calendar
       finish(payload?.ok && payload.events ? payload.events : parseICS(text));
     });
     worker.addEventListener("error", () => finish(parseICS(text)));
-    worker.postMessage(text);
+    worker.postMessage({ text, tz: deskZone().tz });
   });
 }

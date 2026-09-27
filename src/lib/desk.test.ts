@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { arrangeNoteBox, boxOffscreen, normalizeWinBox, placePopover, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
+import { arrangeNoteBox, boxOffscreen, normalizeWinBox, noteBoardExtent, packNoteSeat, placePopover, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
 
 const box = { x: 100, y: 80, w: 200, h: 160 };
 
@@ -71,6 +71,28 @@ test("arrangeNoteBox cascades pads when there is no window", () => {
   assert.equal(first.w, 240);
   assert.equal(first.h, 220);
   assert.ok(seventh.x > first.x || seventh.y > first.y);
+});
+
+test("packNoteSeat tiles many pads without stacking on the first seat", () => {
+  const seats: { x: number; y: number; w: number; h: number }[] = [];
+  for (let i = 0; i < 12; i++) {
+    seats.push(packNoteSeat(seats, { w: 240, h: 220 }, 760));
+  }
+  assert.equal(seats.length, 12);
+  assert.ok(seats[0]!.x < seats[1]!.x || seats[0]!.y < seats[1]!.y);
+  const last = seats[11]!;
+  assert.ok(last.y > seats[0]!.y);
+  const unique = new Set(seats.map((s) => `${s.x},${s.y}`));
+  assert.equal(unique.size, 12);
+});
+
+test("noteBoardExtent grows with a large pad so the board keeps seating room", () => {
+  const extent = noteBoardExtent([
+    { x: 16, y: 16, w: 240, h: 220 },
+    { x: 20, y: 40, w: 520, h: 480 },
+  ]);
+  assert.ok(extent.h >= 40 + 480);
+  assert.ok(extent.w >= 20 + 520);
 });
 
 test("placePopover right-aligns and stays on-screen", () => {

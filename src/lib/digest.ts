@@ -26,7 +26,7 @@ export type DigestDay = {
 };
 
 const JUNK =
-  /tradingview|stock price and chart|credit cards?|referral|raffle|live better with|pay mo na|yu-?gi-?oh|yugioh|snkrdunk|extended art|trading card|pokemon tcg|cardfight|one piece card|merch store|\bebay\b|stockx/i;
+  /tradingview|stock price and chart|referral|raffle|live better with|pay mo na|yu-?gi-?oh|yugioh|snkrdunk|extended art|trading card|pokemon tcg|cardfight|one piece card|merch store|stockx|\bebay\.com\b/i;
 
 /** Card-game / merch hits that steal the PSE ticker, plus generic chart spam. */
 export function digestNoise(title: string, src = "", link = "") {

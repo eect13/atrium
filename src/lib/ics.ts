@@ -1,5 +1,5 @@
-import type { CalendarEvent } from "./types";
-import { fromManila, isAllDayEvent, manilaParts, uid } from "./format";
+import type { CalendarEvent } from "./types.ts";
+import { fromManila, isAllDayEvent, manilaParts, uid } from "./format.ts";
 
 function icsEscape(s: string) {
   return String(s || "")
@@ -64,7 +64,40 @@ function compactStamp(s: string) {
   return s.replace(/[^0-9T]/g, "");
 }
 
-function parseDt(s: string, allDayHour = 9) {
+function zoneOk(tz: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Wall clock in an IANA zone → UTC. Unknown zones return null. */
+function wallInZone(y: number, mo: number, d: number, h: number, mi: number, tz: string) {
+  if (!zoneOk(tz)) return null;
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const parts = (ms: number) => {
+    const map: Record<string, string> = {};
+    for (const p of fmt.formatToParts(new Date(ms))) {
+      if (p.type !== "literal") map[p.type] = p.value;
+    }
+    return Date.UTC(+map.year!, +map.month! - 1, +map.day!, +map.hour!, +map.minute!);
+  };
+  let ms = Date.UTC(y, mo - 1, d, h, mi);
+  for (let i = 0; i < 3; i++) ms += Date.UTC(y, mo - 1, d, h, mi) - parts(ms);
+  return new Date(ms).toISOString();
+}
+
+function parseDt(s: string, allDayHour = 9, tz = "") {
   const compact = compactStamp(s);
   if (/^\d{8}$/.test(compact)) {
     return fromManila(
@@ -79,7 +112,9 @@ function parseDt(s: string, allDayHour = 9) {
   const d = +compact.slice(6, 8);
   const h = +compact.slice(9, 11) || 0;
   const mi = +compact.slice(11, 13) || 0;
-  if (s.endsWith("Z")) return new Date(Date.UTC(y, mo - 1, d, h, mi)).toISOString();
+  if (s.endsWith("Z") || /Z$/i.test(s.trim())) return new Date(Date.UTC(y, mo - 1, d, h, mi)).toISOString();
+  const zoned = tz ? wallInZone(y, mo, d, h, mi, tz) : null;
+  if (zoned) return zoned;
   return fromManila(y, mo, d, h, mi).toISOString();
 }
 
@@ -89,17 +124,30 @@ export function parseICS(text: string): CalendarEvent[] {
   const blocks = unfolded.split(/BEGIN:VEVENT/i).slice(1);
   for (const b of blocks) {
     const body = b.split(/END:VEVENT/i)[0];
-    const get = (k: string) => {
-      const re = new RegExp("^" + k + "(?:;[^:]*)?:(.*)$", "im");
+    const line = (k: string) => {
+      const re = new RegExp("^" + k + "(?:;[^:\\r\\n]*)?:(.*)$", "im");
       const m = body.match(re);
-      return m ? icsUnescape(m[1].trim()) : "";
+      return m ? m[0] : "";
+    };
+    const get = (k: string) => {
+      const raw = line(k);
+      const i = raw.indexOf(":");
+      return i < 0 ? "" : icsUnescape(raw.slice(i + 1).trim());
+    };
+    const tzOf = (k: string) => {
+      const m = line(k).match(/TZID=([^;:]+)/i);
+      return m ? m[1]!.replace(/^"|"$/g, "") : "";
     };
     const rawS = get("DTSTART");
     if (!rawS) continue;
     const allDay = /^\d{8}$/.test(compactStamp(rawS));
-    const start = parseDt(rawS, 9);
+    const start = parseDt(rawS, 9, tzOf("DTSTART"));
     const rawE = get("DTEND");
-    const end = allDay ? parseDt(rawS, 10) : rawE ? parseDt(rawE) : parseDt(rawS);
+    const end = rawE
+      ? parseDt(rawE, allDay ? 0 : 9, tzOf("DTEND") || tzOf("DTSTART"))
+      : allDay
+        ? parseDt(rawS, 23)
+        : parseDt(rawS, 9, tzOf("DTSTART"));
     const catRaw = (get("CATEGORIES") || "other").toLowerCase().split(",")[0];
     const cat =
       catRaw === "work" ||

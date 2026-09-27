@@ -24,6 +24,12 @@ test("Friday on Friday stays today unless next", () => {
   assert.equal(new Date(next.start).toISOString(), fromManila(2026, 9, 11, 9).toISOString());
 });
 
+test("tonight is evening and leaves the title", () => {
+  const ev = parseWhen("Dinner tonight", fridayNoon);
+  assert.equal(ev.title, "Dinner");
+  assert.equal(new Date(ev.start).toISOString(), fromManila(2026, 9, 4, 19).toISOString());
+});
+
 test("looksLikeWhen does not treat a ticker as an event", () => {
   assert.equal(looksLikeWhen("BDO"), false);
   assert.equal(looksLikeWhen("Lunch Friday 1pm"), true);

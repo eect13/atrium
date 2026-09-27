@@ -92,21 +92,68 @@ export function placeWindow(size: { w: number; h: number }, index = 0) {
   return fitBox(minX + 8 + index * step, minY + 8 + index * (isNarrow() ? 16 : 24), size.w, size.h);
 }
 
-/** Tile note pads across the open desk (cascade on a phone). Open floats every pad. */
+/** Tile note pads across the open desk. Columns grow with the desk so many pads stay usable. */
+export const NOTE_PAD = { w: 240, h: 220 };
+export const NOTE_GAP = 12;
+
 export function arrangeNoteBox(size: { w: number; h: number }, index = 0, count = 0): DeskBox {
   if (typeof window === "undefined" || isNarrow()) return placeWindow(size, index);
   const n = Math.max(1, count || index + 1);
-  const cols = Math.min(3, n);
-  const rows = Math.max(1, Math.ceil(n / cols));
   const { minX, minY, padB } = deskMin();
-  const gap = 12;
+  const gap = NOTE_GAP;
   const deskW = Math.max(180, window.innerWidth - minX - 16);
   const deskH = Math.max(140, window.innerHeight - minY - padB - 8);
-  const cellW = Math.max(180, Math.floor((deskW - gap * (cols - 1)) / cols));
-  const cellH = Math.max(140, Math.floor((deskH - gap * (rows - 1)) / rows));
+  const minW = 180;
+  const minH = 140;
+  const maxCols = Math.max(1, Math.floor((deskW + gap) / (minW + gap)));
+  const cols = Math.min(maxCols, n);
+  const rows = Math.max(1, Math.ceil(n / cols));
+  const cellW = Math.max(minW, Math.floor((deskW - gap * (cols - 1)) / cols));
+  const cellH = Math.max(minH, Math.floor((deskH - gap * (rows - 1)) / rows));
   const col = index % cols;
   const row = Math.floor(index / cols);
-  return fitBox(minX + 8 + col * (cellW + gap), minY + 8 + row * (cellH + gap), cellW, cellH);
+  const w = Math.min(Math.max(size.w, minW), cellW);
+  const h = Math.min(Math.max(size.h, 120), cellH);
+  return fitBox(minX + 8 + col * (cellW + gap), minY + 8 + row * (cellH + gap), w, h);
+}
+
+function boxesOverlap(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/** Next empty seat on the notes board. Grows downward so a closed large pad leaves room. */
+export function packNoteSeat(
+  occupied: { x: number; y: number; w: number; h: number }[],
+  size: { w: number; h: number } = NOTE_PAD,
+  boardW = 960,
+): DeskBox {
+  const w = Math.max(180, size.w || NOTE_PAD.w);
+  const h = Math.max(160, size.h || NOTE_PAD.h);
+  const width = Math.max(w, boardW);
+  const cols = Math.max(1, Math.floor((width + NOTE_GAP) / (w + NOTE_GAP)));
+  const limit = Math.max(occupied.length + cols * 4, cols * 8);
+  for (let i = 0; i < limit; i++) {
+    const box = {
+      x: 16 + (i % cols) * (w + NOTE_GAP),
+      y: 16 + Math.floor(i / cols) * (h + NOTE_GAP),
+      w,
+      h,
+    };
+    if (!occupied.some((o) => boxesOverlap(box, o))) return box;
+  }
+  const bottom = occupied.reduce((m, o) => Math.max(m, o.y + o.h), 0);
+  return { x: 16, y: bottom + NOTE_GAP, w, h };
+}
+
+export function noteBoardExtent(notes: { x: number; y: number; w: number; h: number }[], pad = 24) {
+  if (!notes.length) return { w: 0, h: 0 };
+  return notes.reduce(
+    (acc, n) => ({ w: Math.max(acc.w, n.x + n.w + pad), h: Math.max(acc.h, n.y + n.h + pad) }),
+    { w: 0, h: 0 },
+  );
 }
 
 /** Keep a fixed popover on-screen: right-aligned to the anchor, flip above if needed. */

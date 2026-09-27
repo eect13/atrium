@@ -4,6 +4,9 @@ use tauri::Manager;
 
 #[tauri::command]
 async fn fetch_text(url: String) -> Result<String, String> {
+    if blocked_url(&url) {
+        return Err("That address is not allowed".into());
+    }
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
         .timeout(std::time::Duration::from_secs(20))
@@ -14,7 +17,57 @@ async fn fetch_text(url: String) -> Result<String, String> {
     if !res.status().is_success() {
         return Err(format!("HTTP {}", res.status()));
     }
-    res.text().await.map_err(|e| e.to_string())
+    let text = res.text().await.map_err(|e| e.to_string())?;
+    if text.len() > 1_500_000 {
+        return Err("Response too large".into());
+    }
+    Ok(text)
+}
+
+fn blocked_url(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return true;
+    };
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return true;
+    }
+    let Some(host) = parsed.host_str() else {
+        return true;
+    };
+    let h = host.trim_matches(|c| c == '[' || c == ']').to_ascii_lowercase();
+    if h.is_empty()
+        || h == "localhost"
+        || h.ends_with(".local")
+        || h.ends_with(".internal")
+        || h == "metadata.google.internal"
+    {
+        return true;
+    }
+    if h == "0.0.0.0" || h == "::" || h == "::1" {
+        return true;
+    }
+    let parts: Vec<&str> = h.split('.').collect();
+    if parts.len() == 4 {
+        let nums: Vec<Option<u8>> = parts.iter().map(|p| p.parse::<u8>().ok()).collect();
+        if let [Some(a), Some(b), Some(_), Some(_)] = nums[..] {
+            if a == 10 || a == 127 || a == 0 {
+                return true;
+            }
+            if a == 169 && b == 254 {
+                return true;
+            }
+            if a == 172 && (16..=31).contains(&b) {
+                return true;
+            }
+            if a == 192 && b == 168 {
+                return true;
+            }
+            if a == 100 && (64..=127).contains(&b) {
+                return true;
+            }
+        }
+    }
+    h.starts_with("fe80:") || h.starts_with("fc") || h.starts_with("fd")
 }
 
 fn is_float_label(label: &str) -> bool {
@@ -52,12 +105,6 @@ pub fn run() {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_icon(tauri::include_image!("icons/icon.png"));
-                let handle = app.handle().clone();
-                let _ = win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Focused(true) = event {
-                        raise_floats(&handle);
-                    }
-                });
             }
             let _ = app;
             Ok(())

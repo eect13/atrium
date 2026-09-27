@@ -34,7 +34,7 @@ export const YAHOO_CORE_TAPE = [PSEI_SYMBOL, "^NSEI", "^GSPC", "GC=F"] as const;
 
 export function isYahooIndex(symbol: string) {
   const s = symbol.trim();
-  return s.startsWith("^") || /^PSEI\.PS$/i.test(s);
+  return s.startsWith("^") || /^PSEI\.PS$/i.test(s) || /^DFMGI\.AE$/i.test(s);
 }
 
 export function isPseiItem(item: { symbol?: string; label?: string }) {
@@ -140,26 +140,31 @@ function fromMeta(symbol: string, meta: Record<string, unknown>, spark?: number[
   const pb = finitePos(meta.priceToBook);
   const weekHigh = finitePos(meta.fiftyTwoWeekHigh);
   const weekLow = finitePos(meta.fiftyTwoWeekLow);
-  const currency = String(meta.currency ?? "USD").toUpperCase();
+  const rawCcy = String(meta.currency ?? "USD");
+  const minor = rawCcy === "GBp" || rawCcy === "ZAc";
+  const currency = minor ? (rawCcy === "GBp" ? "GBP" : "ZAR") : rawCcy.toUpperCase();
+  const scale = (n: number) => (minor ? n / 100 : n);
+  const px = scale(price);
   const name = typeof meta.shortName === "string" ? meta.shortName : typeof meta.longName === "string" ? meta.longName : undefined;
+  const sparkPx = spark && spark.length >= 2 ? downsample(spark.map(scale)) : undefined;
   return {
     symbol,
-    price,
+    price: px,
     change: Number.isFinite(change) ? change : undefined,
     currency,
     name,
     volume: Number.isFinite(volume) && volume > 0 ? volume : undefined,
     avgVolume: Number.isFinite(avgVolume) && avgVolume > 0 ? avgVolume : undefined,
-    high: Number.isFinite(high) ? high : undefined,
-    low: Number.isFinite(low) ? low : undefined,
-    spark: spark && spark.length >= 2 ? downsample(spark) : undefined,
+    high: Number.isFinite(high) ? scale(high) : undefined,
+    low: Number.isFinite(low) ? scale(low) : undefined,
+    spark: sparkPx,
     pe: Number.isFinite(pe) && pe > 0 ? pe : undefined,
     marketCap: Number.isFinite(marketCap) && marketCap > 0 ? marketCap : undefined,
     yieldPct,
     forwardPe,
     pb,
-    weekHigh,
-    weekLow,
+    weekHigh: weekHigh != null ? scale(weekHigh) : undefined,
+    weekLow: weekLow != null ? scale(weekLow) : undefined,
   };
 }
 

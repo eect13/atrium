@@ -34,12 +34,16 @@ export function parsePostal(raw: string): PostalHit | null {
 export function postalCountries(deskCc: string, hint?: PostalHint): string[] {
   const desk = deskCc.trim().toLowerCase();
   const prefer: string[] = [];
-  if (hint === "us") prefer.push("us");
-  else if (hint === "gb") prefer.push("gb");
+  if (hint === "us") {
+    if (desk && desk !== "us") prefer.push(desk);
+    prefer.push("us");
+  } else if (hint === "gb") prefer.push("gb");
   else if (hint === "ca") prefer.push("ca");
   else if (hint === "jp") prefer.push("jp");
-  else if (hint === "in") prefer.push("in", "sg");
-  else if (hint === "ph") {
+  else if (hint === "in") {
+    if (desk) prefer.push(desk);
+    prefer.push("sg", "in");
+  } else if (hint === "ph") {
     if (desk) prefer.push(desk);
     prefer.push("ph", "au");
   }

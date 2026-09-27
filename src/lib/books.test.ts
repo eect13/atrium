@@ -187,6 +187,7 @@ test("toHomeCcy converts through PHP tape", () => {
   assert.equal(toHomeCcy(1, "USD", "PHP", fx), 58);
   assert.equal(toHomeCcy(58, "PHP", "USD", fx), 1);
   assert.equal(toHomeCcy(100, "SGD", "PHP", fx), null);
+  assert.equal(toHomeCcy(100, "SGD", "PHP", { ...fx, per: { SGD: 43 } }), 4300);
 });
 
 test("withoutCvc strips the vault field", () => {

@@ -7,8 +7,6 @@ export type EventCat = "work" | "personal" | "family" | "health" | "other";
 export type EventSource = "local" | "ics" | "google";
 export type WidgetKind = "weather" | "agenda" | "calendar" | "quote" | "finance" | "news";
 export type WatchKind = "crypto" | "fx" | "stock" | "global" | "cmdty";
-export const QUOTE_CCY = ["PHP", "USD", "EUR", "GBP", "JPY"] as const;
-export type QuoteCcy = (typeof QUOTE_CCY)[number];
 
 export type BoardTab = "all" | "watcher" | "blue" | "reit" | "div" | "crypto" | "fx" | "global" | "cmdty" | "screen";
 export type BoardSort = "name" | "chg" | "vol" | "last" | "pe" | "cap" | "wt";
@@ -215,6 +213,9 @@ export const BOOK_CCY = [
   "FJD",
 ] as const;
 export type BookCcy = (typeof BOOK_CCY)[number];
+/** Tape last uses the same book list so every desk market can quote in its own unit. */
+export const QUOTE_CCY = BOOK_CCY;
+export type QuoteCcy = BookCcy;
 
 export type Account = {
   id: string;
@@ -366,6 +367,8 @@ export type Feed = {
   url: string;
   category: string;
   enabled: boolean;
+  /** Desk country for catalog grouping. Omitted on a pasted URL. */
+  region?: string;
 };
 
 export type NewsItem = {
@@ -383,7 +386,12 @@ export type Profile = {
   lat: number | null;
   lon: number | null;
   tagline: string;
+  /** Quiet default for weather hint and compare index. Not a gate on the watcher. */
   region: string;
+  tz?: string;
+  locale?: string;
+  /** Country books on All. Watcher can hold any market regardless. */
+  markets?: string[];
 };
 
 export const DEFAULT_TAGLINE = "";

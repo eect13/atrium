@@ -123,6 +123,8 @@ export type ScreenFilters = {
   cap?: ScreenCap;
   vol?: ScreenVol;
   yld?: ScreenYld;
+  /** USD value of 1 unit. Caps stay in dollars even when the quote is VND or PHP. */
+  usdPer?: Record<string, number>;
 };
 
 export function screensOn(f: ScreenFilters) {
@@ -139,7 +141,15 @@ export type ScreenRow = {
   marketCap?: number;
   volume?: number;
   yieldPct?: number;
+  ccy?: string;
 };
+
+function capBasis(row: ScreenRow, usdPer?: Record<string, number>) {
+  const n = row.marketCap ?? 0;
+  if (!row.ccy || row.ccy === "USD" || !usdPer) return n;
+  const per = usdPer[row.ccy];
+  return per && per > 0 ? n * per : n;
+}
 
 export function applyScreenFilters<T extends ScreenRow>(rows: T[], f: ScreenFilters): T[] {
   const pe = f.pe && f.pe !== "any" ? f.pe : undefined;
@@ -158,7 +168,7 @@ export function applyScreenFilters<T extends ScreenRow>(rows: T[], f: ScreenFilt
     }
     if (cap) {
       if (r.marketCap == null || r.marketCap <= 0) return false;
-      if (capBand(r.marketCap) !== cap) return false;
+      if (capBand(capBasis(r, f.usdPer)) !== cap) return false;
     }
     if (minVol && (r.volume ?? 0) < minVol) return false;
     if (minYld && (r.yieldPct ?? 0) < minYld) return false;

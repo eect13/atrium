@@ -31,7 +31,7 @@ import {
 } from "@/lib/format";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
-import { visibleCalEvents } from "@/lib/google-cal";
+import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { useAtrium } from "@/lib/store";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -56,7 +56,7 @@ export function WeatherBody() {
 }
 
 export function AgendaBody() {
-  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff));
+  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
   const setView = useAtrium((s) => s.setView);
   const today = events
     .filter((e) => sameDay(e.start, new Date()))
@@ -138,7 +138,7 @@ export function CalendarPeek({
   embedded?: boolean;
   onSelect?: (e: CalendarEvent) => void;
 }) {
-  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff));
+  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
   const setView = useAtrium((s) => s.setView);
   const calPeek = useAtrium((s) => s.calPeek);
   const setCalPeek = useAtrium((s) => s.setCalPeek);
@@ -508,8 +508,9 @@ export function QuoteBody() {
   const author = q.data?.author;
 
   async function shuffle() {
+    const current = queryClient.getQueryData<{ text?: string }>(["quotes", "session"])?.text ?? text;
     const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: `${Date.now()}` } }).catch(() => ({ quotes: LOCAL_QUOTES }));
-    const next = data.quotes.find((row) => row.text !== text) ?? data.quotes[0] ?? LOCAL_QUOTES[0];
+    const next = data.quotes.find((row) => row.text !== current) ?? data.quotes[0] ?? LOCAL_QUOTES[0];
     if (!next) return;
     writeQuoteSession(next);
     queryClient.setQueryData(["quotes", "session"], next);

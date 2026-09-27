@@ -227,8 +227,55 @@ export function isoCountry(id?: string | null): string {
   return r.id === "EU" ? "" : r.id;
 }
 
-export function applyDeskRegion(id?: string | null) {
-  const r = regionOf(id);
-  setDeskZone({ tz: r.tz, locale: r.locale });
+export function clockZones(): { id: string; label: string }[] {
+  const seen = new Set<string>();
+  const out: { id: string; label: string }[] = [];
+  const push = (id: string, label: string) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, label });
+  };
+  for (const r of DESK_REGIONS) {
+    const city = r.tz.split("/").pop()?.replace(/_/g, " ") || r.tz;
+    push(r.tz, `${city} · ${r.name}`);
+  }
+  push("UTC", "UTC");
+  push("America/Los_Angeles", "Los Angeles");
+  push("America/Chicago", "Chicago");
+  push("Europe/Paris", "Paris");
+  return out;
+}
+
+export function normalizeMarkets(raw?: unknown, fallback?: string | null): string[] {
+  const ids = Array.isArray(raw)
+    ? raw.map((x) => (typeof x === "string" ? regionOf(x).id : "")).filter(Boolean)
+    : [];
+  const uniq = [...new Set(ids)];
+  return uniq.length ? uniq : [regionOf(fallback).id];
+}
+
+export function toggleMarket(current: string[] | undefined, id: string): string[] {
+  const next = new Set(normalizeMarkets(current));
+  const rid = regionOf(id).id;
+  if (next.has(rid)) {
+    if (next.size <= 1) return [...next];
+    next.delete(rid);
+  } else {
+    next.add(rid);
+  }
+  return DESK_REGIONS.map((r) => r.id).filter((x) => next.has(x));
+}
+
+export function applyDeskProfile(profile: { region?: string | null; tz?: string | null; locale?: string | null }) {
+  const r = regionOf(profile.region);
+  setDeskZone({
+    tz: profile.tz?.trim() || r.tz,
+    locale: profile.locale?.trim() || r.locale,
+  });
   return r;
 }
+
+export function applyDeskRegion(id?: string | null) {
+  return applyDeskProfile({ region: id });
+}
+

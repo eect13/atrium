@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeskRegion, DESK_REGIONS, isoCountry, regionOf } from "./region.ts";
+import { applyDeskProfile, applyDeskRegion, DESK_REGIONS, isoCountry, normalizeMarkets, regionOf, toggleMarket } from "./region.ts";
 import { deskZone, fromManila, hexColor, inkOnPaper, manilaParts, setDeskZone } from "./format.ts";
 
 test("Philippines is the factory desk region", () => {
@@ -26,6 +26,19 @@ test("desk zone follows region then restores Manila", () => {
   const noon = fromManila(2026, 9, 13, 12, 0);
   const parts = manilaParts(noon);
   assert.equal(parts.hour, 12);
+  setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
+});
+
+test("clock and markets are independent of each other", () => {
+  applyDeskProfile({ region: "PH", tz: "Asia/Ho_Chi_Minh" });
+  assert.equal(deskZone().tz, "Asia/Ho_Chi_Minh");
+  applyDeskProfile({ region: "US", tz: "Asia/Manila" });
+  assert.equal(deskZone().tz, "Asia/Manila");
+  assert.deepEqual(normalizeMarkets(undefined, "VN"), ["VN"]);
+  assert.deepEqual(normalizeMarkets(["VN", "US", "VN"]), ["VN", "US"]);
+  assert.deepEqual(toggleMarket(["PH"], "VN"), ["PH", "VN"]);
+  assert.deepEqual(toggleMarket(["PH", "VN"], "VN"), ["PH"]);
+  assert.deepEqual(toggleMarket(["PH"], "PH"), ["PH"]);
   setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
 });
 

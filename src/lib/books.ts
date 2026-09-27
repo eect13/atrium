@@ -33,7 +33,14 @@ export type RegisterRow = {
   accountLabel?: string;
 };
 
-export type BookFx = { usdphp: number; eurphp: number; jpyphp: number; gbpphp: number };
+export type BookFx = {
+  usdphp: number;
+  eurphp: number;
+  jpyphp: number;
+  gbpphp: number;
+  /** PHP per 1 unit of an ISO code. Optional so older snapshots still convert the four majors. */
+  per?: Record<string, number>;
+};
 
 export function digits4(raw: string | undefined): string | undefined {
   const d = digitsOnly(raw).slice(-4);
@@ -119,6 +126,8 @@ export function phpPerUnit(ccy: string, fx: BookFx | null | undefined): number |
   const c = ccy.toUpperCase();
   if (c === "PHP") return 1;
   if (!fx) return null;
+  const extra = fx.per?.[c];
+  if (extra) return extra;
   if (c === "USD") return fx.usdphp || null;
   if (c === "EUR") return fx.eurphp || null;
   if (c === "JPY") return fx.jpyphp || null;

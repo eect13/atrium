@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { httpText } from "./http.ts";
+import { httpText, publicHttpUrl } from "./http.ts";
 import { z } from "zod";
 import { cleanHeadline, keepStory, type NewsTag } from "./headline.ts";
 
@@ -18,7 +18,11 @@ export type FeedProbe = {
   error?: string;
 };
 
-export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag }[] = [
+function gFeed(q: string, gl: string, hl = "en") {
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${hl}&gl=${gl}&ceid=${gl}:${hl}`;
+}
+
+export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag; region?: string }[] = [
   { id: "inquirer", name: "Inquirer", url: "https://www.inquirer.net/fullfeed/", category: "Philippines" },
   { id: "philstar", name: "Philstar", url: "https://www.philstar.com/rss/headlines", category: "Philippines" },
   { id: "rappler", name: "Rappler", url: "https://www.rappler.com/feed/", category: "Philippines" },
@@ -75,6 +79,32 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "google-ai", name: "Google AI Blog", url: "https://blog.google/technology/ai/rss/", category: "AI" },
   { id: "espn", name: "ESPN", url: "https://www.espn.com/espn/rss/news", category: "Sports" },
   { id: "variety", name: "Variety", url: "https://variety.com/feed/", category: "Entertainment" },
+  { id: "vnexpress", name: "VnExpress", url: "https://e.vnexpress.net/rss/news.rss", category: "World", region: "Vietnam" },
+  { id: "vietnamnews", name: "Vietnam News", url: gFeed("site:vietnamnews.vn when:7d", "VN"), category: "World", region: "Vietnam" },
+  { id: "tuoitre", name: "Tuoi Tre News", url: gFeed("site:tuoitrenews.vn when:7d", "VN"), category: "World", region: "Vietnam" },
+  { id: "vn-desk", name: "Vietnam headlines", url: gFeed("when:1d", "VN"), category: "World", region: "Vietnam" },
+  { id: "us-desk", name: "US headlines", url: gFeed("when:1d", "US"), category: "World", region: "United States" },
+  { id: "politico", name: "Politico", url: gFeed("site:politico.com when:1d", "US"), category: "World", region: "United States" },
+  { id: "japan-desk", name: "Japan headlines", url: gFeed("when:1d", "JP"), category: "World", region: "Japan" },
+  { id: "nhk", name: "NHK World", url: gFeed("site:nhk.or.jp when:2d", "JP"), category: "World", region: "Japan" },
+  { id: "cna", name: "CNA", url: gFeed("site:channelnewsasia.com when:1d", "SG"), category: "World", region: "Singapore" },
+  { id: "straitstimes", name: "Straits Times", url: gFeed("site:straitstimes.com when:1d", "SG"), category: "World", region: "Singapore" },
+  { id: "hk-desk", name: "Hong Kong headlines", url: gFeed("when:1d", "HK"), category: "World", region: "Hong Kong" },
+  { id: "koreaherald", name: "Korea Herald", url: gFeed("site:koreaherald.com when:2d", "KR"), category: "World", region: "Korea" },
+  { id: "korea-desk", name: "Korea headlines", url: gFeed("when:1d", "KR"), category: "World", region: "Korea" },
+  { id: "toi", name: "Times of India", url: gFeed("site:timesofindia.indiatimes.com when:1d", "IN"), category: "World", region: "India" },
+  { id: "india-desk", name: "India headlines", url: gFeed("when:1d", "IN"), category: "World", region: "India" },
+  { id: "bangkokpost", name: "Bangkok Post", url: gFeed("site:bangkokpost.com when:2d", "TH"), category: "World", region: "Thailand" },
+  { id: "jakartapost", name: "Jakarta Post", url: gFeed("site:thejakartapost.com when:2d", "ID"), category: "World", region: "Indonesia" },
+  { id: "au-desk", name: "Australia headlines", url: gFeed("when:1d", "AU"), category: "World", region: "Australia" },
+  { id: "uk-desk", name: "UK headlines", url: gFeed("when:1d", "GB"), category: "World", region: "United Kingdom" },
+  { id: "thestar", name: "The Star", url: gFeed("site:thestar.com.my when:1d", "MY"), category: "World", region: "Malaysia" },
+  { id: "malaymail", name: "Malay Mail", url: gFeed("site:malaymail.com when:2d", "MY"), category: "World", region: "Malaysia" },
+  { id: "my-desk", name: "Malaysia headlines", url: gFeed("when:1d", "MY"), category: "World", region: "Malaysia" },
+  { id: "focustaiwan", name: "Focus Taiwan", url: gFeed("site:focustaiwan.tw when:2d", "TW"), category: "World", region: "Taiwan" },
+  { id: "tw-desk", name: "Taiwan headlines", url: gFeed("when:1d", "TW"), category: "World", region: "Taiwan" },
+  { id: "globe", name: "Globe and Mail", url: gFeed("site:theglobeandmail.com when:1d", "CA"), category: "World", region: "Canada" },
+  { id: "ca-desk", name: "Canada headlines", url: gFeed("when:1d", "CA"), category: "World", region: "Canada" },
 ];
 
 /** One-click packs — never force all 50 on. */
@@ -137,6 +167,90 @@ export const FEED_PACKS: { id: string; label: string; hint: string; ids: readonl
     hint: "Verge, Ars, TechCrunch, AI desks",
     ids: ["verge", "ars", "techcrunch", "wired", "hn", "bbc-tech", "ai", "mittr", "openai", "google-ai"],
   },
+  {
+    id: "vietnam",
+    label: "Vietnam",
+    hint: "VnExpress, Vietnam News, Tuoi Tre, Vietnam headlines",
+    ids: ["vnexpress", "vietnamnews", "tuoitre", "vn-desk"],
+  },
+  {
+    id: "united-states",
+    label: "United States",
+    hint: "NYT, NPR, Reuters, AP, CNN, US headlines",
+    ids: ["nyt", "npr", "reuters", "ap", "cnn", "wsj", "bloomberg", "us-desk", "politico"],
+  },
+  {
+    id: "japan",
+    label: "Japan",
+    hint: "Japan Times, NHK, Japan headlines",
+    ids: ["japantimes", "nhk", "japan-desk"],
+  },
+  {
+    id: "singapore",
+    label: "Singapore",
+    hint: "CNA and Straits Times",
+    ids: ["cna", "straitstimes"],
+  },
+  {
+    id: "hong-kong",
+    label: "Hong Kong",
+    hint: "SCMP and Hong Kong headlines",
+    ids: ["scmp", "hk-desk"],
+  },
+  {
+    id: "korea",
+    label: "Korea",
+    hint: "Korea Herald and Korea headlines",
+    ids: ["koreaherald", "korea-desk"],
+  },
+  {
+    id: "india",
+    label: "India",
+    hint: "The Hindu, Times of India, India headlines",
+    ids: ["hindu", "toi", "india-desk"],
+  },
+  {
+    id: "thailand",
+    label: "Thailand",
+    hint: "Bangkok Post",
+    ids: ["bangkokpost"],
+  },
+  {
+    id: "indonesia",
+    label: "Indonesia",
+    hint: "Jakarta Post",
+    ids: ["jakartapost"],
+  },
+  {
+    id: "australia",
+    label: "Australia",
+    hint: "ABC and Australia headlines",
+    ids: ["abcau", "au-desk"],
+  },
+  {
+    id: "united-kingdom",
+    label: "United Kingdom",
+    hint: "BBC, Guardian, Sky, UK headlines",
+    ids: ["bbc", "guardian", "sky", "independent", "uk-desk"],
+  },
+  {
+    id: "malaysia",
+    label: "Malaysia",
+    hint: "The Star, Malay Mail, Malaysia headlines",
+    ids: ["thestar", "malaymail", "my-desk"],
+  },
+  {
+    id: "taiwan",
+    label: "Taiwan",
+    hint: "Focus Taiwan and Taiwan headlines",
+    ids: ["focustaiwan", "tw-desk"],
+  },
+  {
+    id: "canada",
+    label: "Canada",
+    hint: "CBC, Globe and Mail, Canada headlines",
+    ids: ["cbc", "globe", "ca-desk"],
+  },
 ];
 
 export const FEED_PRESETS = NEWS_CATALOG;
@@ -146,6 +260,95 @@ export function packIsOn(feeds: { id: string; enabled: boolean }[], packId: stri
   if (!pack) return false;
   const byId = new Map(feeds.map((f) => [f.id, f.enabled]));
   return pack.ids.every((id) => byId.get(id));
+}
+
+const PACK_ORDER = [
+  "philippines",
+  "vietnam",
+  "united-states",
+  "japan",
+  "singapore",
+  "hong-kong",
+  "korea",
+  "india",
+  "thailand",
+  "indonesia",
+  "australia",
+  "united-kingdom",
+  "malaysia",
+  "taiwan",
+  "canada",
+  "world",
+  "tech",
+];
+
+export function sortedFeedPacks() {
+  return [...FEED_PACKS].sort((a, b) => PACK_ORDER.indexOf(a.id) - PACK_ORDER.indexOf(b.id));
+}
+
+const REGION_ORDER = [
+  "Philippines",
+  "Vietnam",
+  "United States",
+  "Japan",
+  "Singapore",
+  "Hong Kong",
+  "Korea",
+  "India",
+  "Thailand",
+  "Indonesia",
+  "Australia",
+  "United Kingdom",
+  "Malaysia",
+  "Taiwan",
+  "Canada",
+  "Germany",
+  "France",
+  "World",
+];
+
+/** Country for catalog rows that predate the region field. */
+const REGION_BY_ID: Record<string, string> = {
+  bworld: "Philippines",
+  businessmirror: "Philippines",
+  "inq-biz": "Philippines",
+  "philstar-biz": "Philippines",
+  "philstar-sports": "Philippines",
+  "inq-sports": "Philippines",
+  bbc: "United Kingdom",
+  guardian: "United Kingdom",
+  independent: "United Kingdom",
+  sky: "United Kingdom",
+  nyt: "United States",
+  npr: "United States",
+  reuters: "United States",
+  ap: "United States",
+  cnn: "United States",
+  time: "United States",
+  wsj: "United States",
+  bloomberg: "United States",
+  espn: "United States",
+  japantimes: "Japan",
+  nikkei: "Japan",
+  scmp: "Hong Kong",
+  hindu: "India",
+  abcau: "Australia",
+  cbc: "Canada",
+  dw: "Germany",
+  france24: "France",
+};
+
+export function sourceRegion(p: { id?: string; category: string; region?: string }) {
+  if (p.id && REGION_BY_ID[p.id]) return REGION_BY_ID[p.id];
+  if (p.region) return p.region;
+  if (p.category === "Philippines") return "Philippines";
+  return "World";
+}
+
+export function compareRegion(a: string, b: string) {
+  const ia = REGION_ORDER.indexOf(a);
+  const ib = REGION_ORDER.indexOf(b);
+  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
 }
 
 const NAMED: Record<string, string> = {
@@ -288,9 +491,11 @@ async function pull(url: string) {
 }
 
 export const fetchFeed = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().url(), name: z.string(), category: z.string() }))
+  .validator(z.object({ url: z.string().min(4).max(2000), name: z.string(), category: z.string() }))
   .handler(async ({ data }) => {
-    const xml = await httpText(data.url);
+    const url = publicHttpUrl(data.url);
+    if (!url) throw new Error("That address is not allowed");
+    const xml = await httpText(url);
     return parseRss(xml)
       .map((s) => ({ ...s, src: data.name, category: data.category }))
       .filter(keepStory)
@@ -313,7 +518,7 @@ export const probeFeed = createServerFn({ method: "POST" })
         const href = discoverFeedHref(hit.body, hit.finalUrl);
         if (href) {
           const feed = await pull(href);
-          if (looksLikeFeed(feed.body, feed.type) || parseRss(feed.body).length) {
+          if (parseRss(feed.body).length) {
             return { ok: true, url: feed.finalUrl, title: channelTitle(feed.body) || "Feed" };
           }
           lastError = "That feed was empty";
@@ -328,8 +533,9 @@ export const probeFeed = createServerFn({ method: "POST" })
   });
 
 export const fetchIcsUrl = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().url() }))
+  .validator(z.object({ url: z.string().min(4).max(2000) }))
   .handler(async ({ data }) => {
-    const url = data.url.replace(/^webcal:/i, "https:");
+    const url = publicHttpUrl(data.url);
+    if (!url) throw new Error("That address is not allowed");
     return await httpText(url);
   });

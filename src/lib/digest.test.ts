@@ -47,6 +47,7 @@ test("digest parser drops chart junk", () => {
 test("digest drops Yu-Gi-Oh merch and PSE: card hits", () => {
   assert.equal(digestNoise("Yu-Gi-Oh! PSE: Dark Magician extended art"), true);
   assert.equal(digestNoise("PSEi closes higher in Manila"), false);
+  assert.equal(digestNoise("Credit card delinquencies rose"), false);
   const xml = `<?xml version="1.0"?><rss><channel>
     <item><title>Yu-Gi-Oh PSE: Blue-Eyes merch store</title><link>https://snkrdunk.com/1</link><source>SNKRDUNK</source></item>
     <item><title>PSEi climbs as banks lead Manila</title><link>https://reuters.com/2</link><source>Reuters</source></item>

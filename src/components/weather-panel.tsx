@@ -70,10 +70,11 @@ export function useWeather() {
   const pinned = hasWeatherPin(profile);
   const lat = pinned ? Number(profile.lat) : Number.NaN;
   const lon = pinned ? Number(profile.lon) : Number.NaN;
+  const zone = deskZone().tz;
   return useQuery({
-    queryKey: ["weather", lat, lon],
+    queryKey: ["weather", lat, lon, zone],
     queryFn: async () => {
-      const data = await fetchWeather({ data: { lat, lon } });
+      const data = await fetchWeather({ data: { lat, lon, tz: zone } });
       writeSnap(WEATHER_SNAP, { lat, lon, data });
       return data;
     },
