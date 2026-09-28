@@ -74,6 +74,9 @@ fn is_float_label(label: &str) -> bool {
     label.starts_with("note-") || label.starts_with("widget-")
 }
 
+// Desktop-only: mobile WebviewWindow has no unminimize(); only called from the
+// desktop single-instance handler.
+#[cfg(desktop)]
 fn raise_floats(app: &tauri::AppHandle) {
     for (label, win) in app.webview_windows() {
         if !is_float_label(&label) {
