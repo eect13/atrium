@@ -478,18 +478,26 @@ export function OptionsView() {
         <CardContent>
           <div className="flex items-center justify-between border-b border-border py-3">
             <div>
-              <p className="text-sm">Calendar</p>
+              <p id="opt-module-calendar" className="text-sm">
+                Calendar
+              </p>
               <p className="text-xs text-muted-foreground">Core — always on</p>
             </div>
-            <Switch checked disabled />
+            <Switch checked disabled aria-labelledby="opt-module-calendar" />
           </div>
           {OPTIONAL.map((m) => (
             <div key={m.id} className="flex items-center justify-between border-b border-border py-3 last:border-0">
               <div>
-                <p className="text-sm">{m.label}</p>
+                <p id={`opt-module-${m.id}`} className="text-sm">
+                  {m.label}
+                </p>
                 <p className="text-xs text-muted-foreground">{m.blurb}</p>
               </div>
-              <Switch checked={modules[m.id]} onCheckedChange={() => toggleModule(m.id)} />
+              <Switch
+                checked={modules[m.id]}
+                onCheckedChange={() => toggleModule(m.id)}
+                aria-labelledby={`opt-module-${m.id}`}
+              />
             </div>
           ))}
         </CardContent>

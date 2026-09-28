@@ -13,8 +13,8 @@
   --color-accent: #1c1c1f;
   --color-accent-foreground: #f2f2f0;
   --color-ring: #c8ccd4;
-  --color-destructive: #c45c4a;
-  --color-destructive-foreground: #f2f2f0;
+  --color-destructive: #ec7f6c;
+  --color-destructive-foreground: #0c0c0d;
   --color-ok: #6a9a78;
   --color-paper: #e8e4d4;
   --color-ink: #161513;
@@ -56,6 +56,7 @@ html.light {
   --color-accent: #e0dbd0;
   --color-accent-foreground: #161513;
   --color-ring: #3a3a38;
+  --color-destructive: #9a3626;
   --color-destructive-foreground: #faf8f3;
   --color-sidebar: #ece6d8;
   --color-ink: #161513;

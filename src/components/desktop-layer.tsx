@@ -180,7 +180,7 @@ export function DesktopLayer({
               onClose={() => unpinNote(n.id)}
             >
               <div className="flex h-full min-h-0 flex-col">
-                <div className="relative min-h-0 flex-1">
+                <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
                   <NoteInk
                     strokes={n.ink ?? []}
                     color={ink}
@@ -191,7 +191,13 @@ export function DesktopLayer({
                     photos={n.photos ?? []}
                     onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })}
                   />
-                  <NoteEditor note={n} ink={ink} drawing={drawing} onUpdate={(patch) => updateNote(n.id, patch)} />
+                  <NoteEditor
+                    note={n}
+                    ink={ink}
+                    drawing={drawing}
+                    contained
+                    onUpdate={(patch) => updateNote(n.id, patch)}
+                  />
                 </div>
                 <NoteFormat
                   ink={ink}
