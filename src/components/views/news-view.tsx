@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
 import { FEED_PRESETS, compareRegion, packIsOn, probeFeed, sortedFeedPacks, sourceRegion } from "@/lib/feeds";
-import { NEWS_TAGS, asNewsTag, keepNewsChip, newsTagList, storyAge, tagStory } from "@/lib/headline";
+import { NEWS_TAGS, asNewsTag, keepNewsChip, newsTagList, storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { DEFAULT_FEEDS, useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
 import { Chip, FIELD_SELECT } from "./finance-chip";
@@ -27,9 +27,11 @@ function StoryTag({ tag }: { tag: string }) {
 
 function SourceLine({ n, className }: { n: NewsItem; className?: string }) {
   const age = storyAge(n.date);
+  const desk = storyDesk(n);
   return (
     <p className={className ?? "mt-2 text-xs text-muted-foreground"}>
       {n.src}
+      {desk ? ` · ${desk}` : ""}
       {age ? ` · ${age}` : ""}
     </p>
   );
@@ -248,7 +250,7 @@ export function NewsView({
         <div className="mb-4 rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
           <p className="font-display text-xl font-medium tracking-tight">No sources on</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Feeds stay off until you pick them. One tap turns on Inquirer, Philstar, Rappler, BBC and a few more.
+            Feeds stay off until you pick them. One tap turns on BBC and the pack for the first open book.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button

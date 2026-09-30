@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
 import { useMarkets } from "@/components/use-markets";
 import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
-import { storyAge, tagStory } from "@/lib/headline";
+import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -789,12 +789,14 @@ export function NewsPeek({
     <div className="space-y-3">
       {headlines.slice(0, 5).map((n) => {
         const age = storyAge(n.date);
+        const desk = storyDesk(n);
         return (
           <a key={`${n.src}-${n.link}-${n.title}`} href={n.link} target="_blank" rel="noopener noreferrer" className="block">
             <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tagStory(n)}</span>
             <span className="mt-0.5 block text-sm leading-snug">{n.title}</span>
             <span className="text-xs text-muted-foreground">
               {n.src}
+              {desk ? ` · ${desk}` : ""}
               {age ? ` · ${age}` : ""}
             </span>
           </a>

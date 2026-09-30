@@ -289,10 +289,13 @@ test("sortRows by PSEi weight puts ICT ahead of a thin gainer", () => {
   assert.equal(byChg[0]?.item.label, "SRD");
 });
 
-test("tabSortPatch defaults All to weight and Watcher to change", () => {
-  assert.deepEqual(tabSortPatch("all", { tab: "watcher", sort: "chg" }), { tab: "all", sort: "wt", sortDir: -1 });
+test("tabSortPatch defaults All to weight only on a PH book", () => {
+  assert.deepEqual(tabSortPatch("all", { tab: "watcher", sort: "chg" }, { pse: true }), { tab: "all", sort: "wt", sortDir: -1 });
+  assert.deepEqual(tabSortPatch("all", { tab: "watcher", sort: "chg" }), { tab: "all" });
+  assert.deepEqual(tabSortPatch("all", { tab: "watcher", sort: "chg" }, { pse: false }), { tab: "all" });
+  assert.deepEqual(tabSortPatch("all", { tab: "blue", sort: "wt" }, { pse: false }), { tab: "all", sort: "chg", sortDir: -1 });
   assert.deepEqual(tabSortPatch("watcher", { tab: "all", sort: "wt" }), { tab: "watcher", sort: "chg", sortDir: -1 });
-  assert.deepEqual(tabSortPatch("blue", { tab: "all", sort: "vol" }), { tab: "blue" });
+  assert.deepEqual(tabSortPatch("blue", { tab: "all", sort: "vol" }, { pse: true }), { tab: "blue" });
   assert.deepEqual(tabSortPatch("screen", { tab: "all", sort: "wt" }), { tab: "screen" });
 });
 

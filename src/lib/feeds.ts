@@ -292,6 +292,31 @@ export function sortedFeedPacks() {
   return [...FEED_PACKS].sort((a, b) => PACK_ORDER.indexOf(a.id) - PACK_ORDER.indexOf(b.id));
 }
 
+const PACK_BY_MARKET: Record<string, string> = {
+  PH: "philippines",
+  US: "united-states",
+  SG: "singapore",
+  JP: "japan",
+  HK: "hong-kong",
+  GB: "united-kingdom",
+  AU: "australia",
+  IN: "india",
+  CA: "canada",
+  VN: "vietnam",
+  TH: "thailand",
+  MY: "malaysia",
+  ID: "indonesia",
+  KR: "korea",
+  TW: "taiwan",
+};
+
+/** BBC plus the pack for the first open book. A book with no pack gets World, not the Philippine list. */
+export function starterFeedIds(marketId?: string | null): string[] {
+  const packId = PACK_BY_MARKET[(marketId ?? "").trim().toUpperCase()] ?? "world";
+  const pack = FEED_PACKS.find((p) => p.id === packId);
+  return [...new Set(["bbc", ...(pack?.ids ?? [])])];
+}
+
 const REGION_ORDER = [
   "Philippines",
   "Vietnam",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asNewsTag, cleanHeadline, keepStory, mixStories, newsTagList, storyAge, storyFingerprint, tagStory } from "./headline.ts";
-import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss, NEWS_CATALOG, FEED_PACKS, packIsOn, sortedFeedPacks, sourceRegion } from "./feeds.ts";
+import { asNewsTag, cleanHeadline, keepStory, mixStories, newsTagList, storyAge, storyDesk, storyFingerprint, tagStory } from "./headline.ts";
+import { discoverFeedHref, normalizeFeedUrl, candidateFeedUrls, parseRss, NEWS_CATALOG, FEED_PACKS, packIsOn, sortedFeedPacks, sourceRegion, starterFeedIds } from "./feeds.ts";
 
 test("drops emoji-only X titles", () => {
   assert.equal(keepStory({ title: "🤍🔥 - x.com", src: "X", category: "X" }), false);
@@ -262,6 +262,26 @@ test("country headline desks are a Google edition, not an empty search", () => {
   const vn = NEWS_CATALOG.find((f) => f.id === "vn-desk");
   assert.match(vn!.url, /gl=VN/);
   assert.match(vn!.url, /hl=vi/);
+});
+
+test("starter feeds follow the first open book, not a fixed Philippine list", () => {
+  const vn = starterFeedIds("VN");
+  assert.equal(vn[0], "bbc");
+  assert.ok(vn.includes("vnexpress"));
+  assert.ok(!vn.includes("inquirer"));
+  const ph = starterFeedIds("PH");
+  assert.ok(ph.includes("bbc") && ph.includes("inquirer"));
+  const eu = starterFeedIds("EU");
+  assert.ok(eu.includes("bbc") && eu.includes("reuters"));
+  assert.ok(!eu.includes("inquirer"));
+});
+
+test("storyDesk names the country only when it is not the section", () => {
+  assert.equal(storyDesk({ category: "World", region: "Vietnam" }), "Vietnam");
+  assert.equal(storyDesk({ category: "World" }), "");
+  assert.equal(storyDesk({ category: "Philippines" }), "");
+  assert.equal(storyDesk({ category: "Tech", region: "Vietnam" }), "Vietnam");
+  assert.equal(storyDesk({ category: "World", region: "World" }), "");
 });
 
 test("sources group by country and Vietnam is its own pack", () => {

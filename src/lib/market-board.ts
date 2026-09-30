@@ -132,9 +132,9 @@ export const PRIMARY_TABS: { id: BoardTab; label: string; short?: string }[] = [
 ];
 
 export const PSE_TABS: { id: BoardTab; label: string }[] = [
-  { id: "blue", label: "Bluechips" },
-  { id: "reit", label: "REITs" },
-  { id: "div", label: "Dividends" },
+  { id: "blue", label: "PSEi 30" },
+  { id: "reit", label: "PSE REITs" },
+  { id: "div", label: "PSE Dividends" },
 ];
 
 export const BOARD_TABS: { id: BoardTab; label: string; short?: string }[] = [...PRIMARY_TABS, ...PSE_TABS];
@@ -397,16 +397,17 @@ export function pseSleeveTab(tab: BoardTab) {
   return tab === "all" || tab === "blue" || tab === "reit" || tab === "div";
 }
 
-/** All / bluechips default to PSEi weight, not raw % change. Watcher / sleeves that are not the 30 keep change. Screener keeps the current sort so a PSEi 30 screen stays on weight. */
+/** Weight is the PSEi 30 sort. It applies only when a Philippines book is open. Other All boards stay on % change. */
 export function tabSortPatch(
   next: BoardTab,
   current?: { tab?: BoardTab; sort?: BoardSort },
+  opts?: { pse?: boolean },
 ): { tab: BoardTab; sort?: BoardSort; sortDir?: 1 | -1 } {
   const cur = current?.sort ?? "chg";
-  const toPse = pseSleeveTab(next);
-  if (toPse && cur === "chg") return { tab: next, sort: "wt", sortDir: -1 };
+  const pse = opts?.pse === true;
+  if (pse && pseSleeveTab(next) && cur === "chg") return { tab: next, sort: "wt", sortDir: -1 };
   const tapeTab = next === "watcher" || next === "crypto" || next === "fx" || next === "global" || next === "cmdty";
-  if (tapeTab && cur === "wt") return { tab: next, sort: "chg", sortDir: -1 };
+  if (cur === "wt" && (tapeTab || (!pse && pseSleeveTab(next)))) return { tab: next, sort: "chg", sortDir: -1 };
   return { tab: next };
 }
 

@@ -15,7 +15,7 @@ import {
   writeBooksSnap,
 } from "./books";
 import { arrangeNoteBox, isNarrow, normalizeWinBox, packNoteSeat, placeWindow, restoreBox, type DeskBox } from "./desk";
-import { fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, staleTagline, uid } from "./format";
+import { deskZone, fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, setDeskZone, staleTagline, uid } from "./format";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
   Account,
@@ -41,16 +41,16 @@ import { applyDeskProfile, DEFAULT_REGION, normalizeMarkets, regionOf } from "./
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { asNewsTag, keepNewsChip } from "./headline";
-import { FEED_PACKS, NEWS_CATALOG } from "./feeds";
+import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
 
-export const STARTER_FEED_IDS = ["inquirer", "philstar", "rappler", "bilyonaryo", "inq-biz", "bbc", "gnews"] as const;
+export const STARTER_FEED_IDS = starterFeedIds("PH");
 
 export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({
   ...f,
-  enabled: (STARTER_FEED_IDS as readonly string[]).includes(f.id),
+  enabled: STARTER_FEED_IDS.includes(f.id),
 }));
 
 function withDefaultFeeds(feeds: Feed[], gone: string[] = []) {
@@ -74,63 +74,70 @@ function withDefaultFeeds(feeds: Feed[], gone: string[] = []) {
   });
 }
 
-function seedStarterFeeds(feeds: Feed[]) {
+function seedStarterFeeds(feeds: Feed[], marketId = "PH") {
   const next = withDefaultFeeds(feeds);
   if (next.some((f) => f.enabled)) return next;
-  return next.map((f) => ({ ...f, enabled: (STARTER_FEED_IDS as readonly string[]).includes(f.id) }));
+  const ids = new Set(starterFeedIds(marketId));
+  return next.map((f) => ({ ...f, enabled: ids.has(f.id) }));
 }
 
-function seedEvents(): CalendarEvent[] {
-  const { year, month, day } = manilaParts();
-  const at = (d: number, h: number, min = 0) => fromManila(year, month, d, h, min).toISOString();
-  return [
-    {
-      id: uid(),
-      title: "Weekly planning",
-      start: at(day, 9),
-      end: at(day, 10),
-      cat: "work",
-      loc: "",
-      source: "local",
-    },
-    {
-      id: uid(),
-      title: "Focus block",
-      start: at(day, 14),
-      end: at(day, 16),
-      cat: "work",
-      loc: "",
-      source: "local",
-    },
-    {
-      id: uid(),
-      title: "Deep work",
-      start: at(day + 1, 14),
-      end: at(day + 1, 17),
-      cat: "work",
-      loc: "",
-      source: "local",
-    },
-    {
-      id: uid(),
-      title: "Gym",
-      start: at(day + 2, 18),
-      end: at(day + 2, 19),
-      cat: "health",
-      loc: "",
-      source: "local",
-    },
-    {
-      id: uid(),
-      title: "Open day",
-      start: fromManila(year, month, day + 3, 0).toISOString(),
-      end: fromManila(year, month, day + 3, 23, 59).toISOString(),
-      cat: "personal",
-      loc: "",
-      source: "local",
-      allDay: true,
-    },
-  ];
+function seedEvents(profile?: { region?: string; tz?: string; locale?: string }): CalendarEvent[] {
+  const prev = deskZone();
+  if (profile) applyDeskProfile(profile);
+  try {
+    const { year, month, day } = manilaParts();
+    const at = (d: number, h: number, min = 0) => fromManila(year, month, d, h, min).toISOString();
+    return [
+      {
+        id: uid(),
+        title: "Weekly planning",
+        start: at(day, 9),
+        end: at(day, 10),
+        cat: "work",
+        loc: "",
+        source: "local",
+      },
+      {
+        id: uid(),
+        title: "Focus block",
+        start: at(day, 14),
+        end: at(day, 16),
+        cat: "work",
+        loc: "",
+        source: "local",
+      },
+      {
+        id: uid(),
+        title: "Deep work",
+        start: at(day + 1, 14),
+        end: at(day + 1, 17),
+        cat: "work",
+        loc: "",
+        source: "local",
+      },
+      {
+        id: uid(),
+        title: "Gym",
+        start: at(day + 2, 18),
+        end: at(day + 2, 19),
+        cat: "health",
+        loc: "",
+        source: "local",
+      },
+      {
+        id: uid(),
+        title: "Open day",
+        start: fromManila(year, month, day + 3, 0).toISOString(),
+        end: fromManila(year, month, day + 3, 23, 59).toISOString(),
+        cat: "personal",
+        loc: "",
+        source: "local",
+        allDay: true,
+      },
+    ];
+  } finally {
+    setDeskZone(prev);
+  }
 }
 
 type Modules = Record<ModuleId, boolean>;
@@ -312,10 +319,11 @@ function snapBooks(slice: Pick<Data, "books" | "accounts" | "budgets" | "txs">) 
 }
 
 function demoDesk(): Data {
+  const base = blankDesk();
   const demo = demoBooks();
   return {
-    ...blankDesk(),
-    events: seedEvents(),
+    ...base,
+    events: seedEvents(base.profile),
     notes: [
       {
         id: uid(),
@@ -879,7 +887,13 @@ export const useAtrium = create<State>()(
           const feeds = withDefaultFeeds(s.feeds, feedGone).map((f) => (ids.has(f.id) ? { ...f, enabled: on } : f));
           return { feeds, feedGone };
         }),
-      enableStarterFeeds: () => set((s) => ({ feeds: seedStarterFeeds(s.feeds) })),
+      enableStarterFeeds: () =>
+        set((s) => {
+          const ids = new Set(starterFeedIds(normalizeMarkets(s.profile.markets, s.profile.region)[0]));
+          const feedGone = s.feedGone.filter((id) => !ids.has(id));
+          const feeds = withDefaultFeeds(s.feeds, feedGone).map((f) => (ids.has(f.id) ? { ...f, enabled: true } : f));
+          return { feeds, feedGone };
+        }),
       addFeed: (f) =>
         set((s) => {
           if (s.feeds.some((x) => x.url === f.url || x.id === f.id)) return s;

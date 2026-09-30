@@ -239,7 +239,7 @@ export function FinanceMarkets() {
   const sortUse = !hasPse && sort === "wt" && (tab === "all" || tab === "blue") ? "chg" : sort;
 
   function goTab(next: typeof tab) {
-    setMarketPrefs(tabSortPatch(next, { tab, sort: sortUse }));
+    setMarketPrefs(tabSortPatch(next, { tab, sort: sortUse }, { pse: hasPse }));
   }
 
   const markets = useMarkets();
@@ -287,9 +287,10 @@ export function FinanceMarkets() {
   const peer = worldIndex(compareSym);
   const baseName = worldIndex(baseSym);
   const homeIndex = quotes[market.index.symbol] ?? (market.pseHome ? psei : undefined);
-  const homeWeek =
-    homeIndex?.weekLow != null && homeIndex.weekHigh != null && homeIndex.weekHigh > homeIndex.weekLow
-      ? Math.round(Math.min(1, Math.max(0, (homeIndex.price - homeIndex.weekLow) / (homeIndex.weekHigh - homeIndex.weekLow))) * 100)
+  const bannerQ = quotes[baseSym] ?? (baseSym === PSEI_SYMBOL ? psei : undefined);
+  const bannerWeek =
+    bannerQ?.weekLow != null && bannerQ.weekHigh != null && bannerQ.weekHigh > bannerQ.weekLow
+      ? Math.round(Math.min(1, Math.max(0, (bannerQ.price - bannerQ.weekLow) / (bannerQ.weekHigh - bannerQ.weekLow))) * 100)
       : null;
   const watching = (item: WatchItem) => watch.some((w) => w.symbol === item.symbol || w.id === item.id);
   const watched = (item: WatchItem) => watch.find((w) => w.symbol === item.symbol || w.id === item.id);
@@ -948,30 +949,30 @@ export function FinanceMarkets() {
         </button>
       </div>
 
-      {homeIndex ? (
+      {bannerQ ? (
         <button
           type="button"
           className="mb-4 flex w-full items-center gap-3 rounded-md bg-card px-4 py-3 text-left shadow-[var(--shadow-border)]"
           onClick={() => {
-            const item = asItem(homeIndex, "global");
-            setOpen({ key: homeIndex.id, item, q: homeIndex, watching: watching(item) });
+            const item = asItem(bannerQ, "global");
+            setOpen({ key: bannerQ.id, item, q: bannerQ, watching: watching(item) });
           }}
         >
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-widest text-muted-foreground">{market.index.label ?? market.index.name}</p>
-            <p className="font-display text-2xl tabular-nums">{moneyQuote(homeIndex.price, homeIndex.ccy)}</p>
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">{baseName.label ?? baseName.name}</p>
+            <p className="font-display text-2xl tabular-nums">{moneyQuote(bannerQ.price, bannerQ.ccy)}</p>
             <p className="text-xs text-muted-foreground">
-              {homeWeek != null ? `${homeWeek}% of 52w` : market.name}
-              {homeIndex.weekLow && homeIndex.weekHigh
-                ? ` · ${moneyQuote(homeIndex.weekLow, homeIndex.ccy)}–${moneyQuote(homeIndex.weekHigh, homeIndex.ccy)}`
+              {bannerWeek != null ? `${bannerWeek}% of 52w` : baseName.name}
+              {bannerQ.weekLow && bannerQ.weekHigh
+                ? ` · ${moneyQuote(bannerQ.weekLow, bannerQ.ccy)}–${moneyQuote(bannerQ.weekHigh, bannerQ.ccy)}`
                 : ""}
             </p>
           </div>
-          <ChangePill value={homeIndex.change} />
+          <ChangePill value={bannerQ.change} />
           {marketPrefs.spark ? (
             <Spark
-              values={remoteSparks[homeIndex.id] ?? homeIndex.spark}
-              up={(homeIndex.change ?? 0) >= 0}
+              values={remoteSparks[bannerQ.id] ?? bannerQ.spark}
+              up={(bannerQ.change ?? 0) >= 0}
               className="ml-auto hidden h-10 w-28 sm:block"
             />
           ) : null}

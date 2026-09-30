@@ -42,6 +42,14 @@ test("clock and markets are independent of each other", () => {
   setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
 });
 
+test("a 9am seed follows the desk clock, not a frozen Manila offset", () => {
+  applyDeskProfile({ region: "US", tz: "America/New_York", locale: "en-US" });
+  assert.equal(fromManila(2026, 9, 27, 9, 0).toISOString(), "2026-09-27T13:00:00.000Z");
+  applyDeskProfile({ region: "VN", tz: "Asia/Ho_Chi_Minh", locale: "en-US" });
+  assert.equal(fromManila(2026, 9, 27, 9, 0).toISOString(), "2026-09-27T02:00:00.000Z");
+  setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
+});
+
 test("hexColor normalizes and inkOnPaper picks contrast", () => {
   assert.equal(hexColor("#AbC"), "#aabbcc");
   assert.equal(hexColor("#e8e4d4"), "#e8e4d4");

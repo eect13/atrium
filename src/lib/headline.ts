@@ -56,7 +56,13 @@ export function keepNewsChip(raw: string | undefined): string {
   return "All";
 }
 
-/** The feed's own section. A World feed with an explicit desk country chips as that country. Titles are not scanned. */
+/** Desk country beside the outlet when it is not already the section. Never read from the title. */
+export function storyDesk(s: { category?: string; region?: string }): string {
+  const section = asNewsTag(s.category);
+  const place = (s.region ?? "").trim();
+  if (!place || /^world$/i.test(place) || place === section) return "";
+  return place;
+}
 export function tagStory(s: { title?: string; desc?: string; src?: string; category?: string; region?: string }): string {
   const section = asNewsTag(s.category);
   const place = (s.region ?? "").trim();
