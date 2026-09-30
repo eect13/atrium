@@ -3,6 +3,9 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "overrides": {
     "nf3": "0.3.17"
   },
@@ -102,6 +105,6 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0"
   },
-  "version": "1.2.39",
+  "version": "1.2.40",
   "description": "Atrium — personal command center (atrium.v1)."
 }

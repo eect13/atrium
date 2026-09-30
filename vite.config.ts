@@ -243,6 +243,11 @@ export default defineConfig(({ command, isPreview }) => {
               // manifest + head-tag middleware). Nitro v3 defaults serverDir to
               // false, so removing this silently unwires /?install=1 on deploys.
               serverDir: "./server",
+              // Keep the function on Node 22, same as package.json engines.
+              // The project setting used to be 24.x while this runtime was 22.x.
+              vercel: {
+                functions: { runtime: "nodejs22.x" },
+              },
             }),
           ]
         : []),

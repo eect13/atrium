@@ -2,7 +2,7 @@
 
 Personal command center. Clock, tape currency, and market books are separate settings. Data stays on this device (`atrium.v1`).
 
-**Version 1.2.39**
+**Version 1.2.40**
 
 ## Look
 
@@ -30,6 +30,8 @@ Personal command center. Clock, tape currency, and market books are separate set
 
 Tauri 2 wrap of the Vite app. Icon is a sharp chevron + ring (Windows, Android, and home-screen).
 
+GitHub Actions runs the typecheck and the tests on Node 22. The Vercel build and the server function both use Node 22. Destructive buttons and card text clear 4.5:1. The `*.vercel.app` addresses stay behind Vercel sign-in.
+
 ### Windows (NSIS)
 
 ```bat
@@ -49,7 +51,7 @@ Preferred layout on Eric’s PC:
 apk.bat
 ```
 
-Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output follows package.json: `deploy/android/atrium-arm64-release.apk` and `deploy/android/atrium-v1.2.39-arm64-release.apk`.
+Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output follows package.json: `deploy/android/atrium-arm64-release.apk` and `deploy/android/atrium-v1.2.40-arm64-release.apk`.
 
 ### Dev
 
