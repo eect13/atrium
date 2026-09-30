@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeftRight, FileDown, Plus, RefreshCw, Search, SlidersHorizontal, Star, X } from "lucide-react";
+import { Plus, RefreshCw, Search, SlidersHorizontal, Star, X } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { ChangePill, Spark, TickMark } from "@/components/spark";
@@ -10,11 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { useMarkets } from "@/components/use-markets";
-import { deskZone, isoDate, moneyQuote, phpQuote, peso, relativeDesk, vol } from "@/lib/format";
+import { deskZone, moneyQuote, phpQuote, peso } from "@/lib/format";
 import {
   BOARD_SORTS,
   BOARD_TABS,
@@ -55,22 +53,12 @@ import {
   yldLabel,
 } from "@/lib/screener";
 
-function usdPerFromFx(fx?: { usdphp?: number; per?: Record<string, number> } | null) {
-  const usdphp = fx?.usdphp;
-  if (!usdphp) return undefined;
-  const out: Record<string, number> = { USD: 1, PHP: 1 / usdphp };
-  for (const [code, php] of Object.entries(fx.per ?? {})) {
-    if (php > 0) out[code.toUpperCase()] = php / usdphp;
-  }
-  return out;
-}
 import { fetchPseIndex } from "@/lib/pse-index";
 import {
   SPARK_RANGES,
   fetchSparks,
   normalizeSparkRange,
   rememberTape,
-  sessionSpark,
   sparkFetchable,
   tapeSpark,
   writeTapeSpark,
@@ -80,12 +68,13 @@ import { useAtrium } from "@/lib/store";
 import { QUOTE_CCY, WATCH_CATALOG, type WatchItem, DEFAULT_MARKET_PREFS } from "@/lib/types";
 import type { MarketQuote } from "@/lib/prices";
 import { searchTickers } from "@/lib/prices";
-import { applyPublicStats, fetchPseStats, overlayStats, seededStats } from "@/lib/pse-fundamentals";
-import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, tapeBox, type RelatedStory } from "@/lib/research";
-import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
-import { mixStories } from "@/lib/headline";
+import { overlayStats, seededStats } from "@/lib/pse-fundamentals";
 import { cn } from "@/lib/utils";
 import { Chip, FIELD_SELECT } from "./finance-chip";
+import { asItem, sparkOf, usdPerFromFx, volLabel } from "./finance-market-bits";
+import { QuoteSheet } from "./finance-quote-sheet";
+import { FxConverter } from "./finance-fx";
+import { BoardViewDialog } from "./finance-board-view";
 import { DigestCard, IndexCompare, MoversStrip, PeerStrip, PseHeatmap, SessionHeatmap, SleeveRotation } from "./finance-tape";
 import { isPseiItem, PSEI_SYMBOL } from "@/lib/yahoo";
 import { asDeskItem, deskMarket, homeBoardRows, resolveIndexPair, worldIndex } from "@/lib/desk-market";
@@ -93,84 +82,6 @@ import { fetchFinanceDigest, mergeDigest } from "@/lib/digest";
 import { DESK_REGIONS, normalizeMarkets, toggleMarket } from "@/lib/region";
 import { deskSleeves, indexLink, pseWeightOf, rotationTake, sleeveSession, vsIndex } from "@/lib/desk-stats";
 
-const FX_UNITS = ["USD", "EUR", "JPY", "GBP", "PHP"] as const;
-
-function fxToPhp(unit: (typeof FX_UNITS)[number], fx: { usdphp: number; eurphp: number; jpyphp: number; gbpphp: number }) {
-  if (unit === "PHP") return 1;
-  if (unit === "USD") return fx.usdphp;
-  if (unit === "EUR") return fx.eurphp;
-  if (unit === "JPY") return fx.jpyphp;
-  return fx.gbpphp;
-}
-
-function asItem(q: MarketQuote, kind: WatchItem["kind"]): WatchItem {
-  const catalog = WATCH_CATALOG.find((w) => w.symbol === q.id || (kind === "stock" && w.symbol === q.label));
-  if (catalog) return catalog;
-  const seed = DESK_REGIONS.flatMap((r) => deskMarket(r.id).names).find((n) => n.symbol === q.id);
-  if (seed) return asDeskItem(seed);
-  return {
-    id: kind === "stock" ? `pse-${q.id}` : q.id,
-    symbol: q.id,
-    label: q.label,
-    name: q.name,
-    kind,
-  };
-}
-
-function volLabel(q?: { kind: string; volume?: number; php?: number; price: number; ccy: string }) {
-  if (!q) return "";
-  const n = turnover(q);
-  if (!n) return "";
-  if (q.kind === "stock") return `Vol ${phpQuote(n)}`;
-  return `Vol ${vol(n)}`;
-}
-
-function parseNum(s: string): number | undefined {
-  const t = s.trim();
-  if (!t) return undefined;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function sparkOf(
-  item: WatchItem,
-  q: BoardRow["q"],
-  range: ReturnType<typeof normalizeSparkRange>,
-  remote: Record<string, number[]>,
-) {
-  const hit = remote[item.id] ?? remote[item.symbol];
-  if (hit && hit.length >= 4) return hit;
-  const days = SPARK_RANGES.find((r) => r.id === range)?.days ?? 90;
-  const tape = tapeSpark(item.symbol, days) ?? tapeSpark(item.id, days);
-  if (tape && tape.length >= 3) return tape;
-  if ((item.kind === "crypto" || item.kind === "global" || item.kind === "cmdty") && q?.spark && q.spark.length >= 8 && (range === "1w" || range === "1d")) {
-    return q.spark;
-  }
-  if (!q?.price || q.price <= 0) return undefined;
-  return sessionSpark(q.price, q.change, item.symbol);
-}
-
-function PrefSwitch({
-  label,
-  hint,
-  checked,
-  onCheckedChange,
-}: {
-  label: string;
-  hint?: string;
-  checked: boolean;
-  onCheckedChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex min-h-11 items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-sm">{label}</p>
-        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-      </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
-    </div>
-  );
-}
 
 export function FinanceMarkets() {
   const {
@@ -212,10 +123,6 @@ export function FinanceMarkets() {
       rememberDigest: s.rememberDigest,
     })),
   );
-  const [fromUnit, setFromUnit] = useState<(typeof FX_UNITS)[number]>("USD");
-  const [toUnit, setToUnit] = useState<(typeof FX_UNITS)[number]>("PHP");
-  const [fxAmt, setFxAmt] = useState("100");
-  const [fxOpen, setFxOpen] = useState(false);
   const query = boardQuery;
   const setQuery = setBoardQuery;
   const [open, setOpen] = useState<BoardRow | null>(null);
@@ -555,9 +462,6 @@ export function FinanceMarkets() {
       .filter((p) => p.value > 0);
   }, [watch, quotes]);
 
-  const fromPhp = fx ? fxToPhp(fromUnit, fx) : 0;
-  const toPhp = fx ? fxToPhp(toUnit, fx) : 0;
-  const converted = fromPhp && toPhp ? (Number(fxAmt) * fromPhp) / toPhp : 0;
   const compact = marketPrefs.compact;
   const screenFilterOn = screensOn({
     pe: marketPrefs.screenPe,
@@ -1271,76 +1175,7 @@ export function FinanceMarkets() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>Currency converter</CardTitle>
-          <Chip active={fxOpen} onClick={() => setFxOpen((v) => !v)}>
-            {fxOpen ? "Hide" : "Show"}
-          </Chip>
-        </CardHeader>
-        {fxOpen ? (
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="fx-amt">Amount</Label>
-            <Input id="fx-amt" className="h-11" type="number" value={fxAmt} onChange={(e) => setFxAmt(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="fx-from">From</Label>
-              <select
-                id="fx-from"
-                className={FIELD_SELECT}
-                value={fromUnit}
-                onChange={(e) => setFromUnit(e.target.value as (typeof FX_UNITS)[number])}
-              >
-                {FX_UNITS.map((u) => (
-                  <option key={u}>{u}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              className="inline-flex size-11 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
-              aria-label="Swap currencies"
-              onClick={() => {
-                setFromUnit(toUnit);
-                setToUnit(fromUnit);
-              }}
-            >
-              <ArrowLeftRight className="size-4" />
-            </button>
-            <div className="space-y-1">
-              <Label htmlFor="fx-to">To</Label>
-              <select
-                id="fx-to"
-                className={FIELD_SELECT}
-                value={toUnit}
-                onChange={(e) => setToUnit(e.target.value as (typeof FX_UNITS)[number])}
-              >
-                {FX_UNITS.map((u) => (
-                  <option key={u}>{u}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <p className="font-display text-2xl tabular-nums">
-            {quotesPending && !fx ? (
-              <Skeleton className="inline-block h-8 w-36" />
-            ) : (
-              <>
-                {Number.isFinite(converted) && fx ? converted.toLocaleString(deskZone().locale, { maximumFractionDigits: 2 }) : "—"}{" "}
-                <span className="text-sm text-muted-foreground">{toUnit}</span>
-              </>
-            )}
-          </p>
-          {fx?.usdphp ? <p className="text-xs text-muted-foreground">USD/PHP {phpQuote(fx.usdphp)}</p> : null}
-        </CardContent>
-        ) : (
-          <CardContent>
-            <p className="text-sm text-muted-foreground">PHP, USD, EUR, GBP, JPY from the same FX tape as On hand.</p>
-          </CardContent>
-        )}
-      </Card>
+      <FxConverter fx={fx} />
 
       <Dialog open={Boolean(open)} onOpenChange={(v) => !v && setOpen(null)}>
         <DialogContent>
@@ -1432,522 +1267,19 @@ export function FinanceMarkets() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Board view</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1">
-            <PrefSwitch
-              label="Spark"
-              hint="Range chips 1D–1Y. Coins from Binance, FX from Frankfurter, PSE from this desk."
-              checked={marketPrefs.spark}
-              onCheckedChange={(v) => setMarketPrefs({ spark: v })}
-            />
-            {marketPrefs.spark ? (
-              <div className="flex flex-wrap gap-2 py-2">
-                {SPARK_RANGES.map((r) => (
-                  <Chip key={r.id} active={range === r.id} onClick={() => setMarketPrefs({ sparkRange: r.id })}>
-                    {r.label}
-                  </Chip>
-                ))}
-              </div>
-            ) : null}
-            <PrefSwitch
-              label="PHP under last"
-              hint="Peso line under coins, FX, and global stocks — not commodities"
-              checked={marketPrefs.dualPhp}
-              onCheckedChange={(v) => setMarketPrefs({ dualPhp: v })}
-            />
-            <PrefSwitch
-              label="Convert commodities"
-              hint="Peso line under gold, oil, and metals. Off by default."
-              checked={marketPrefs.cmdtyPhp}
-              onCheckedChange={(v) => setMarketPrefs({ cmdtyPhp: v })}
-            />
-            <PrefSwitch
-              label="USDT last"
-              hint="Coins in dollars, PHP underneath"
-              checked={marketPrefs.cryptoUsdt}
-              onCheckedChange={(v) => setMarketPrefs({ cryptoUsdt: v })}
-            />
-            <PrefSwitch
-              label="Volume line"
-              hint="Turnover under the name"
-              checked={marketPrefs.showVol}
-              onCheckedChange={(v) => setMarketPrefs({ showVol: v })}
-            />
-            <PrefSwitch
-              label="Tape"
-              hint="Strip of live last prices"
-              checked={marketPrefs.showTape}
-              onCheckedChange={(v) => setMarketPrefs({ showTape: v })}
-            />
-            <PrefSwitch
-              label="Compact rows"
-              hint="Tighter board rows"
-              checked={marketPrefs.compact}
-              onCheckedChange={(v) => setMarketPrefs({ compact: v })}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function RelatedNews({ item }: { item: WatchItem }) {
-  const issuer = issuerDisplay(item);
-  const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v8"],
-    queryFn: () => fetchRelatedStories({ data: item }),
-    staleTime: 5 * 60_000,
-    gcTime: 60 * 60_000,
-    retry: 1,
-  });
-  const facts = news.data?.facts ?? [];
-  const rumors = news.data?.rumors ?? [];
-  const earlier = news.data?.earlier ?? [];
-  const items = [...facts, ...rumors];
-
-  function lane(title: string, rows: RelatedStory[], empty: string) {
-    return (
-      <div>
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {title}
-          {rows.length ? ` · ${rows.length}` : ""}
-        </p>
-        {rows.length ? (
-          <div className="mt-2 space-y-2">
-            {rows.map((n) => (
-              <a
-                key={`${n.link}-${n.title}`}
-                href={n.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-sm leading-snug hover:underline"
-              >
-                <span className="block">{n.title}</span>
-                <span className="text-xs text-muted-foreground">
-                  {n.src}
-                  {n.date ? ` · ${relativeDesk(n.date)}` : ""}
-                </span>
-              </a>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">{empty}</p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg bg-muted p-4">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground">Facts vs rumors</p>
-      <p className="mt-1 text-sm">
-        {issuer.ticker} · {issuer.legal}
-        {issuer.aliases.length ? ` · ${issuer.aliases.join(" · ")}` : ""}
-      </p>
-      <p className="text-xs text-muted-foreground">
-        Daily first. Facts from the last two weeks, talk from the last 30 days. Older copy is earlier, not latest.
-      </p>
-      {news.isPending && !items.length && !earlier.length ? (
-        <div className="mt-3 grid gap-4 sm:grid-cols-2" aria-busy>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-        </div>
-      ) : news.isError ? (
-        <button
-          type="button"
-          className="mt-2 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          onClick={() => void news.refetch()}
-        >
-          Couldn’t load related news — retry
-        </button>
-      ) : (
-        <>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            {lane("Latest facts", facts, "No fact copy from the last two weeks.")}
-            {lane("Latest talk", rumors, "No talk from the last 30 days.")}
-          </div>
-          <div className="mt-4">{lane("Earlier", earlier, "No older copy on the wires.")}</div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function WeightingCard() {
-  const file = useQuery({
-    queryKey: ["psei-weights", "v1"],
-    queryFn: () => fetchPseiWeights({ data: {} }),
-    staleTime: 6 * 60 * 60_000,
-    gcTime: 24 * 60 * 60_000,
-    retry: 1,
-  });
-  const rows = file.data?.rows ?? PSEI_WEIGHTS;
-  const asOf = file.data?.asOf ?? PSEI_WEIGHT_AS_OF;
-  const c = concentration(rows);
-  const stamped = asOf.replace(/(\d{4})-(\d{2})-(\d{2})/, (_, y, mo, d) => `${Number(d)} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mo) - 1]} ${y}`);
-  return (
-    <div className="rounded-lg bg-muted p-4">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground">Weighting</p>
-      <p className="mt-2 text-sm">Free-float market-cap of 30 · {PSEI_FORMULA}</p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Official PSEi weights as of {stamped}
-        {file.data?.source === "live" ? " · live file" : ""}. ICT {c.ict.toFixed(2)}% of the index.
-      </p>
-      <ul className="mt-2 space-y-1">
-        {topWeights(5, rows).map((w) => (
-          <li key={w.ticker} className="flex items-baseline justify-between gap-3 text-sm">
-            <span>{w.ticker}</span>
-            <span className="tabular-nums text-muted-foreground">{w.psei.toFixed(2)}%</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-muted-foreground">
-        SM group {c.sm.toFixed(1)}% · Banks {c.banks.toFixed(1)}% · Ayala {c.ayala.toFixed(1)}%
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Feb 2027 CN-2026-0033: MTAR 15% in / 10% stay, 98% cumulative cap, 15% float for PHP 250B+ names.
-      </p>
-    </div>
-  );
-}
-
-function QuoteSheet({
-  row,
-  held,
-  watching,
-  cryptoUsdt,
-  dualPhp,
-  showVol,
-  sparkRange,
-  quotes,
-  nameSpark,
-  indexSpark,
-  indexLabel,
-  onPeer,
-  onWatch,
-  onRemove,
-  onHold,
-}: {
-  row: BoardRow;
-  held?: WatchItem;
-  watching: boolean;
-  cryptoUsdt: boolean;
-  dualPhp: boolean;
-  showVol: boolean;
-  sparkRange: ReturnType<typeof normalizeSparkRange>;
-  quotes: Record<string, MarketQuote>;
-  nameSpark?: number[];
-  indexSpark?: number[];
-  indexLabel?: string;
-  onPeer: (sym: string) => void;
-  onWatch: () => void;
-  onRemove: () => void;
-  onHold: (patch: Partial<WatchItem>) => void;
-}) {
-  const [qty, setQty] = useState(held?.qty != null ? String(held.qty) : "");
-  const [avg, setAvg] = useState(held?.avg != null ? String(held.avg) : "");
-  const [pdfHref, setPdfHref] = useState<string | null>(null);
-  useEffect(() => {
-    return () => {
-      if (pdfHref) URL.revokeObjectURL(pdfHref);
-    };
-  }, [pdfHref]);
-  const ticker = (row.item.symbol || row.item.label).replace(/^\^/, "").replace(/\.PS$/i, "");
-  const statsQ = useQuery({
-    queryKey: ["pse-stats", ticker],
-    queryFn: () => fetchPseStats({ data: { ticker } }),
-    enabled: row.item.kind === "stock" && /^[A-Z][A-Z0-9]{1,5}$/i.test(ticker),
-    staleTime: 6 * 60 * 60_000,
-    gcTime: 24 * 60 * 60_000,
-    retry: 1,
-  });
-  const q = row.q ? applyPublicStats(row.q, statsQ.data) : row.q;
-  const sheetRow = q !== row.q && q ? { ...row, q } : row;
-  const note = buildResearch(sheetRow, new Date(), { sparkLabel: SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M" });
-  const shown = displayLast(sheetRow.q, { cryptoUsdt });
-  const phpUnder = dualPhp && shown?.php != null && shown.ccy !== "PHP" ? phpQuote(shown.php) : null;
-  const qtyN = parseNum(qty);
-  const avgN = parseNum(avg);
-  const php = row.q?.php;
-  const value = positionValue(qtyN, php);
-  const pnl = positionPnl(qtyN, php, avgN);
-  const sparkLabel = SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M";
-  const nameLink =
-    row.item.kind === "stock" || row.item.kind === "global" ? vsIndex(nameSpark, indexSpark) : undefined;
-
-  function scaleBand(n: number) {
-    if (!row.q) return n;
-    if (cryptoUsdt) return n;
-    if (row.q.usd && row.q.usd > 0 && shown) return n * (shown.price / row.q.usd);
-    return n;
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <TickMark label={row.item.label} />
-        <div>
-          <p className="text-sm text-muted-foreground">{note.issuerLine || row.item.name || row.item.kind}</p>
-          <p className="text-xs text-muted-foreground">{note.index}</p>
-        </div>
-      </div>
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="font-display text-3xl tabular-nums">{shown ? moneyQuote(shown.price, shown.ccy) : "—"}</p>
-          {phpUnder ? <p className="text-sm tabular-nums text-muted-foreground">{phpUnder}</p> : null}
-        </div>
-        <ChangePill value={row.q?.change} />
-      </div>
-      <Spark values={row.q?.spark} up={(row.q?.change ?? 0) >= 0} className="h-24 w-full" />
-      <p className="text-xs text-muted-foreground">
-        {SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M"} tape
-        {row.q?.spark && row.q.spark.length > 2 ? ` · ${row.q.spark.length} pts` : ""}
-      </p>
-      {showVol && volLabel(row.q) ? <p className="text-sm text-muted-foreground">{volLabel(row.q)}</p> : null}
-      <div className="rounded-lg bg-muted p-4">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">CFA desk</p>
-        <p className="mt-1 text-xs text-muted-foreground">{note.cfaMethod}</p>
-        {statsQ.data?.source ? (
-          <p className="mt-1 text-xs text-muted-foreground">PE / P/B / yield from the public tape. Bank ratios last reported.</p>
-        ) : null}
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(
-            [
-              ["PE", note.metrics.pe],
-              ["E/P", note.metrics.ep],
-              ["P/B", note.metrics.pb],
-              ["Yield", note.metrics.yld],
-              ["ROE", note.metrics.roe],
-              ["NIM", note.metrics.nim],
-              ["NPL", note.metrics.npl],
-              ["CET1", note.metrics.cet1],
-              ["PSEi wt", note.metrics.wt],
-              [note.metrics.weekLabel, note.metrics.week],
-              ["Vol", note.metrics.vol],
-              ["52w chg", note.metrics.ch1y],
-              ["SMA50", note.metrics.sma50],
-              ["RSI", note.metrics.rsi],
-            ] as const
-          )
-            .filter(([k, v]) => v !== "—" || (k !== "ROE" && k !== "NIM" && k !== "NPL" && k !== "CET1" && k !== "RSI" && k !== "52w chg" && k !== "SMA50"))
-            .map(([k, v]) => (
-            <div key={k}>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">{k}</p>
-              <p className="text-sm tabular-nums">{v}</p>
-            </div>
-          ))}
-        </div>
-        {row.item.kind === "stock" || row.item.kind === "global" ? (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {nameLink
-              ? `Spark r ${nameLink.r.toFixed(2)} · β ${nameLink.beta.toFixed(2)} vs ${indexLabel ?? "the home index"} (${sparkLabel}, ${nameLink.n} pts). Delayed path, not a hedge.`
-              : `Index link waits on a real spark vs ${indexLabel ?? "the home index"} — session wobble is not a beta.`}
-          </p>
-        ) : null}
-        {(
-          [
-            { title: "Valuation", items: note.valuation },
-            { title: "Tape", items: note.tape },
-            { title: "Index", items: note.indexFactor },
-            { title: "Gap", items: note.gap },
-          ] as const
-        )
-          .filter((g) => g.items.length)
-          .map((g) => (
-            <div key={g.title} className="mt-3">
-              <p className="text-xs text-muted-foreground">{g.title}</p>
-              <ul className="mt-1 space-y-1">
-                {g.items.map((line) => (
-                  <li key={line} className="text-sm leading-snug">
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-      </div>
-      {isPseiItem(row.item) ? <WeightingCard /> : null}
-      <PeerStrip ticker={ticker} quotes={quotes} onOpen={onPeer} />
-      <RelatedNews item={row.item} />
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg bg-muted p-4">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Snapshot</p>
-          <p className="mt-2 text-sm">
-            High {note.high}
-            <span className="text-muted-foreground"> · </span>
-            Low {note.low}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {note.volume}
-            {note.change !== "-" ? ` · ${note.change}` : ""}
-          </p>
-          {sheetRow.q?.pe || sheetRow.q?.marketCap || sheetRow.q?.yieldPct || sheetRow.q?.forwardPe || sheetRow.q?.pb ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {[
-                peLabel(sheetRow.q?.pe),
-                sheetRow.q?.forwardPe ? `Fwd ${sheetRow.q.forwardPe >= 100 ? sheetRow.q.forwardPe.toFixed(0) : sheetRow.q.forwardPe.toFixed(1)}` : "",
-                sheetRow.q?.marketCap ? capLabel(sheetRow.q.marketCap) : "",
-                yldLabel(sheetRow.q?.yieldPct),
-                sheetRow.q?.pb ? `P/B ${sheetRow.q.pb.toFixed(2)}` : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          ) : null}
-          {(() => {
-            const box = tapeBox(sheetRow.q, SPARK_RANGES.find((r) => r.id === sparkRange)?.label ?? "3M");
-            if (!box) return null;
-            return (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {box.label} {moneyQuote(box.low, shown?.ccy ?? sheetRow.q?.ccy ?? "PHP")} – {moneyQuote(box.high, shown?.ccy ?? sheetRow.q?.ccy ?? "PHP")}
-                {box.kind === "spark" ? " · spark range, not 52w" : ""}
-              </p>
-            );
-          })()}
-        </div>
-        <div className="rounded-lg bg-muted p-4">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Levels</p>
-          <p className="mt-2 text-sm">S {note.support}</p>
-          <p className="text-sm">P {note.pivot}</p>
-          <p className="text-sm">R {note.resistance}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{note.rangePos}</p>
-        </div>
-      </div>
-      <div className="rounded-lg bg-muted p-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Standpoint</p>
-          <p className="text-sm font-medium">{note.bias}</p>
-        </div>
-        <p className="mt-2 text-sm">{note.thesis[0]}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{note.index}</p>
-      </div>
-      <div>
-        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Suggestions</p>
-        <div className="mt-2 space-y-3">
-          {(
-            [
-              { title: "Watch", items: note.watch },
-              { title: "Risk", items: note.risk },
-              { title: "Next", items: note.next },
-            ] as const
-          )
-            .filter((g) => g.items.length)
-            .map((g) => (
-              <div key={g.title}>
-                <p className="text-xs text-muted-foreground">{g.title}</p>
-                <ul className="mt-1 space-y-1">
-                  {g.items.map((s) => (
-                    <li key={s} className="text-sm leading-snug">
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11"
-          onClick={() => {
-            const filename = `atrium-${row.item.label.toLowerCase()}-research.pdf`;
-            const url = downloadPdf(filename, researchPdf(note));
-            setPdfHref(url);
-            toast(`Research note for ${row.item.label}`);
-          }}
-        >
-          <FileDown className="size-4" />
-          Research PDF
-        </Button>
-        {pdfHref ? (
-          <a
-            href={pdfHref}
-            download={`atrium-${row.item.label.toLowerCase()}-research.pdf`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
-          >
-            Open PDF
-          </a>
-        ) : null}
-      </div>
-      {pdfHref ? (
-        <iframe
-          title={`${row.item.label} research`}
-          src={pdfHref}
-          className="h-[480px] w-full rounded-md border border-border bg-white"
-        />
-      ) : null}
-      {row.q?.kind === "crypto" && row.q.high != null && row.q.low != null ? (
-        <p className="text-sm text-muted-foreground">
-          24h {moneyQuote(scaleBand(row.q.low), shown?.ccy ?? "USD")} –{" "}
-          {moneyQuote(scaleBand(row.q.high), shown?.ccy ?? "USD")}
-        </p>
-      ) : null}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label htmlFor="hold-qty">Holding qty</Label>
-          <Input
-            id="hold-qty"
-            className="h-11"
-            type="number"
-            inputMode="decimal"
-            value={qty}
-            onChange={(e) => setQty(e.target.value)}
-            onBlur={() => onHold({ qty: qtyN })}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="hold-avg">Avg cost (₱)</Label>
-          <Input
-            id="hold-avg"
-            className="h-11"
-            type="number"
-            inputMode="decimal"
-            value={avg}
-            onChange={(e) => setAvg(e.target.value)}
-            onBlur={() => onHold({ avg: avgN })}
-          />
-        </div>
-      </div>
-      {value > 0 ? (
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Value {peso(value)}</p>
-          {pnl != null ? (
-            <p className={cn("tabular-nums text-sm", pnl >= 0 ? "text-ok" : "text-destructive")}>
-              {"P&L"} {phpQuote(pnl)}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        {watching ? (
-          <Button variant="outline" className="min-h-11" aria-label="Remove from watcher" onClick={onRemove}>
-            <Star className="size-4 fill-primary text-primary" />
-            Watching
-          </Button>
-        ) : (
-          <Button className="min-h-11" onClick={onWatch}>
-            <Star className="size-4" />
-            Watch
-          </Button>
-        )}
-      </div>
+      <BoardViewDialog
+        open={viewOpen}
+        onOpenChange={setViewOpen}
+        spark={marketPrefs.spark}
+        range={range}
+        dualPhp={marketPrefs.dualPhp}
+        cmdtyPhp={marketPrefs.cmdtyPhp}
+        cryptoUsdt={marketPrefs.cryptoUsdt}
+        showVol={marketPrefs.showVol}
+        showTape={marketPrefs.showTape}
+        compact={marketPrefs.compact}
+        onPatch={setMarketPrefs}
+      />
     </div>
   );
 }
