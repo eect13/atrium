@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultGcalOff, gcalLane, visibleCalEvents } from "./google-cal.ts";
+import { deskZone, setDeskZone } from "./format.ts";
+import { defaultGcalOff, gcalLane, gcalRange, noteGcalPage, visibleCalEvents } from "./google-cal.ts";
 import { parseICS } from "./ics.ts";
 
 test("primary calendar is Mine; Family and holidays start hidden", () => {
@@ -50,3 +51,44 @@ test("ICS TZID keeps New York wall time instead of Manila", () => {
   assert.equal(new Date(ev!.start).toISOString(), "2026-03-15T13:00:00.000Z");
   assert.equal(new Date(ev!.end).toISOString(), "2026-03-15T14:00:00.000Z");
 });
+
+test("a later Google page that fails is a partial list, not a full one", () => {
+  const state = {
+    events: [{ id: "a" }],
+    token: "p2",
+    seen: new Set(["p2"]),
+    truncated: false,
+  };
+  noteGcalPage(state, { ok: false, events: [] });
+  assert.equal(state.truncated, true);
+  assert.equal(state.token, undefined);
+  assert.deepEqual(state.events.map((e) => e.id), ["a"]);
+});
+
+test("an empty later page ends the list without calling it partial", () => {
+  const state = {
+    events: [{ id: "a" }],
+    token: "p2",
+    seen: new Set(["p2"]),
+    truncated: false,
+  };
+  noteGcalPage(state, { ok: true, events: [] });
+  assert.equal(state.truncated, false);
+  assert.equal(state.token, undefined);
+});
+
+test("Google window is desk midnight, not UTC midnight", () => {
+  const prev = deskZone();
+  setDeskZone({ tz: "America/New_York", locale: "en-US" });
+  try {
+    const october = gcalRange(new Date("2026-10-15T16:00:00.000Z"));
+    assert.equal(october.timeMin, "2026-09-01T04:00:00.000Z");
+    assert.equal(october.timeMax, "2026-12-01T05:00:00.000Z");
+    const january = gcalRange(new Date("2026-01-15T17:00:00.000Z"));
+    assert.equal(january.timeMin, "2025-12-01T05:00:00.000Z");
+    assert.equal(january.timeMax, "2026-03-01T05:00:00.000Z");
+  } finally {
+    setDeskZone(prev);
+  }
+});
+

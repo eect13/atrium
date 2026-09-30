@@ -33,7 +33,7 @@ import {
   weekRangeLabel,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
-import { listGoogleCalendars, listGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
+import { gcalRange, listGoogleCalendars, listGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { useAtrium } from "@/lib/store";
@@ -149,7 +149,7 @@ export function CalendarView() {
       toast(res.error);
       return null;
     }
-    return res.events.flatMap((g) => {
+    const rows = res.events.flatMap((g) => {
       const dateOnly = Boolean(g.start?.date && !g.start.dateTime);
       const s = g.start?.dateTime || (g.start?.date ? manilaAt(g.start.date, 0).toISOString() : "");
       const exclusive = g.end?.date ? manilaAt(g.end.date, 0).toISOString() : "";
@@ -170,14 +170,11 @@ export function CalendarView() {
         calId: calendarId,
       }];
     });
+    return { rows, truncated: Boolean(res.truncated) };
   }
 
   async function pullGoogle(ids?: string[]) {
-    const p = manilaParts(cursor);
-    const range = {
-      timeMin: fromManila(p.year, p.month - 1, 1).toISOString(),
-      timeMax: fromManila(p.year, p.month + 2, 1).toISOString(),
-    };
+    const range = gcalRange(cursor);
     const listed = await listGoogleCalendars();
     if (listed.loginRequired) {
       redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: listed.loginUrl });
@@ -197,15 +194,18 @@ export function CalendarView() {
       return;
     }
     const mapped: CalendarEvent[] = [];
+    let truncated = false;
     for (const calendarId of selected) {
       const res = await listGoogleEvents({
         data: { ...range, calendarId },
       });
-      const rows = await mapGoogle(res, calendarId);
-      if (rows === null) return;
-      mapped.push(...rows);
+      const page = await mapGoogle(res, calendarId);
+      if (page === null) return;
+      truncated = truncated || page.truncated;
+      mapped.push(...page.rows);
     }
     importedToast(importEvents(mapped));
+    if (truncated) toast("Google stopped early. Later events in this window may be missing.");
   }
 
   async function flipCal(id: string) {

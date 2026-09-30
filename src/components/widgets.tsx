@@ -681,7 +681,10 @@ export function FinancePeek() {
         )}
       </div>
       ) : null}
-      {marketsOn && (markets.isError || markets.data?.failed) ? (
+      {marketsOn && markets.data?.gaps?.length ? (
+        <p className="mt-2 text-xs text-muted-foreground">{markets.data.gaps.join(" · ")} didn’t answer.</p>
+      ) : null}
+      {marketsOn && (markets.isError || markets.data?.failed || markets.data?.gaps?.length) ? (
         <button type="button" className="mt-2 text-xs underline" onClick={() => void markets.refetch()}>
           Retry prices
         </button>
@@ -738,10 +741,12 @@ export function NewsPeek({
   headlines,
   loading = false,
   error = false,
+  missed = [],
 }: {
   headlines: NewsItem[];
   loading?: boolean;
   error?: boolean;
+  missed?: string[];
 }) {
   const setView = useAtrium((s) => s.setView);
   const feedOn = useAtrium((s) => s.feeds.some((f) => f.enabled));
@@ -802,6 +807,11 @@ export function NewsPeek({
           </a>
         );
       })}
+      {missed.length ? (
+        <p className="text-xs text-muted-foreground">
+          {missed.length === 1 ? `${missed[0]} didn’t answer.` : `${missed.length} sources didn’t answer.`}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -811,16 +821,18 @@ export function WidgetBody({
   headlines,
   newsLoading,
   newsError,
+  newsMissed = [],
 }: {
   kind: WidgetKind;
   headlines: NewsItem[];
   newsLoading?: boolean;
   newsError?: boolean;
+  newsMissed?: string[];
 }) {
   if (kind === "weather") return <WeatherBody />;
   if (kind === "agenda") return <AgendaBody />;
   if (kind === "calendar") return <CalendarPeek />;
   if (kind === "quote") return <QuoteBody />;
   if (kind === "finance") return <FinancePeek />;
-  return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} />;
+  return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />;
 }

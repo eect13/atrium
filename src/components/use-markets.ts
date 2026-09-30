@@ -9,6 +9,7 @@ import { normalizeMarkets, regionOf } from "@/lib/region";
 import { YAHOO_CORE_TAPE } from "@/lib/yahoo";
 import { isPseScreen, isYahooScreen } from "@/lib/screener";
 import { deskMarket, resolveIndexPair, unionYahooSymbols } from "@/lib/desk-market";
+import { writeLocal } from "@/lib/quota";
 
 const MARKET_SNAP = "atrium.markets.snap";
 
@@ -23,12 +24,7 @@ function readSnap<T>(key: string): T | undefined {
 }
 
 function writeSnap(key: string, value: unknown) {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* quota */
-  }
+  writeLocal(key, JSON.stringify(value));
 }
 
 export function useMarkets() {

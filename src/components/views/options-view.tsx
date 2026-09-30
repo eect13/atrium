@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
+import { isQuotaError, QUOTA_NOTE } from "@/lib/quota";
 import { QUOTE_CCY, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
 import { CCY_META } from "@/lib/format";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
@@ -351,7 +352,7 @@ export function OptionsView() {
       toast("Profile restored — reloading");
       window.setTimeout(() => window.location.reload(), 400);
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not open that file.");
+      toast(isQuotaError(err) ? QUOTA_NOTE : err instanceof Error ? err.message : "Could not open that file.");
     }
   }
 

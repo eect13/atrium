@@ -66,6 +66,7 @@ import { useAtrium } from "@/lib/store";
 import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { rememberMainWindow } from "@/lib/native-session";
+import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
 import { cn } from "@/lib/utils";
 
@@ -106,15 +107,15 @@ function readNewsSnap(ids: string[]): NewsItem[] | undefined {
 
 function writeNewsSnap(ids: string[], items: NewsItem[]) {
   if (typeof localStorage === "undefined") return;
-  try {
-    if (!ids.length || !items.length) {
+  if (!ids.length || !items.length) {
+    try {
       localStorage.removeItem(NEWS_SNAP);
-      return;
+    } catch {
+      /* ignore */
     }
-    localStorage.setItem(NEWS_SNAP, JSON.stringify({ key: ids.join(","), items }));
-  } catch {
-    /* quota */
+    return;
   }
+  writeLocal(NEWS_SNAP, JSON.stringify({ key: ids.join(","), items }));
 }
 
 const NAV: {
@@ -132,7 +133,9 @@ const NAV: {
   { id: "news", label: "News", icon: Newspaper, module: "news" },
 ];
 
-async function pullFeeds(list: Feed[]) {
+type Briefing = { items: NewsItem[]; missed: string[] };
+
+async function pullFeeds(list: Feed[]): Promise<{ items: NewsItem[]; missed: string[] }> {
   const batches = await Promise.allSettled(
     list.map((f) =>
       fetchFeed({
@@ -142,16 +145,17 @@ async function pullFeeds(list: Feed[]) {
           category: f.category,
           ...(f.region ? { region: f.region } : {}),
         },
-      }),
+      }).then((items) => ({ name: f.name, items })),
     ),
   );
   const items: NewsItem[] = [];
-  let failed = 0;
-  for (const b of batches) {
-    if (b.status === "fulfilled") items.push(...b.value);
-    else failed += 1;
+  const missed: string[] = [];
+  for (let i = 0; i < batches.length; i += 1) {
+    const b = batches[i];
+    if (b?.status === "fulfilled") items.push(...b.value.items);
+    else missed.push(list[i]?.name || "A feed");
   }
-  return { items, failed };
+  return { items, missed };
 }
 
 function ViewFallback() {
@@ -345,6 +349,8 @@ export function AtriumApp() {
 
   useEffect(() => rememberMainWindow(), []);
 
+  useEffect(() => onStorageQuota((message) => toast(message)), []);
+
   useEffect(() => {
     const dash = window.setTimeout(() => {
       void import("@/components/views/dashboard-view");
@@ -393,30 +399,38 @@ export function AtriumApp() {
     enabled: newsOn,
     queryFn: async () => {
       const enabled = feeds.filter((f) => f.enabled);
-      if (!enabled.length) return [];
+      if (!enabled.length) return { items: [], missed: [] } satisfies Briefing;
       const items: NewsItem[] = [];
-      let failed = 0;
+      const missed: string[] = [];
       const size = 4;
       for (let i = 0; i < enabled.length; i += size) {
         const batch = await pullFeeds(enabled.slice(i, i + size));
         items.push(...batch.items);
-        failed += batch.failed;
-        if (i + size < enabled.length && items.length) {
-          const mixed = mixStories(items, 40);
-          writeNewsSnap(enabledIds, mixed);
-          queryClient.setQueryData(["feeds", enabledIds], mixed);
+        missed.push(...batch.missed);
+        if (i + size < enabled.length) {
+          if (items.length) {
+            const mixed = mixStories(items, 40);
+            writeNewsSnap(enabledIds, mixed);
+            queryClient.setQueryData<Briefing>(["feeds", enabledIds], { items: mixed, missed: [...missed] });
+          }
+          await new Promise((resolve) => setTimeout(resolve, 40));
         }
       }
-      if (!items.length && failed) throw new Error("feeds");
+      if (!items.length && missed.length) {
+        const label = missed.length === 1 ? missed[0] : `${missed.length} sources`;
+        throw new Error(`${label} didn’t answer.`);
+      }
       const mixed = mixStories(items, 40);
       writeNewsSnap(enabledIds, mixed);
-      return mixed;
+      return { items: mixed, missed } satisfies Briefing;
     },
     staleTime: 15 * 60_000,
     gcTime: 60 * 60_000,
     placeholderData: (prev) => {
-      if (!newsOn) return [];
-      return prev ?? readNewsSnap(enabledIds);
+      if (!newsOn) return { items: [], missed: [] };
+      if (prev) return prev;
+      const snap = readNewsSnap(enabledIds);
+      return snap ? { items: snap, missed: [] } : undefined;
     },
   });
 
@@ -510,8 +524,10 @@ export function AtriumApp() {
   }
 
   const title = view === "options" ? "Options" : (NAV.find((n) => n.id === view)?.label ?? "Atrium");
-  const headlines = newsOn ? (news.data ?? []) : [];
+  const headlines = newsOn ? (news.data?.items ?? []) : [];
+  const newsMissed = newsOn ? (news.data?.missed ?? []) : [];
   const newsLoading = newsOn && news.isLoading && !headlines.length;
+  const newsErrorMessage = news.error instanceof Error ? news.error.message : undefined;
 
   const navButtons = NAV.map((n) => {
     const off = Boolean(n.module && !modules[n.module]);
@@ -699,7 +715,7 @@ export function AtriumApp() {
           <ViewCrash>
           {view === "dashboard" && (
             <Suspense fallback={<ViewFallback />}>
-              <DashboardView headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+              <DashboardView headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />
             </Suspense>
           )}
           {view === "calendar" && (
@@ -733,6 +749,8 @@ export function AtriumApp() {
               items={headlines}
               loading={news.isFetching}
               error={news.isError}
+              errorMessage={newsErrorMessage}
+              missed={newsMissed}
               onRefresh={() => void news.refetch()}
             />
             </Suspense>
@@ -748,7 +766,7 @@ export function AtriumApp() {
 
       <div className="pointer-events-none fixed inset-0 z-40 hidden lg:block">
         <Suspense fallback={null}>
-          <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} />
+          <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />
         </Suspense>
       </div>
     </div>

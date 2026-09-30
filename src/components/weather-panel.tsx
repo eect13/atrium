@@ -25,6 +25,7 @@ import { deskZone, hourInTZ, isoDate, manilaAt } from "@/lib/format";
 import { locateMe, locationBlockedCopy } from "@/lib/locate";
 import { rainSoon } from "@/lib/rain";
 import { regionOf } from "@/lib/region";
+import { writeLocal } from "@/lib/quota";
 import { useAtrium } from "@/lib/store";
 import { fetchWeather, hasWeatherPin, wmo, aqiBand, solarDay, sunClock, uvBand, type WeatherPayload, type WmoKind } from "@/lib/weather";
 
@@ -57,12 +58,7 @@ function readSnap<T>(key: string): T | undefined {
 }
 
 function writeSnap(key: string, value: unknown) {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* quota */
-  }
+  writeLocal(key, JSON.stringify(value));
 }
 
 export function useWeather() {

@@ -4,6 +4,7 @@ import { BINANCE_PAIRS, downsample } from "./market-board.ts";
 import { isoDate } from "./format.ts";
 import { fetchYahooSpark } from "./yahoo.ts";
 import { httpJson, isTauri } from "./http.ts";
+import { writeLocal } from "./quota.ts";
 
 export const SPARK_RANGES = [
   { id: "1d", label: "1D", days: 1 },
@@ -129,11 +130,7 @@ export function rememberTape(quotes: Record<string, { id?: string; price: number
     else row.push({ d: day, p: q.price });
     prev[id] = row.slice(-270);
   }
-  try {
-    localStorage.setItem(TAPE_KEY, JSON.stringify(prev));
-  } catch {
-    /* quota */
-  }
+  writeLocal(TAPE_KEY, JSON.stringify(prev));
 }
 
 export function tapeSpark(id: string, days: number): number[] | undefined {
@@ -170,11 +167,7 @@ export function writeTapeSpark(id: string, values: number[], days: number) {
     if (pt.d === today || !byD.has(pt.d)) byD.set(pt.d, pt);
   }
   prev[id] = [...byD.values()].toSorted((a, b) => a.d.localeCompare(b.d)).slice(-270);
-  try {
-    localStorage.setItem(TAPE_KEY, JSON.stringify(prev));
-  } catch {
-    /* quota */
-  }
+  writeLocal(TAPE_KEY, JSON.stringify(prev));
 }
 
 const FETCH_MS = 8_000;

@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { fromManila, manilaParts } from "./format.ts";
 import type { GCalDesk } from "./types.ts";
 
 type GCalEvent = {
@@ -63,6 +64,44 @@ export function defaultGcalOff(cals: GCalDesk[]): string[] {
 
 export function mineCalId(cals: { id: string; lane: string }[] | undefined) {
   return cals?.find((c) => c.lane === "mine")?.id;
+}
+
+/** Extra pages after the first. A token left after this cap is a partial pull, not a full month. */
+export const GCAL_EXTRA_PAGES = 8;
+
+export type GcalPage<T> = { ok: boolean; events: T[]; next?: string };
+
+/** Fold one later page. A failed page marks the list incomplete. An empty page ends it cleanly. */
+export function noteGcalPage<T>(
+  state: { events: T[]; token?: string; seen: Set<string>; truncated: boolean },
+  page: GcalPage<T>,
+) {
+  if (!page.ok) {
+    state.truncated = true;
+    state.token = undefined;
+    return;
+  }
+  if (!page.events.length) {
+    state.token = undefined;
+    return;
+  }
+  state.events.push(...page.events);
+  const next = page.next;
+  if (!next || state.seen.has(next)) {
+    state.token = undefined;
+    return;
+  }
+  state.seen.add(next);
+  state.token = next;
+}
+
+/** Desk-local month window as real instants. Not UTC midnight of that calendar date. */
+export function gcalRange(cursor: Date): { timeMin: string; timeMax: string } {
+  const p = manilaParts(cursor);
+  return {
+    timeMin: fromManila(p.year, p.month - 1, 1).toISOString(),
+    timeMax: fromManila(p.year, p.month + 2, 1).toISOString(),
+  };
 }
 
 /** Untagged Google rows follow Mine, so hiding Family does not leave them stuck on. */
@@ -136,18 +175,25 @@ export const listGoogleEvents = createServerFn({ method: "POST" })
         let token = nextToken(result.data);
         const seen = new Set<string>();
         if (token) seen.add(token);
-        for (let page = 0; page < 3 && token; page += 1) {
+        let truncated = false;
+        for (let page = 0; page < GCAL_EXTRA_PAGES && token; page += 1) {
           const more = await callTool(tool, { ...args, pageToken: token }, { connectorType: ConnectorType.GoogleCalendar });
-          if (!more.ok) break;
-          const batch = normalize(more.data);
-          if (!batch.length) break;
-          events.push(...batch);
-          const next = nextToken(more.data);
-          if (!next || seen.has(next)) break;
-          seen.add(next);
-          token = next;
+          const state: { events: GCalEvent[]; token?: string; seen: Set<string>; truncated: boolean } = {
+            events,
+            token,
+            seen,
+            truncated,
+          };
+          noteGcalPage(state, {
+            ok: more.ok,
+            events: more.ok ? normalize(more.data) : [],
+            next: more.ok ? nextToken(more.data) : undefined,
+          });
+          token = state.token;
+          truncated = state.truncated;
         }
-        return { loginRequired: false, events };
+        if (token) truncated = true;
+        return { loginRequired: false, events, truncated: truncated || undefined };
       }
     }
     return {

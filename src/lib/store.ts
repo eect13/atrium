@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   applyTx,
   booksTitle,
@@ -38,6 +38,7 @@ import type {
   WidgetKind,
 } from "./types";
 import { applyDeskProfile, DEFAULT_REGION, normalizeMarkets, regionOf } from "./region";
+import { isQuotaError, reportStorageQuota } from "./quota";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { asNewsTag, keepNewsChip } from "./headline";
@@ -176,7 +177,6 @@ type Data = {
   gcalCals: GCalDesk[];
   gcalOff: string[];
   digests: DigestDay[];
-  analyzeSeed: { ticker?: string; question?: string; context?: string } | null;
 };
 
 type State = Data & {
@@ -242,7 +242,6 @@ type State = Data & {
   setCalMode: (v: CalMode) => void;
   setCalCursor: (iso: string) => void;
   rememberDigest: (day: DigestDay) => void;
-  setAnalyzeSeed: (seed: Data["analyzeSeed"]) => void;
   reset: () => void;
   wipeProfile: () => void;
 };
@@ -394,7 +393,6 @@ function blankDesk(): Data {
     gcalCals: [],
     gcalOff: [],
     digests: [],
-    analyzeSeed: null,
   };
 }
 
@@ -910,7 +908,6 @@ export const useAtrium = create<State>()(
       setCalMode: (calMode) => set({ calMode }),
       setCalCursor: (calCursor) => set({ calCursor }),
       rememberDigest: (day) => set((s) => ({ digests: pushDigest(s.digests, day) })),
-      setAnalyzeSeed: (analyzeSeed) => set({ analyzeSeed }),
       reset: () => {
         const next = demoDesk();
         applyTheme(next.theme);
@@ -925,6 +922,33 @@ export const useAtrium = create<State>()(
     {
       name: "atrium.v1",
       version: 32,
+      storage: createJSONStorage(() => ({
+        getItem: (key) => {
+          if (typeof localStorage === "undefined") return null;
+          try {
+            return localStorage.getItem(key);
+          } catch {
+            return null;
+          }
+        },
+        setItem: (key, value) => {
+          if (typeof localStorage === "undefined") return;
+          try {
+            localStorage.setItem(key, value);
+          } catch (err) {
+            if (isQuotaError(err)) reportStorageQuota();
+            else throw err;
+          }
+        },
+        removeItem: (key) => {
+          if (typeof localStorage === "undefined") return;
+          try {
+            localStorage.removeItem(key);
+          } catch {
+            /* ignore */
+          }
+        },
+      })),
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -1220,7 +1244,6 @@ export const useAtrium = create<State>()(
           gcalCals: Array.isArray(p.gcalCals) ? p.gcalCals : (current as Data).gcalCals ?? [],
           gcalOff: Array.isArray(p.gcalOff) ? p.gcalOff : (current as Data).gcalOff ?? [],
           digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
-          analyzeSeed: null,
           profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,

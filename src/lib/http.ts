@@ -1,4 +1,20 @@
-/** Fetch text/JSON. Inside Tauri, Rust fetch_text bypasses webview CORS (Yahoo, RSS, etc.). */
+/** Bound a promise that may never settle (Tauri invoke has no abort). */
+export function withTimeout<T>(work: Promise<T>, ms: number, label = "Timed out"): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(label)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
 
 export function isTauri() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -42,7 +58,7 @@ export async function httpText(url: string, headers?: Record<string, string>) {
   if (!safe) throw new Error("That address is not allowed");
   if (isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    const text = await invoke<string>("fetch_text", { url: safe });
+    const text = await withTimeout(invoke<string>("fetch_text", { url: safe }), 22_000, "Timed out");
     if (text.length > BODY_CAP) throw new Error("Response too large");
     return text;
   }

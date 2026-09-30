@@ -1,4 +1,5 @@
 import { addDays, inferCcy, isoDate, normalizeCcy, uid } from "./format.ts";
+import { writeLocal } from "./quota.ts";
 import type { Account, AccountKind, BookCcy, Books, Budget, Tx, TxKind, TxStatus } from "./types.ts";
 
 export const BOOKS_SNAP_KEY = "atrium.books.snap";
@@ -434,12 +435,7 @@ export function readBooksSnap(): BooksFile | null {
 }
 
 export function writeBooksSnap(file: BooksFile) {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(BOOKS_SNAP_KEY, JSON.stringify(file));
-  } catch {
-    /* quota */
-  }
+  writeLocal(BOOKS_SNAP_KEY, JSON.stringify(file));
 }
 
 export function inRange(date: string, filter: RegisterFilter) {

@@ -1,4 +1,5 @@
 import { isTauri } from "@/lib/http";
+import { writeLocal } from "@/lib/quota";
 import { closeAllNativeFloats } from "@/lib/native-float";
 
 const KEY = "atrium.win";
@@ -54,9 +55,9 @@ export function rememberMainWindow() {
           w: Math.round(size.width / scale),
           h: Math.round(size.height / scale),
         };
-        localStorage.setItem(KEY, JSON.stringify(box));
+        writeLocal(KEY, JSON.stringify(box));
       } catch {
-        /* ignore */
+        /* ignore a bad window read */
       }
     };
     const bump = () => {

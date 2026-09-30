@@ -42,11 +42,15 @@ export function NewsView({
   onRefresh,
   loading,
   error = false,
+  errorMessage,
+  missed = [],
 }: {
   items: NewsItem[];
   onRefresh: () => void;
   loading: boolean;
   error?: boolean;
+  errorMessage?: string;
+  missed?: string[];
 }) {
   const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack, enableStarterFeeds, newsQuery, newsTag, setNewsQuery, setNewsTag } = useAtrium(
     useShallow((s) => ({
@@ -150,7 +154,7 @@ export function NewsView({
   const emptyCopy = !onCount
     ? null
     : error
-      ? "Couldn’t reach those feeds."
+      ? errorMessage || "Couldn’t reach those feeds."
       : q
         ? `No stories matching “${newsQuery.trim()}”.`
         : filter !== "All"
@@ -169,6 +173,13 @@ export function NewsView({
           {onCount ? `Feeds · ${onCount}` : "Feeds"}
         </Button>
       </div>
+      {missed.length && !error ? (
+        <p className="mb-3 text-sm text-muted-foreground">
+          {missed.length === 1
+            ? `${missed[0]} didn’t answer. The rest of the briefing is still here.`
+            : `${missed.length} sources didn’t answer (${missed.slice(0, 4).join(", ")}${missed.length > 4 ? "…" : ""}). The rest of the briefing is still here.`}
+        </p>
+      ) : null}
       {onCount || items.length ? (
         <>
           <form

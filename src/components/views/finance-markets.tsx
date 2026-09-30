@@ -1258,7 +1258,12 @@ export function FinanceMarkets() {
                 ? "Last from Yahoo Finance. Delayed, not for trading. Commodities stay in dollars unless you turn on peso convert."
                 : `Spark range is on the board — ${SPARK_RANGES.find((r) => r.id === range)?.label ?? "3M"} default. Coins use Binance, FX uses Frankfurter, PSE names use this desk's tape. PSEi last from Yahoo. Not for trading.`}
           </p>
-          {markets.isError || markets.data?.failed ? (
+          {markets.data?.gaps?.length ? (
+            <p className="mt-2 px-5 text-xs text-muted-foreground">
+              {markets.data.gaps.join(" · ")} didn’t answer. Prices on screen may be incomplete.
+            </p>
+          ) : null}
+          {markets.isError || markets.data?.failed || markets.data?.gaps?.length ? (
             <button type="button" className="mt-2 px-5 text-xs underline" onClick={() => void markets.refetch()}>
               Retry prices
             </button>

@@ -29,10 +29,12 @@ export function DesktopLayer({
   headlines,
   newsLoading = false,
   newsError = false,
+  newsMissed = [],
 }: {
   headlines: NewsItem[];
   newsLoading?: boolean;
   newsError?: boolean;
+  newsMissed?: string[];
 }) {
   const {
     notes,
@@ -145,7 +147,7 @@ export function DesktopLayer({
             onRaise={() => raise("win", win.id)}
             onClose={() => closeWindow(win.id)}
           >
-            <WidgetBody kind={win.kind} headlines={headlines} newsLoading={newsLoading} newsError={newsError} />
+            <WidgetBody kind={win.kind} headlines={headlines} newsLoading={newsLoading} newsError={newsError} newsMissed={newsMissed} />
           </FloatWindow>
         </div>
       ))}

@@ -9,6 +9,7 @@ import { WATCH_CATALOG } from "./types";
 import { SCREEN_FETCH, isYahooScreen } from "./screener";
 import { httpJson, isTauri } from "./http";
 import { deskMarket, isHomeSymbol } from "./desk-market";
+import { sourceGaps } from "./source-gaps";
 import type { BookFx } from "./books";
 
 export type PriceMap = Record<string, { php: number; php_24h_change?: number }>;
@@ -72,6 +73,7 @@ export type MarketQuote = {
 
 export type MarketSnapshot = {
   failed?: boolean;
+  gaps?: string[];
   fx: BookFx;
   movers: { gainers: MarketQuote[]; losers: MarketQuote[]; active: MarketQuote[] };
   quotes: Record<string, MarketQuote>;
@@ -658,8 +660,16 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     const home = (wantHome && screener === "most_actives" ? screenRaw : homeRaw)
       .map((row) => asYahooQuote(row, fx))
       .filter((q) => deskIds.some((id) => isHomeSymbol(q.id, id)));
+    const gaps = sourceGaps({
+      fx: !fx,
+      pse: wantPse && pse.rows.length === 0,
+      yahoo: yahooSyms.length > 0 && yahooRaw.length === 0,
+      crypto: wantCrypto && binance.length === 0 && gecko.length === 0,
+      screen: Boolean(screener) && screenRaw.length === 0,
+    });
     const snapshot = assemble(vs, fx, gecko, pse, binance, yahoo, screen, home);
-    if (!snapshot.failed) {
+    if (gaps.length) snapshot.gaps = gaps;
+    if (!snapshot.failed && !gaps.length) {
       g.__atriumMarkets = {
         key,
         data: snapshot,
@@ -668,7 +678,7 @@ export const fetchMarkets = createServerFn({ method: "POST" })
       };
       return snapshot;
     }
-    if (snap && snap.key === key && snap.staleExp > Date.now()) return snap.data;
+    if (snapshot.failed && snap && snap.key === key && snap.staleExp > Date.now()) return snap.data;
     return snapshot;
   });
 

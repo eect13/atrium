@@ -17,10 +17,12 @@ export function DashboardView({
   headlines,
   newsLoading = false,
   newsError = false,
+  newsMissed = [],
 }: {
   headlines: NewsItem[];
   newsLoading?: boolean;
   newsError?: boolean;
+  newsMissed?: string[];
 }) {
   const { profile, notes, modules, dashOrder, dashLocked, dashSpan, setDashOrder, setDashLocked, setDashSpan, resetDash, setView } =
     useAtrium(
@@ -100,7 +102,7 @@ export function DashboardView({
         </>
       );
     }
-    return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} />;
+    return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />;
   }
 
   function floatKind(id: DashCard) {
