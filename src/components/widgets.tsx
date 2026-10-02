@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
+  addDays,
   CAT_COLORS,
   deskZone,
   fmtDate,
@@ -32,6 +33,7 @@ import {
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
 import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
+import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -56,8 +58,10 @@ export function WeatherBody() {
 }
 
 export function AgendaBody() {
-  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
+  const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
   const setView = useAtrium((s) => s.setView);
+  const todayStart = manilaAt(isoDate(new Date()), 0);
+  const events = expandEvents(stored, todayStart, addDays(todayStart, 1));
   const today = events
     .filter((e) => sameDay(e.start, new Date()))
     .toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
@@ -138,7 +142,7 @@ export function CalendarPeek({
   embedded?: boolean;
   onSelect?: (e: CalendarEvent) => void;
 }) {
-  const events = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
+  const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
   const setView = useAtrium((s) => s.setView);
   const calPeek = useAtrium((s) => s.calPeek);
   const setCalPeek = useAtrium((s) => s.setCalPeek);
@@ -164,9 +168,16 @@ export function CalendarPeek({
     );
   }, [todayKey, now]);
 
+  const painted = useMemo(() => {
+    if (!days.length) return stored;
+    const from = manilaAt(isoDate(days[0]!), 0);
+    const to = addDays(manilaAt(isoDate(days[days.length - 1]!), 0), 1);
+    return expandEvents(stored, from, to);
+  }, [stored, days]);
+
   const byDay = useMemo(
-    () => Object.groupBy(events, (e) => isoDate(new Date(e.start))),
-    [events],
+    () => Object.groupBy(painted, (e) => isoDate(new Date(e.start))),
+    [painted],
   );
   const list = useMemo(
     () => (byDay[day] ?? []).toSorted((a, b) => a.start.localeCompare(b.start)),

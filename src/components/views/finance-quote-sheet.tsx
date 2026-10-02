@@ -27,7 +27,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v8"],
+    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v9"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -36,6 +36,7 @@ export function RelatedNews({ item }: { item: WatchItem }) {
   const facts = news.data?.facts ?? [];
   const rumors = news.data?.rumors ?? [];
   const earlier = news.data?.earlier ?? [];
+  const missed = news.data?.missed ?? [];
   const items = [...facts, ...rumors];
 
   function lane(title: string, rows: RelatedStory[], empty: string) {
@@ -108,6 +109,9 @@ export function RelatedNews({ item }: { item: WatchItem }) {
             {lane("Latest talk", rumors, "No talk from the last 30 days.")}
           </div>
           <div className="mt-4">{lane("Earlier", earlier, "No older copy on the wires.")}</div>
+          {missed.length ? (
+            <p className="mt-3 text-xs text-muted-foreground">{missed.join(", ")} didn’t answer.</p>
+          ) : null}
         </>
       )}
     </div>
@@ -245,6 +249,7 @@ export function QuoteSheet({
         {row.q?.spark && row.q.spark.length > 2 ? ` · ${row.q.spark.length} pts` : ""}
       </p>
       {showVol && volLabel(row.q) ? <p className="text-sm text-muted-foreground">{volLabel(row.q)}</p> : null}
+      <RelatedNews item={row.item} />
       <div className="rounded-lg bg-muted p-4">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">CFA desk</p>
         <p className="mt-1 text-xs text-muted-foreground">{note.cfaMethod}</p>
@@ -309,7 +314,6 @@ export function QuoteSheet({
       </div>
       {isPseiItem(row.item) ? <WeightingCard /> : null}
       <PeerStrip ticker={ticker} quotes={quotes} onOpen={onPeer} />
-      <RelatedNews item={row.item} />
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-lg bg-muted p-4">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Snapshot</p>

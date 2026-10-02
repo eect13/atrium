@@ -1,9 +1,10 @@
 import { httpText } from "./http.ts";
 import { parseRss } from "./feeds.ts";
 import { cleanHeadline } from "./headline.ts";
-import { deskZone, moneyQuote, phpQuote, vol } from "./format.ts";
+import { deskZone, manilaParts, moneyQuote, phpQuote, vol } from "./format.ts";
 import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 import { nameWeight, PSEI_WEIGHTS, sleeveWeight, weightTake } from "./psei-weight.ts";
+import { deskMarket } from "./desk-market.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
 import { bankFiling, distortedPublicTape, filingFreshness, justifiedPb, liveBankFiling } from "./pse-fundamentals.ts";
 import { createServerFn } from "@tanstack/react-start";
@@ -868,21 +869,122 @@ export function isRelatedStory(
   return PH_MARK.test(titleHay);
 }
 
-export function relatedNewsQuery(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
-  const name = (item.name ?? item.label).trim();
-  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
-  if (item.kind === "crypto") return `${item.label} OR ${name} crypto when:${window}`;
-  if (item.kind === "fx") return `${item.label} peso forex when:${window}`;
-  if (item.kind === "cmdty") return `${item.label} OR ${name} commodity when:${window}`;
-  if (item.kind === "global" && !isPseiItem(item)) return `${sym} OR ${name} when:${window}`;
-  const { q, minus } = issuerSearchQuery(item);
-  return `${q} ${minus} when:${window}`.replace(/\s+/g, " ").trim();
+const NEWS_SUFFIX: Array<[RegExp, string]> = [
+  [/\.HK$/i, "HK"],
+  [/\.(NS|BO)$/i, "IN"],
+  [/\.T$/i, "JP"],
+  [/\.SI$/i, "SG"],
+  [/\.L$/i, "GB"],
+  [/\.AX$/i, "AU"],
+  [/\.(TO|V)$/i, "CA"],
+  [/\.(DE|PA|AS|MI|MC)$/i, "EU"],
+  [/\.(VN|HM)$/i, "VN"],
+  [/\.BK$/i, "TH"],
+  [/\.KL$/i, "MY"],
+  [/\.JK$/i, "ID"],
+  [/\.(KS|KQ)$/i, "KR"],
+  [/\.TW$/i, "TW"],
+  [/\.NZ$/i, "NZ"],
+  [/\.SW$/i, "CH"],
+  [/\.SA$/i, "BR"],
+  [/\.MX$/i, "MX"],
+  [/\.JO$/i, "ZA"],
+  [/\.(AE|DU|AD)$/i, "AE"],
+  [/\.PS$/i, "PH"],
+];
+
+/** Which book's wires this name belongs to. A bare global ticker is the US tape, not Manila. */
+export function newsDeskId(item: { symbol: string; kind?: string }) {
+  if (isPseiItem(item)) return "PH";
+  const symbol = item.symbol.toUpperCase();
+  for (const [re, id] of NEWS_SUFFIX) if (re.test(symbol)) return id;
+  if (item.kind === "stock" || item.kind === "fx") return "PH";
+  return "US";
 }
 
-export function relatedNewsUrl(item: { label: string; symbol: string; name?: string; kind: string }, window: NewsWindow = "1d") {
-  const q = relatedNewsQuery(item, window);
-  const locale = item.kind === "stock" || item.kind === "fx" || isPseiItem(item) ? "hl=en-PH&gl=PH&ceid=PH:en" : "hl=en&gl=US&ceid=US:en";
-  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${locale}`;
+const DESK_WIRES: Record<string, string[]> = {
+  PH: ["bilyonaryo.com", "politiko.com.ph", "abante.com.ph", "insiderph.com", "manilatimes.net"],
+  US: ["reuters.com", "wsj.com", "cnbc.com", "ft.com"],
+  IN: ["economictimes.indiatimes.com", "livemint.com", "business-standard.com"],
+  HK: ["scmp.com", "thestandard.com.hk"],
+  JP: ["japantimes.co.jp", "asia.nikkei.com"],
+  VN: ["vnexpress.net", "vietnamnews.vn"],
+  GB: ["ft.com", "theguardian.com", "reuters.com"],
+  AU: ["afr.com", "smh.com.au"],
+  SG: ["straitstimes.com", "businesstimes.com.sg"],
+  KR: ["koreaherald.com", "koreajoongangdaily.joins.com"],
+  TW: ["taipeitimes.com", "focustaiwan.tw"],
+  TH: ["bangkokpost.com", "nationthailand.com"],
+  MY: ["thestar.com.my", "theedgemalaysia.com"],
+  ID: ["thejakartapost.com"],
+};
+
+const WORLD_WIRES = ["reuters.com", "ft.com", "bloomberg.com"];
+
+const WIRE_LABEL: Record<string, string> = {
+  "bilyonaryo.com": "Bilyonaryo",
+  "politiko.com.ph": "Politiko",
+  "abante.com.ph": "Abante",
+  "insiderph.com": "InsiderPH",
+  "manilatimes.net": "Manila Times",
+  "philstar.com": "Philstar",
+  "inquirer.net": "Inquirer",
+  "manilastandard.net": "Manila Standard",
+  "tribune.net.ph": "Tribune",
+  "reuters.com": "Reuters",
+  "wsj.com": "WSJ",
+  "cnbc.com": "CNBC",
+  "ft.com": "FT",
+  "bloomberg.com": "Bloomberg",
+  "economictimes.indiatimes.com": "Economic Times",
+  "livemint.com": "Mint",
+  "business-standard.com": "Business Standard",
+  "scmp.com": "SCMP",
+  "vnexpress.net": "VnExpress",
+};
+
+function wiresFor(item: { symbol: string; kind?: string }) {
+  return DESK_WIRES[newsDeskId(item)] ?? WORLD_WIRES;
+}
+
+function newsLocale(item: { symbol: string; kind?: string }) {
+  return deskMarket(newsDeskId(item)).newsLocale;
+}
+
+/** Google `when:1d` often comes back empty. A dated `after:` still respects the lane window. */
+export function newsAfterDay(window: NewsWindow, now = new Date()) {
+  const days = window === "1d" ? 1 : window === "7d" ? 7 : window === "30d" ? 30 : 365;
+  const p = manilaParts(new Date(now.getTime() - days * 86_400_000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+}
+
+function datedQuery(query: string, window: NewsWindow, now: Date) {
+  return `${query} after:${newsAfterDay(window, now)}`.replace(/\s+/g, " ").trim();
+}
+
+export function relatedNewsQuery(
+  item: { label: string; symbol: string; name?: string; kind: string },
+  window: NewsWindow = "1d",
+  now = new Date(),
+) {
+  const name = (item.name ?? item.label).trim();
+  const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
+  if (item.kind === "crypto") return datedQuery(`${item.label} OR ${name} crypto`, window, now);
+  if (item.kind === "fx") return datedQuery(`${item.label} peso forex`, window, now);
+  if (item.kind === "cmdty") return datedQuery(`${item.label} OR ${name} commodity`, window, now);
+  if (item.kind === "global" && !isPseiItem(item)) return datedQuery(`${sym} OR ${name}`, window, now);
+  const { q, minus } = issuerSearchQuery(item);
+  return datedQuery(`${q} ${minus}`, window, now);
+}
+
+export function relatedNewsUrl(
+  item: { label: string; symbol: string; name?: string; kind: string },
+  window: NewsWindow = "1d",
+  now = new Date(),
+) {
+  const q = relatedNewsQuery(item, window, now);
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${newsLocale(item)}`;
 }
 
 export const NEWS_LANE_KEEP = 8;
@@ -902,42 +1004,69 @@ export function isFreshStory(story: { date?: string }, days: number, now = new D
   return storyAgeDays(story.date || "", now) <= days;
 }
 
-function googlePhRss(query: string, window: NewsWindow) {
-  const locale = "hl=en-PH&gl=PH&ceid=PH:en";
-  return `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${window}`)}&${locale}`;
+function googleNewsRss(
+  query: string,
+  window: NewsWindow,
+  item: { symbol: string; kind?: string },
+  now = new Date(),
+) {
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(datedQuery(query, window, now))}&${newsLocale(item)}`;
 }
 
-export function rumorSiteUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
+export function rumorSiteUrls(
+  item: { label: string; symbol: string; name?: string; kind?: string },
+  window: NewsWindow = "7d",
+  now = new Date(),
+) {
+  const { q, minus } = issuerSearchQuery(item, true);
+  const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
+  return wiresFor(item).map((site) => googleNewsRss(`site:${site} ${core}`, window, item, now));
+}
+
+export function rumorTalkUrls(
+  item: { label: string; symbol: string; name?: string; kind?: string },
+  window: NewsWindow = "7d",
+  now = new Date(),
+) {
   const { q, minus } = issuerSearchQuery(item, true);
   const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   return [
-    googlePhRss(`site:bilyonaryo.com ${core}`, window),
-    googlePhRss(`site:politiko.com.ph ${core}`, window),
-    googlePhRss(`site:abante.com.ph ${core}`, window),
-    googlePhRss(`site:insiderph.com ${core}`, window),
-    googlePhRss(`site:manilatimes.net ${core}`, window),
+    googleNewsRss(
+      `${core} (in talks OR "sources say" OR rumored OR allegedly OR alleged OR "people familiar" OR mulling OR reportedly)`,
+      window,
+      item,
+      now,
+    ),
+    googleNewsRss(
+      `${core} ("takeover talks" OR "merger talks" OR "advanced talks" OR "said to be in talks")`,
+      window,
+      item,
+      now,
+    ),
   ];
 }
 
-export function rumorTalkUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "7d") {
-  const { q, minus } = issuerSearchQuery(item, true);
-  const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
-  return [
-    googlePhRss(`${core} (in talks OR "sources say" OR rumored OR allegedly OR alleged OR "people familiar" OR mulling OR reportedly)`, window),
-    googlePhRss(`${core} ("takeover talks" OR "merger talks" OR "advanced talks" OR "said to be in talks")`, window),
-  ];
-}
-
-export function rumorFillUrls(item: { label: string; symbol: string; name?: string; kind?: string }, window: NewsWindow = "30d") {
+export function rumorFillUrls(
+  item: { label: string; symbol: string; name?: string; kind?: string },
+  window: NewsWindow = "30d",
+  now = new Date(),
+) {
   const { q, minus } = issuerSearchQuery(item, true);
   const core = `${q} ${minus}`.replace(/\s+/g, " ").trim();
   const legal = issuerNews(item)?.names?.[0] ?? item.name ?? item.label;
+  const desk = newsDeskId(item);
+  const extra =
+    desk === "PH"
+      ? ["philstar.com", "inquirer.net", "manilastandard.net", "tribune.net.ph"]
+      : wiresFor(item).slice(0, 3);
   return [
-    googlePhRss(`site:philstar.com ${core}`, window),
-    googlePhRss(`site:inquirer.net ${core}`, window),
-    googlePhRss(`site:manilastandard.net ${core}`, window),
-    googlePhRss(`site:tribune.net.ph ${core}`, window),
-    googlePhRss(`${quoteTerm(legal)} (reportedly OR rumored OR mulling OR allegedly OR alleged OR "in talks" OR "people familiar" OR "sources say")`, window),
+    ...extra.map((site) => googleNewsRss(`site:${site} ${core}`, window, item, now)),
+    googleNewsRss(
+      `${quoteTerm(legal)} (reportedly OR rumored OR mulling OR allegedly OR alleged OR "in talks" OR "people familiar" OR "sources say")`,
+      window,
+      item,
+      now,
+    ),
   ];
 }
 
@@ -1077,42 +1206,75 @@ function prepRelated(
   return collapseNearDup(mergeStories(gathered.filter((s) => isRelatedStory(s, item) && isDeskStory(s))));
 }
 
+function wireName(url: string) {
+  let q = url;
+  try {
+    q = decodeURIComponent(url);
+  } catch {
+    /* keep the raw url */
+  }
+  const site = q.match(/site:([^\s&]+)/)?.[1]?.replace(/^www\./, "");
+  if (!site) return "Google News";
+  return WIRE_LABEL[site] ?? site;
+}
+
 async function pullStories(urls: string[]) {
-  return (
-    await Promise.all(
-      urls.map(async (url) => {
+  const stories: RelatedStory[] = [];
+  const missed: string[] = [];
+  const size = 4;
+  for (let i = 0; i < urls.length; i += size) {
+    const batch = urls.slice(i, i + size);
+    const got = await Promise.all(
+      batch.map(async (url) => {
         try {
-          return asStories(await httpText(url));
+          return { url, rows: asStories(await httpText(url)), ok: true as const };
         } catch {
-          return [] as RelatedStory[];
+          return { url, rows: [] as RelatedStory[], ok: false as const };
         }
       }),
-    )
-  ).flat();
+    );
+    for (const row of got) {
+      if (!row.ok) missed.push(wireName(row.url));
+      else stories.push(...row.rows);
+    }
+    if (i + size < urls.length) await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  return { stories, missed: [...new Set(missed)] };
 }
 
 export type RelatedDesk = {
   facts: RelatedStory[];
   rumors: RelatedStory[];
   earlier: RelatedStory[];
+  missed: string[];
 };
 
-export async function harvestRelatedStories(item: { label: string; symbol: string; name?: string; kind: string }): Promise<RelatedDesk> {
+export async function harvestRelatedStories(item: {
+  label: string;
+  symbol: string;
+  name?: string;
+  kind: string;
+}): Promise<RelatedDesk> {
   const urls: string[] = [];
   for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
-  if (item.kind === "stock" || item.kind === "fx" || isPseiItem(item)) {
+  const talk = item.kind === "stock" || item.kind === "global" || item.kind === "fx" || isPseiItem(item);
+  if (talk) {
     urls.push(...rumorNewsUrls(item, "7d"));
     urls.push(...rumorNewsUrls(item, "30d"));
   }
-  let gathered = await pullStories(urls);
-  let related = prepRelated(gathered, item);
+  let pulled = await pullStories(urls);
+  let related = prepRelated(pulled.stories, item);
   let picked = fillRumorLane(related);
-  if (picked.rumors.length < NEWS_LANE_MIN && (item.kind === "stock" || isPseiItem(item))) {
-    gathered = [...gathered, ...(await pullStories(rumorFillUrls(item, "30d")))];
-    related = prepRelated(gathered, item);
+  if (picked.rumors.length < NEWS_LANE_MIN && talk) {
+    const more = await pullStories(rumorFillUrls(item, "30d"));
+    pulled = {
+      stories: [...pulled.stories, ...more.stories],
+      missed: [...new Set([...pulled.missed, ...more.missed])],
+    };
+    related = prepRelated(pulled.stories, item);
     picked = fillRumorLane(related);
   }
-  return { facts: picked.facts, rumors: picked.rumors, earlier: picked.earlier };
+  return { facts: picked.facts, rumors: picked.rumors, earlier: picked.earlier, missed: pulled.missed };
 }
 
 const relatedItem = z.object({

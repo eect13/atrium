@@ -538,7 +538,7 @@ export const useAtrium = create<State>()(
           const known = new Set(s.gcalCals.map((c) => c.id));
           const still = s.gcalOff.filter((id) => cals.some((c) => c.id === id));
           const fresh = (s.gcalCals.length ? cals.filter((c) => !known.has(c.id)) : cals)
-            .filter((c) => c.lane !== "mine")
+            .filter((c) => c.lane !== "mine" && !/birthday/i.test(c.label))
             .map((c) => c.id);
           return { gcalCals: cals, gcalOff: [...new Set([...still, ...fresh])] };
         }),

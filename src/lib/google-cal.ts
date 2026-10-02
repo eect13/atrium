@@ -59,7 +59,7 @@ export function gcalLane(c: RawCal): GCalDesk {
 }
 
 export function defaultGcalOff(cals: GCalDesk[]): string[] {
-  return cals.filter((c) => c.lane !== "mine").map((c) => c.id);
+  return cals.filter((c) => c.lane !== "mine" && !/birthday/i.test(c.label)).map((c) => c.id);
 }
 
 export function mineCalId(cals: { id: string; lane: string }[] | undefined) {

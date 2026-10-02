@@ -83,7 +83,7 @@ test("related news query is ticker-aware", () => {
   const url = relatedNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.match(url, /news\.google\.com\/rss\/search/);
   assert.match(decodeURIComponent(url), /BDO Unibank/);
-  assert.match(decodeURIComponent(url), /when:1d/);
+  assert.match(decodeURIComponent(url), /after:\d{4}-\d{2}-\d{2}/);
   assert.match(url, /gl=PH/);
   const crypto = relatedNewsUrl({ label: "BTC", symbol: "bitcoin", name: "Bitcoin", kind: "crypto" });
   assert.match(crypto, /gl=US/);
@@ -113,7 +113,7 @@ test("storyLane splits facts from rumor copy", () => {
 });
 
 test("rumor news harvests several gossip wires", () => {
-  const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.ok(urls.length >= 6);
   const joined = urls.map((u) => decodeURIComponent(u)).join(" ");
   assert.match(joined, /site:bilyonaryo.com/);
@@ -122,10 +122,10 @@ test("rumor news harvests several gossip wires", () => {
   assert.match(joined, /site:insiderph.com/);
   assert.match(joined, /people familiar/);
   assert.match(joined, /BDO Unibank/);
-  const first = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  const first = rumorNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.match(decodeURIComponent(first), /site:bilyonaryo.com/);
-  const year = rumorSiteUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" }, "1y");
-  assert.ok(year.some((u) => decodeURIComponent(u).includes("when:1y")));
+  const year = rumorSiteUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }, "1y");
+  assert.ok(year.some((u) => /after:\d{4}-\d{2}-\d{2}/.test(decodeURIComponent(u))));
   const psei = rumorNewsUrl({ label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" });
   assert.match(decodeURIComponent(psei), /PSEi/);
 });
@@ -240,7 +240,7 @@ test("short tickers reject the foreign collision", () => {
 });
 
 test("rumor harvest covers gossip wires and talk copy", () => {
-  const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" });
+  const urls = rumorNewsUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.ok(urls.length >= 6);
   const joined = urls.map((u) => decodeURIComponent(u)).join(" ");
   assert.match(joined, /site:bilyonaryo.com/);
@@ -250,11 +250,24 @@ test("rumor harvest covers gossip wires and talk copy", () => {
   assert.match(joined, /site:insiderph.com/);
   assert.match(joined, /merger talks/);
   assert.match(joined, /BDO Unibank/);
-  const fill = rumorFillUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank" }).map((u) => decodeURIComponent(u)).join(" ");
+  const fill = rumorFillUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }).map((u) => decodeURIComponent(u)).join(" ");
   assert.match(fill, /site:philstar.com/);
   assert.match(fill, /site:tribune.net.ph/);
-  assert.match(fill, /when:30d/);
+  assert.match(fill, /after:\d{4}-\d{2}-\d{2}/);
   assert.doesNotMatch(fill, /when:1y/);
+});
+
+test("a foreign name uses that book's wires, not Manila", () => {
+  const item = { label: "COST", symbol: "COST", name: "Costco", kind: "global" as const };
+  const joined = rumorSiteUrls(item).map((u) => decodeURIComponent(u)).join(" ");
+  assert.match(joined, /site:reuters.com/);
+  assert.doesNotMatch(joined, /bilyonaryo/);
+  const url = relatedNewsUrl(item);
+  assert.match(url, /gl=US/);
+  assert.match(decodeURIComponent(url), /after:\d{4}-\d{2}-\d{2}/);
+  assert.doesNotMatch(decodeURIComponent(url), /when:/);
+  const bdo = relatedNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
+  assert.match(bdo, /gl=PH/);
 });
 
 test("pickNewsLanes keeps at least five facts and five rumors when the wires have copy", () => {

@@ -619,7 +619,7 @@ export const fetchMarkets = createServerFn({ method: "POST" })
     const screener = isYahooScreen(data.screener?.trim() || "") ? data.screener!.trim() : "";
     const yahooRegion = data.yahooRegion?.trim() || "US";
     const deskId = data.desk?.trim() || yahooRegion;
-    const deskIds = [...new Set((data.desks?.length ? data.desks : [deskId]).map((id) => id.trim()).filter(Boolean))].slice(0, 6);
+    const deskIds = [...new Set((data.desks?.length ? data.desks : [deskId]).map((id) => id.trim()).filter(Boolean))].slice(0, 8);
     const homeRegions = [...new Set(deskIds.map((id) => deskMarket(id).yahooRegion || "US"))];
     const extraGecko = (data.ids ?? []).filter(
       (id) => !id.includes("PHP") && id !== "USDPHP" && !/^[A-Z^=]{1,12}$/.test(id) && !id.includes("="),

@@ -95,6 +95,14 @@ export type CalendarEvent = {
   allDay?: boolean;
   /** Google calendar id when source is google — used to hide Family / other. */
   calId?: string;
+  /** Stored rule. Occurrences are painted for the visible range, not saved. */
+  repeat?: "daily" | "weekly" | "monthly" | "yearly";
+  repeatInterval?: number;
+  /** Inclusive last instant (ISO). */
+  repeatUntil?: string;
+  repeatCount?: number;
+  /** Master id on a painted occurrence. Not persisted. */
+  seriesId?: string;
 };
 
 export type GCalDesk = {

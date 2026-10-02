@@ -9,13 +9,16 @@ test("primary calendar is Mine; Family and holidays start hidden", () => {
   const family = gcalLane({ id: "family@group.calendar.google.com", summary: "Family" });
   const holidays = gcalLane({ id: "en.ph#holiday@group.v.calendar.google.com", summary: "Holidays in Philippines" });
   const owned = gcalLane({ id: "trips@group.calendar.google.com", summary: "Trips", accessRole: "owner" });
+  const birthdays = gcalLane({ id: "addressbook#contacts@group.v.calendar.google.com", summary: "Birthdays" });
   assert.equal(mine.lane, "mine");
   assert.equal(mine.label, "Mine");
   assert.equal(family.lane, "family");
   assert.equal(holidays.lane, "other");
   assert.equal(owned.lane, "other");
-  const off = defaultGcalOff([mine, family, holidays, owned]);
+  assert.equal(birthdays.lane, "other");
+  const off = defaultGcalOff([mine, family, holidays, owned, birthdays]);
   assert.deepEqual(off, [family.id, holidays.id, owned.id]);
+  assert.equal(off.includes(birthdays.id), false);
 });
 
 test("visibleCalEvents treats untagged Google rows as Mine", () => {

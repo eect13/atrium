@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import { fetchIcsUrl } from "@/lib/feeds";
 import { gcalRange, listGoogleCalendars, listGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
+import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent, EventCat } from "@/lib/types";
 
@@ -56,6 +57,24 @@ function heading(cursor: Date, mode: CalMode) {
   return monthName(cursor);
 }
 
+function paintSpan(cursor: Date, mode: CalMode) {
+  const p = manilaParts(cursor);
+  if (mode === "day") {
+    const from = manilaAt(isoDate(cursor), 0);
+    return { from, to: addDays(from, 1) };
+  }
+  if (mode === "week") {
+    const from = fromManila(p.year, p.month, p.day - p.weekdayIndex, 0);
+    return { from, to: addDays(from, 7) };
+  }
+  const first = fromManila(p.year, p.month, 1, 0);
+  const lead = manilaParts(first).weekdayIndex;
+  const from = fromManila(p.year, p.month, 1 - lead, 0);
+  return { from, to: addDays(from, 42) };
+}
+
+type RepeatChoice = "none" | "daily" | "weekly" | "monthly" | "yearly";
+
 export function CalendarView() {
   const { events, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor, gcalCals, gcalOff, setGcalCals, toggleGcal } = useAtrium(
     useShallow((s) => ({
@@ -74,7 +93,7 @@ export function CalendarView() {
       toggleGcal: s.toggleGcal,
     })),
   );
-  const shown = useMemo(
+  const listed = useMemo(
     () => visibleCalEvents(events, gcalOff, mineCalId(gcalCals)),
     [events, gcalOff, gcalCals],
   );
@@ -94,6 +113,15 @@ export function CalendarView() {
   const [loc, setLoc] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [eventTz, setEventTz] = useState("desk");
+  const [repeat, setRepeat] = useState<RepeatChoice>("none");
+  const [repeatEvery, setRepeatEvery] = useState("1");
+  const [repeatUntil, setRepeatUntil] = useState("");
+  const [repeatCount, setRepeatCount] = useState("");
+  const seenMonth = useRef("");
+  const shown = useMemo(() => {
+    const span = paintSpan(cursor, mode);
+    return expandEvents(listed, span.from, span.to);
+  }, [listed, cursor, mode]);
 
   useEffect(() => {
     setCalMode(mode);
@@ -112,18 +140,27 @@ export function CalendarView() {
     setCat("work");
     setAllDay(false);
     setEventTz("desk");
+    setRepeat("none");
+    setRepeatEvery("1");
+    setRepeatUntil("");
+    setRepeatCount("");
     setOpen(true);
   }
 
   function openEvent(ev: CalendarEvent) {
-    setEditId(ev.id);
-    setTitle(ev.title);
-    setStart(toManilaInput(ev.start));
-    setEnd(toManilaInput(ev.end));
-    setCat(ev.cat);
-    setLoc(ev.loc);
-    setAllDay(Boolean(ev.allDay) || isAllDayEvent(ev));
+    const master = ev.seriesId ? (events.find((e) => e.id === ev.seriesId) ?? ev) : ev;
+    setEditId(master.id);
+    setTitle(master.title);
+    setStart(toManilaInput(master.start));
+    setEnd(toManilaInput(master.end));
+    setCat(master.cat);
+    setLoc(master.loc);
+    setAllDay(Boolean(master.allDay) || isAllDayEvent(master));
     setEventTz("desk");
+    setRepeat(master.repeat ?? "none");
+    setRepeatEvery(String(master.repeatInterval ?? 1));
+    setRepeatUntil(master.repeatUntil ? master.repeatUntil.slice(0, 10) : "");
+    setRepeatCount(master.repeatCount ? String(master.repeatCount) : "");
     setOpen(true);
   }
 
@@ -139,14 +176,16 @@ export function CalendarView() {
   }
 
 
-  async function mapGoogle(res: Awaited<ReturnType<typeof listGoogleEvents>>, calendarId?: string) {
+  async function mapGoogle(res: Awaited<ReturnType<typeof listGoogleEvents>>, calendarId?: string, quiet = false) {
     if (res.loginRequired) {
-      redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: res.loginUrl });
-      toast("Connect Google Calendar, then try again.");
+      if (!quiet) {
+        redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: res.loginUrl });
+        toast("Connect Google Calendar, then try again.");
+      }
       return null;
     }
     if (res.error) {
-      toast(res.error);
+      if (!quiet) toast(res.error);
       return null;
     }
     const rows = res.events.flatMap((g) => {
@@ -173,24 +212,28 @@ export function CalendarView() {
     return { rows, truncated: Boolean(res.truncated) };
   }
 
-  async function pullGoogle(ids?: string[]) {
+  async function pullGoogle(ids?: string[], opts?: { quiet?: boolean; knownOnly?: boolean }) {
+    const quiet = Boolean(opts?.quiet);
     const range = gcalRange(cursor);
-    const listed = await listGoogleCalendars();
-    if (listed.loginRequired) {
-      redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: listed.loginUrl });
-      toast("Connect Google Calendar, then try again.");
-      return;
-    }
-    const state = useAtrium.getState();
-    let cals = listed.calendars.length ? listed.calendars : state.gcalCals;
-    if (listed.calendars.length) {
-      setGcalCals(cals);
-      cals = useAtrium.getState().gcalCals.length ? useAtrium.getState().gcalCals : cals;
+    let cals = useAtrium.getState().gcalCals;
+    if (!opts?.knownOnly) {
+      const listedCals = await listGoogleCalendars();
+      if (listedCals.loginRequired) {
+        if (!quiet) {
+          redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: listedCals.loginUrl });
+          toast("Connect Google Calendar, then try again.");
+        }
+        return;
+      }
+      if (listedCals.calendars.length) {
+        setGcalCals(listedCals.calendars);
+        cals = useAtrium.getState().gcalCals.length ? useAtrium.getState().gcalCals : listedCals.calendars;
+      }
     }
     const off = useAtrium.getState().gcalOff;
     const selected = ids?.length ? ids : cals.filter((c) => !off.includes(c.id)).map((c) => c.id);
     if (!selected.length) {
-      toast(cals.length ? "Those calendars are hidden" : "No Google calendars yet");
+      if (!quiet) toast(cals.length ? "Those calendars are hidden" : "No Google calendars yet");
       return;
     }
     const mapped: CalendarEvent[] = [];
@@ -199,14 +242,24 @@ export function CalendarView() {
       const res = await listGoogleEvents({
         data: { ...range, calendarId },
       });
-      const page = await mapGoogle(res, calendarId);
+      const page = await mapGoogle(res, calendarId, quiet);
       if (page === null) return;
       truncated = truncated || page.truncated;
       mapped.push(...page.rows);
     }
-    importedToast(importEvents(mapped));
+    const n = importEvents(mapped);
+    if (!quiet || n) importedToast(n);
     if (truncated) toast("Google stopped early. Later events in this window may be missing.");
   }
+
+  useEffect(() => {
+    const key = isoMonth(cursor);
+    if (seenMonth.current === key) return;
+    const ids = gcalCals.filter((c) => !gcalOff.includes(c.id)).map((c) => c.id);
+    if (!ids.length) return;
+    seenMonth.current = key;
+    void pullGoogle(ids, { quiet: true, knownOnly: true });
+  }, [cursor, gcalCals, gcalOff]);
 
   async function flipCal(id: string) {
     const turningOn = gcalOff.includes(id);
@@ -278,7 +331,7 @@ export function CalendarView() {
             Import ICS
           </span>
         </label>
-        <Button variant="outline" size="sm" onClick={() => downloadICS(shown)}>
+        <Button variant="outline" size="sm" onClick={() => downloadICS(listed)}>
           Export
         </Button>
         <Button variant="outline" size="sm" onClick={() => void pullGoogle()}>
@@ -319,7 +372,7 @@ export function CalendarView() {
               </button>
             );
           })}
-          <p className="text-xs text-muted-foreground">Mine stays on. Family and holidays start hidden.</p>
+          <p className="text-xs text-muted-foreground">Mine and birthdays start on. Family and holidays start hidden.</p>
         </div>
       ) : null}
 
@@ -425,7 +478,7 @@ export function CalendarView() {
                         {fmtWhen(e)} · {e.source}
                       </div>
                     </button>
-                    <Button variant="ghost" size="sm" onClick={() => removeEvent(e.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => removeEvent(e.seriesId || e.id)}>
                       Remove
                     </Button>
                   </div>
@@ -533,6 +586,58 @@ export function CalendarView() {
                 <Input id="ev-loc" value={loc} onChange={(e) => setLoc(e.target.value)} />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="ev-repeat">Repeat</Label>
+                <select
+                  id="ev-repeat"
+                  className="h-11 w-full rounded-md border border-border bg-muted px-3 text-sm"
+                  value={repeat}
+                  onChange={(e) => setRepeat(e.target.value as RepeatChoice)}
+                >
+                  <option value="none">Does not repeat</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              {repeat !== "none" ? (
+                <div className="space-y-1">
+                  <Label htmlFor="ev-every">Every</Label>
+                  <Input
+                    id="ev-every"
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={repeatEvery}
+                    onChange={(e) => setRepeatEvery(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div />
+              )}
+            </div>
+            {repeat !== "none" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="ev-until">Until</Label>
+                  <Input id="ev-until" type="date" value={repeatUntil} onChange={(e) => setRepeatUntil(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ev-count">Or count</Label>
+                  <Input
+                    id="ev-count"
+                    type="number"
+                    min={1}
+                    max={500}
+                    placeholder="Open"
+                    value={repeatCount}
+                    onChange={(e) => setRepeatCount(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : null}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
@@ -564,6 +669,17 @@ export function CalendarView() {
                   } else if (endAt.getTime() <= startAt.getTime()) {
                     endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
                   }
+                  const freq = repeat === "none" ? undefined : repeat;
+                  const every = freq ? Math.min(30, Math.max(1, Math.floor(Number(repeatEvery) || 1))) : undefined;
+                  const rawCount = Math.floor(Number(repeatCount));
+                  const count =
+                    freq && repeatCount.trim() && Number.isFinite(rawCount) && rawCount > 0
+                      ? Math.min(500, rawCount)
+                      : undefined;
+                  const untilIso =
+                    freq && !count && /^\d{4}-\d{2}-\d{2}$/.test(repeatUntil)
+                      ? fromManila(+repeatUntil.slice(0, 4), +repeatUntil.slice(5, 7), +repeatUntil.slice(8, 10), 23, 59).toISOString()
+                      : undefined;
                   const payload = {
                     title: title.trim() || "Event",
                     start: startAt.toISOString(),
@@ -571,6 +687,10 @@ export function CalendarView() {
                     cat,
                     loc: loc.trim(),
                     allDay: allDay || undefined,
+                    repeat: freq,
+                    repeatInterval: every && every > 1 ? every : undefined,
+                    repeatUntil: untilIso,
+                    repeatCount: count,
                   };
                   if (editId) {
                     updateEvent(editId, payload);

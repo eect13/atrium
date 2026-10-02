@@ -1,5 +1,6 @@
 import type { CalendarEvent } from "./types.ts";
 import { fromManila, isAllDayEvent, manilaParts, uid } from "./format.ts";
+import { parseRrule, rruleOf } from "./repeat.ts";
 
 function icsEscape(s: string) {
   return String(s || "")
@@ -54,6 +55,8 @@ export function eventsToICS(events: CalendarEvent[]) {
     lines.push("SUMMARY:" + icsEscape(ev.title));
     if (ev.loc) lines.push("LOCATION:" + icsEscape(ev.loc));
     if (ev.cat) lines.push("CATEGORIES:" + ev.cat);
+    const rule = rruleOf(ev);
+    if (rule) lines.push(rule);
     lines.push("END:VEVENT");
   }
   lines.push("END:VCALENDAR");
@@ -157,6 +160,7 @@ export function parseICS(text: string): CalendarEvent[] {
         ? catRaw
         : "other";
     const rawUid = get("UID").trim();
+    const rule = parseRrule(get("RRULE"));
     events.push({
       id: rawUid || uid(),
       title: get("SUMMARY") || "Imported event",
@@ -166,6 +170,10 @@ export function parseICS(text: string): CalendarEvent[] {
       loc: get("LOCATION") || "",
       source: "ics",
       allDay: allDay || undefined,
+      repeat: rule?.freq,
+      repeatInterval: rule && rule.interval > 1 ? rule.interval : undefined,
+      repeatUntil: rule?.until,
+      repeatCount: rule?.count,
     });
   }
   return events;
