@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
+import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -268,6 +268,33 @@ test("a foreign name uses that book's wires, not Manila", () => {
   assert.doesNotMatch(decodeURIComponent(url), /when:/);
   const bdo = relatedNewsUrl({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" });
   assert.match(bdo, /gl=PH/);
+});
+
+test("a bare US ticker is not searched as a Philippine stock", () => {
+  const aapl = { label: "AAPL", symbol: "AAPL", name: "Apple", kind: "stock" as const };
+  assert.equal(newsDeskId(aapl), "US");
+  const joined = rumorSiteUrls(aapl).map((u) => decodeURIComponent(u)).join(" ");
+  assert.match(joined, /site:reuters.com/);
+  assert.doesNotMatch(joined, /bilyonaryo/);
+  assert.match(newsRowHint(aapl), /Facts · Reuters/);
+  assert.equal(newsDeskId({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }), "PH");
+  assert.match(
+    rumorSiteUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }).map((u) => decodeURIComponent(u)).join(" "),
+    /bilyonaryo/,
+  );
+  const ual = { label: "UAL", symbol: "UAL", name: "United Airlines", kind: "stock" as const };
+  assert.equal(isRelatedStory({ title: "UAL adds a Denver flight", src: "Reuters" }, ual), true);
+  assert.equal(isRelatedStory({ title: "Manila shares rise on the open", src: "Inquirer" }, ual), false);
+  assert.doesNotMatch(relatedNewsQuery(ual), /Philippines|Manila|peso/);
+  const php = { label: "USD/PHP", symbol: "USDPHP", name: "US Dollar", kind: "fx" as const };
+  const eur = { label: "EUR/USD", symbol: "EURUSD", name: "Euro", kind: "fx" as const };
+  assert.match(relatedNewsQuery(php), /peso/);
+  assert.doesNotMatch(relatedNewsQuery(eur), /peso/);
+  assert.equal(newsDeskId(php), "PH");
+  assert.equal(newsDeskId(eur), "US");
+  assert.equal(newsDeskId({ label: "VNM", symbol: "VNM.VN", name: "Vietnam Dairy", kind: "global" }), "VN");
+  assert.match(decodeURIComponent(rumorSiteUrls({ label: "VNM", symbol: "VNM.VN", name: "Vietnam Dairy", kind: "global" })[0] ?? ""), /vnexpress/);
+  assert.equal(newsDeskId({ id: "pse-secb", label: "SECB", symbol: "SECB", kind: "stock" }), "PH");
 });
 
 test("pickNewsLanes keeps at least five facts and five rumors when the wires have copy", () => {

@@ -2,7 +2,7 @@ import { httpText } from "./http.ts";
 import { parseRss } from "./feeds.ts";
 import { cleanHeadline } from "./headline.ts";
 import { deskZone, manilaParts, moneyQuote, phpQuote, vol } from "./format.ts";
-import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
+import { BANK_TICKERS, BLUECHIPS, DIVIDENDS, PSEI_NAMES, REITS, displayLast, inSleeve, turnover, type BoardRow } from "./market-board.ts";
 import { nameWeight, PSEI_WEIGHTS, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { deskMarket } from "./desk-market.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
@@ -806,7 +806,7 @@ export function issuerSearchQuery(item: { label: string; symbol: string; name?: 
       return { q: `(${bits.join(" OR ")})`, minus: minusOf(spec.minus) };
     }
     const bits = [...names];
-    if (ticker.length <= 3) {
+    if (ticker.length <= 3 && newsDeskId(item) === "PH") {
       bits.push(`(${ticker} (Philippines OR PSE OR Manila OR peso))`);
     } else bits.push(ticker);
     return { q: `(${[...new Set(bits)].join(" OR ")})`, minus: minusOf(spec.minus) };
@@ -864,7 +864,8 @@ export function isRelatedStory(
   const ticker = newsTicker(item);
   // Short tickers must hit the TITLE — RSS descriptions often dump other headlines.
   if (!wordHit(titleHay, ticker)) return false;
-  if (item.kind !== "stock") return true;
+  // A short ticker needs a Philippine mark only on the PH book. GE or UAL must not.
+  if (newsDeskId(item) !== "PH") return true;
   if (ticker.length >= 4) return true;
   return PH_MARK.test(titleHay);
 }
@@ -893,13 +894,58 @@ const NEWS_SUFFIX: Array<[RegExp, string]> = [
   [/\.PS$/i, "PH"],
 ];
 
-/** Which book's wires this name belongs to. A bare global ticker is the US tape, not Manila. */
-export function newsDeskId(item: { symbol: string; kind?: string }) {
+/** PSE sleeves and named issuers. A bare AAPL is not in this set, so it is not Manila. */
+const PH_BOOK = new Set<string>([
+  ...BLUECHIPS,
+  ...REITS,
+  ...DIVIDENDS,
+  ...Object.keys(PSEI_NAMES),
+  ...Object.keys(ISSUER_NEWS),
+]);
+
+/** Which book's wires this name belongs to. A bare ticker is the US tape unless it is on the PSE book. */
+export function newsDeskId(item: { symbol: string; kind?: string; label?: string; id?: string; name?: string }) {
   if (isPseiItem(item)) return "PH";
   const symbol = item.symbol.toUpperCase();
   for (const [re, id] of NEWS_SUFFIX) if (re.test(symbol)) return id;
-  if (item.kind === "stock" || item.kind === "fx") return "PH";
+  const ticker = newsTicker({ symbol: item.symbol, label: item.label ?? item.symbol });
+  const label = item.label ? newsTicker({ symbol: item.label, label: item.label }) : "";
+  if (PH_BOOK.has(ticker) || (label && PH_BOOK.has(label))) return "PH";
+  if (item.id?.toLowerCase().startsWith("pse-")) return "PH";
+  if (item.kind === "fx") return fxDeskId(item);
   return "US";
+}
+
+const FX_QUOTE_DESK: Record<string, string> = {
+  PHP: "PH",
+  USD: "US",
+  HKD: "HK",
+  INR: "IN",
+  JPY: "JP",
+  VND: "VN",
+  GBP: "GB",
+  AUD: "AU",
+  SGD: "SG",
+  KRW: "KR",
+  TWD: "TW",
+  THB: "TH",
+  MYR: "MY",
+  IDR: "ID",
+  EUR: "EU",
+  CAD: "CA",
+  NZD: "NZ",
+  CHF: "CH",
+  BRL: "BR",
+  MXN: "MX",
+  ZAR: "ZA",
+  AED: "AE",
+};
+
+function fxDeskId(item: { symbol: string; label?: string }) {
+  const raw = `${item.label ?? ""} ${item.symbol}`.toUpperCase();
+  const slash = raw.match(/([A-Z]{3})\s*\/\s*([A-Z]{3})/);
+  const quote = slash?.[2] ?? item.symbol.toUpperCase().replace(/[^A-Z]/g, "").slice(-3);
+  return FX_QUOTE_DESK[quote] ?? "US";
 }
 
 const DESK_WIRES: Record<string, string[]> = {
@@ -943,8 +989,18 @@ const WIRE_LABEL: Record<string, string> = {
   "vnexpress.net": "VnExpress",
 };
 
-function wiresFor(item: { symbol: string; kind?: string }) {
+function wiresFor(item: { symbol: string; kind?: string; label?: string; id?: string }) {
   return DESK_WIRES[newsDeskId(item)] ?? WORLD_WIRES;
+}
+
+export function newsAsked(item: { symbol: string; kind?: string; label?: string; id?: string }) {
+  return wiresFor(item).map((site) => WIRE_LABEL[site] ?? site);
+}
+
+/** One line on a board row. The quote sheet harvests; this does not. */
+export function newsRowHint(item: { symbol: string; kind?: string; label?: string; id?: string }) {
+  const labels = newsAsked(item).slice(0, 2);
+  return labels.length ? `Facts · ${labels.join(" · ")}` : "";
 }
 
 function newsLocale(item: { symbol: string; kind?: string }) {
@@ -971,7 +1027,11 @@ export function relatedNewsQuery(
   const name = (item.name ?? item.label).trim();
   const sym = item.symbol.replace(/^\^/, "").replace(/\.PS$/i, "").trim();
   if (item.kind === "crypto") return datedQuery(`${item.label} OR ${name} crypto`, window, now);
-  if (item.kind === "fx") return datedQuery(`${item.label} peso forex`, window, now);
+  if (item.kind === "fx") {
+    const label = (item.label || item.symbol).trim();
+    const php = /php|peso/i.test(`${item.symbol} ${item.label ?? ""} ${item.name ?? ""}`);
+    return datedQuery(`${label} forex${php ? " peso" : ""}`, window, now);
+  }
   if (item.kind === "cmdty") return datedQuery(`${item.label} OR ${name} commodity`, window, now);
   if (item.kind === "global" && !isPseiItem(item)) return datedQuery(`${sym} OR ${name}`, window, now);
   const { q, minus } = issuerSearchQuery(item);
@@ -1247,6 +1307,7 @@ export type RelatedDesk = {
   rumors: RelatedStory[];
   earlier: RelatedStory[];
   missed: string[];
+  asked: string[];
 };
 
 export async function harvestRelatedStories(item: {
@@ -1257,7 +1318,7 @@ export async function harvestRelatedStories(item: {
 }): Promise<RelatedDesk> {
   const urls: string[] = [];
   for (const window of ["1d", "7d", "30d"] as const) urls.push(relatedNewsUrl(item, window));
-  const talk = item.kind === "stock" || item.kind === "global" || item.kind === "fx" || isPseiItem(item);
+  const talk = item.kind === "stock" || item.kind === "global" || item.kind === "fx" || item.kind === "cmdty" || isPseiItem(item);
   if (talk) {
     urls.push(...rumorNewsUrls(item, "7d"));
     urls.push(...rumorNewsUrls(item, "30d"));
@@ -1274,7 +1335,7 @@ export async function harvestRelatedStories(item: {
     related = prepRelated(pulled.stories, item);
     picked = fillRumorLane(related);
   }
-  return { facts: picked.facts, rumors: picked.rumors, earlier: picked.earlier, missed: pulled.missed };
+  return { facts: picked.facts, rumors: picked.rumors, earlier: picked.earlier, missed: pulled.missed, asked: newsAsked(item) };
 }
 
 const relatedItem = z.object({

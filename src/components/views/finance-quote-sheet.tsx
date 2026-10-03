@@ -14,7 +14,7 @@ import { displayLast, positionPnl, positionValue, type BoardRow } from "@/lib/ma
 import type { MarketQuote } from "@/lib/prices";
 import { applyPublicStats, fetchPseStats } from "@/lib/pse-fundamentals";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
-import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, tapeBox, type RelatedStory } from "@/lib/research";
+import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, newsDeskId, researchPdf, tapeBox, type RelatedStory } from "@/lib/research";
 import { capLabel, peLabel, yldLabel } from "@/lib/screener";
 import { SPARK_RANGES, normalizeSparkRange } from "@/lib/sparks";
 import { vsIndex } from "@/lib/desk-stats";
@@ -27,7 +27,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.symbol, item.name, issuer.legal, "v9"],
+    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v10"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -37,6 +37,11 @@ export function RelatedNews({ item }: { item: WatchItem }) {
   const rumors = news.data?.rumors ?? [];
   const earlier = news.data?.earlier ?? [];
   const missed = news.data?.missed ?? [];
+  const asked = news.data?.asked ?? [];
+  const talkEmpty = asked.length
+    ? `No talk from the last 30 days. Asked ${asked.join(", ")}.`
+    : "No talk from the last 30 days.";
+
   const items = [...facts, ...rumors];
 
   function lane(title: string, rows: RelatedStory[], empty: string) {
@@ -106,7 +111,7 @@ export function RelatedNews({ item }: { item: WatchItem }) {
         <>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             {lane("Latest facts", facts, "No fact copy from the last two weeks.")}
-            {lane("Latest talk", rumors, "No talk from the last 30 days.")}
+            {lane("Latest talk", rumors, talkEmpty)}
           </div>
           <div className="mt-4">{lane("Earlier", earlier, "No older copy on the wires.")}</div>
           {missed.length ? (

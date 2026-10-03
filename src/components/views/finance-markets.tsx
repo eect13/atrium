@@ -81,6 +81,7 @@ import { asDeskItem, deskMarket, homeBoardRows, resolveIndexPair, worldIndex } f
 import { fetchFinanceDigest, mergeDigest } from "@/lib/digest";
 import { DESK_REGIONS, normalizeMarkets, toggleMarket } from "@/lib/region";
 import { deskSleeves, indexLink, pseWeightOf, rotationTake, sleeveSession, vsIndex } from "@/lib/desk-stats";
+import { newsRowHint } from "@/lib/research";
 
 
 export function FinanceMarkets() {
@@ -569,6 +570,10 @@ export function FinanceMarkets() {
   function rowMeta(r: BoardRow) {
     const held = watched(r.item);
     const holdVal = positionValue(held?.qty, r.q?.php);
+    const news =
+      r.item.kind === "stock" || r.item.kind === "global" || r.item.kind === "fx" || r.item.kind === "cmdty" || isPseiItem(r.item)
+        ? newsRowHint(r.item)
+        : "";
     const parts = [
       r.item.name ?? r.item.kind,
       peLabel(r.q?.pe),
@@ -576,6 +581,7 @@ export function FinanceMarkets() {
       tab === "screen" && r.q?.yieldPct ? yldLabel(r.q.yieldPct) : "",
       marketPrefs.showVol ? volLabel(r.q) : "",
       holdVal > 0 ? peso(holdVal) : "",
+      news,
     ];
     return parts.filter(Boolean).join(" · ");
   }
