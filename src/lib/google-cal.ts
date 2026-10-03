@@ -1,14 +1,23 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { fromManila, manilaParts } from "./format.ts";
-import type { GCalDesk } from "./types.ts";
+import { fromManila, manilaAt, manilaParts } from "./format.ts";
+import { parseRrule } from "./repeat.ts";
+import type { CalendarEvent, GCalDesk } from "./types.ts";
 
 type GCalEvent = {
   id?: string;
   summary?: string;
+  status?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
+  originalStartTime?: { dateTime?: string; date?: string };
   location?: string;
+  recurrence?: string[];
+  recurringEventId?: string;
+  hangoutLink?: string;
+  attendees?: { email?: string; displayName?: string; self?: boolean; resource?: boolean }[];
+  reminders?: { overrides?: { minutes?: number }[] };
+  colorId?: string;
 };
 
 type RawCal = {
@@ -58,8 +67,15 @@ export function gcalLane(c: RawCal): GCalDesk {
   return { id, label, lane: "other" };
 }
 
+export function isBirthdayCal(c: { id: string; label: string }) {
+  const hay = `${c.id} ${c.label}`;
+  if (/holiday/i.test(hay)) return false;
+  if (/birthday/i.test(c.label)) return true;
+  return /addressbook#contacts/i.test(c.id);
+}
+
 export function defaultGcalOff(cals: GCalDesk[]): string[] {
-  return cals.filter((c) => c.lane !== "mine" && !/birthday/i.test(c.label)).map((c) => c.id);
+  return cals.filter((c) => c.lane !== "mine" && !isBirthdayCal(c)).map((c) => c.id);
 }
 
 export function mineCalId(cals: { id: string; lane: string }[] | undefined) {
@@ -119,6 +135,116 @@ export function visibleCalEvents<T extends { source: string; calId?: string }>(
   });
 }
 
+/** The connector expanded instances and did not give a rule. Fall back to singleEvents. */
+export function googleNeedsInstances(events: { recurrence?: string[]; recurringEventId?: string }[]) {
+  if (events.some((e) => e.recurrence?.some((r) => /FREQ=/i.test(r)))) return false;
+  return events.some((e) => Boolean(e.recurringEventId));
+}
+
+const GOOGLE_COLORS: Record<string, string> = {
+  "1": "#795548",
+  "2": "#33b679",
+  "3": "#8e24aa",
+  "4": "#e67c73",
+  "5": "#f6bf26",
+  "6": "#f5511d",
+  "7": "#039be5",
+  "8": "#616161",
+  "9": "#3f51b5",
+  "10": "#0b8043",
+  "11": "#d50000",
+};
+
+function googleDay(stamp?: { dateTime?: string; date?: string }) {
+  if (!stamp) return "";
+  if (stamp.date) return stamp.date.slice(0, 10);
+  if (!stamp.dateTime) return "";
+  const p = manilaParts(new Date(stamp.dateTime));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+}
+
+function googleId(calendarId: string | undefined, id: string) {
+  return "g-" + (calendarId ? calendarId + "-" : "") + id;
+}
+
+/** One master per rule. An all-day Google end is the next day; keep it on the start date. */
+export function mapGoogleEvents(events: GCalEvent[], calendarId?: string): CalendarEvent[] {
+  const skips = new Map<string, string[]>();
+  const masters: CalendarEvent[] = [];
+  const rest: CalendarEvent[] = [];
+  const noteSkip = (series: string, day: string) => {
+    if (!day) return;
+    const list = skips.get(series) ?? [];
+    if (!list.includes(day)) list.push(day);
+    skips.set(series, list);
+  };
+  for (const g of events) {
+    if (g.status === "cancelled") {
+      if (g.recurringEventId) noteSkip(g.recurringEventId, googleDay(g.originalStartTime ?? g.start));
+      continue;
+    }
+    const dateOnly = Boolean(g.start?.date && !g.start.dateTime);
+    const startRaw = g.start?.dateTime || g.start?.date || "";
+    if (!startRaw) continue;
+    const startAt = g.start?.dateTime ? new Date(g.start.dateTime) : manilaAt(g.start!.date!, 0);
+    if (Number.isNaN(startAt.getTime())) continue;
+    const endAt = dateOnly
+      ? manilaAt(g.start!.date!, 23, 59)
+      : new Date(g.end?.dateTime || g.end?.date || startRaw);
+    const ruleLine = g.recurrence?.find((r) => /FREQ=/i.test(r));
+    const rule = ruleLine ? parseRrule(ruleLine) : null;
+    const guests = (g.attendees ?? [])
+      .filter((a) => !a.self && !a.resource)
+      .map((a) => (a.displayName || a.email || "").trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(", ");
+    const reminder = g.reminders?.overrides?.find((r) => Number.isFinite(r.minutes))?.minutes;
+    const row: CalendarEvent = {
+      id: googleId(calendarId, g.id || `${startAt.getTime()}`),
+      title: g.summary || "Google event",
+      start: startAt.toISOString(),
+      end: Number.isNaN(endAt.getTime()) ? startAt.toISOString() : endAt.toISOString(),
+      cat: "personal",
+      loc: g.location || "",
+      source: "google",
+      allDay: dateOnly || undefined,
+      calId: calendarId,
+      repeat: rule?.freq,
+      repeatInterval: rule && rule.interval > 1 ? rule.interval : undefined,
+      repeatUntil: rule?.until,
+      repeatCount: rule?.count,
+      color: g.colorId ? GOOGLE_COLORS[g.colorId] : undefined,
+      guests: guests || undefined,
+      meet: g.hangoutLink || undefined,
+      reminder: reminder && reminder > 0 ? Math.min(10080, Math.floor(reminder)) : undefined,
+    };
+    if (rule) masters.push(row);
+    else {
+      if (g.recurringEventId) noteSkip(g.recurringEventId, googleDay(g.originalStartTime));
+      rest.push(row);
+    }
+  }
+  for (const master of masters) {
+    const prefix = calendarId ? `g-${calendarId}-` : "g-";
+    const googleKey = master.id.startsWith(prefix) ? master.id.slice(prefix.length) : master.id;
+    const extra = skips.get(googleKey);
+    if (extra?.length) master.skip = extra;
+  }
+  return [...masters, ...rest];
+}
+
+/** Drop flattened Google copies once the series master is in the pull. */
+export function preferGoogleRules(existing: CalendarEvent[], incoming: CalendarEvent[]) {
+  const masters = incoming.filter((e) => e.source === "google" && e.repeat && e.calId);
+  if (!masters.length) return existing;
+  return existing.filter((x) => {
+    if (x.source !== "google" || x.repeat || !x.calId) return true;
+    return !masters.some((m) => m.calId === x.calId && m.title === x.title && m.id !== x.id);
+  });
+}
+
 export const listGoogleCalendars = createServerFn({ method: "POST" }).handler(async () => {
   const { callTool } = await import("@/lib/app-data/client.server");
   const { ConnectorType } = await import("@/lib/app-data");
@@ -146,6 +272,7 @@ export const listGoogleEvents = createServerFn({ method: "POST" })
       timeMin: z.string(),
       timeMax: z.string(),
       calendarId: z.string().optional(),
+      singleEvents: z.boolean().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -159,13 +286,14 @@ export const listGoogleEvents = createServerFn({ method: "POST" })
     ];
     let last: Awaited<ReturnType<typeof callTool>> | null = null;
     for (const tool of names) {
+      const single = data.singleEvents === true;
       const args: Record<string, unknown> = {
         timeMin: data.timeMin,
         timeMax: data.timeMax,
         maxResults: 250,
-        singleEvents: true,
-        orderBy: "startTime",
+        singleEvents: single,
       };
+      if (single) args.orderBy = "startTime";
       if (data.calendarId) args.calendarId = data.calendarId;
       const result = await callTool(tool, args, { connectorType: ConnectorType.GoogleCalendar });
       last = result;

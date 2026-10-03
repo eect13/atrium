@@ -103,6 +103,15 @@ export type CalendarEvent = {
   repeatCount?: number;
   /** Master id on a painted occurrence. Not persisted. */
   seriesId?: string;
+  /** Desk dates (YYYY-MM-DD) skipped without deleting the series. */
+  skip?: string[];
+  /** Minutes before start. Empty means no reminder. */
+  reminder?: number;
+  /** Optional chip color. Category color is used when this is empty. */
+  color?: string;
+  /** Display only. Google is not written back. */
+  guests?: string;
+  meet?: string;
 };
 
 export type GCalDesk = {

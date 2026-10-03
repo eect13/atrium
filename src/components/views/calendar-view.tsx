@@ -33,7 +33,7 @@ import {
   weekRangeLabel,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
-import { gcalRange, listGoogleCalendars, listGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
+import { gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents, mapGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { expandEvents } from "@/lib/repeat";
@@ -45,6 +45,11 @@ function shiftCursor(cursor: Date, mode: CalMode, dir: -1 | 1) {
   if (mode === "week") return addDays(cursor, dir * 7);
   if (mode === "day") return addDays(cursor, dir);
   return fromManila(p.year, p.month + dir, 1, 12);
+}
+
+function sourceLine(e: CalendarEvent) {
+  if (e.source === "google") return "Pulled from Google";
+  return e.source;
 }
 
 function importedToast(n: number) {
@@ -117,6 +122,12 @@ export function CalendarView() {
   const [repeatEvery, setRepeatEvery] = useState("1");
   const [repeatUntil, setRepeatUntil] = useState("");
   const [repeatCount, setRepeatCount] = useState("");
+  const [reminder, setReminder] = useState("");
+  const [color, setColor] = useState("");
+  const [guests, setGuests] = useState("");
+  const [meet, setMeet] = useState("");
+  const [occurDay, setOccurDay] = useState<string | null>(null);
+  const [fromGoogle, setFromGoogle] = useState(false);
   const seenMonth = useRef("");
   const shown = useMemo(() => {
     const span = paintSpan(cursor, mode);
@@ -144,6 +155,12 @@ export function CalendarView() {
     setRepeatEvery("1");
     setRepeatUntil("");
     setRepeatCount("");
+    setReminder("");
+    setColor("");
+    setGuests("");
+    setMeet("");
+    setOccurDay(null);
+    setFromGoogle(false);
     setOpen(true);
   }
 
@@ -159,8 +176,14 @@ export function CalendarView() {
     setEventTz("desk");
     setRepeat(master.repeat ?? "none");
     setRepeatEvery(String(master.repeatInterval ?? 1));
-    setRepeatUntil(master.repeatUntil ? master.repeatUntil.slice(0, 10) : "");
+    setRepeatUntil(master.repeatUntil ? isoDate(new Date(master.repeatUntil)) : "");
     setRepeatCount(master.repeatCount ? String(master.repeatCount) : "");
+    setReminder(master.reminder ? String(master.reminder) : "");
+    setColor(master.color ?? "");
+    setGuests(master.guests ?? "");
+    setMeet(master.meet ?? "");
+    setOccurDay(ev.seriesId ? isoDate(new Date(ev.start)) : null);
+    setFromGoogle(master.source === "google");
     setOpen(true);
   }
 
@@ -188,27 +211,7 @@ export function CalendarView() {
       if (!quiet) toast(res.error);
       return null;
     }
-    const rows = res.events.flatMap((g) => {
-      const dateOnly = Boolean(g.start?.date && !g.start.dateTime);
-      const s = g.start?.dateTime || (g.start?.date ? manilaAt(g.start.date, 0).toISOString() : "");
-      const exclusive = g.end?.date ? manilaAt(g.end.date, 0).toISOString() : "";
-      const e = g.end?.dateTime || exclusive || s;
-      if (!s) return [];
-      const startAt = new Date(s);
-      const endAt = new Date(e);
-      if (Number.isNaN(startAt.getTime())) return [];
-      return [{
-        id: "g-" + (calendarId ? calendarId + "-" : "") + (g.id || uid()),
-        title: g.summary || "Google event",
-        start: startAt.toISOString(),
-        end: Number.isNaN(endAt.getTime()) ? startAt.toISOString() : endAt.toISOString(),
-        cat: "personal" as const,
-        loc: g.location || "",
-        source: "google" as const,
-        allDay: dateOnly || undefined,
-        calId: calendarId,
-      }];
-    });
+    const rows = mapGoogleEvents(res.events, calendarId);
     return { rows, truncated: Boolean(res.truncated) };
   }
 
@@ -239,9 +242,14 @@ export function CalendarView() {
     const mapped: CalendarEvent[] = [];
     let truncated = false;
     for (const calendarId of selected) {
-      const res = await listGoogleEvents({
-        data: { ...range, calendarId },
+      let res = await listGoogleEvents({
+        data: { ...range, calendarId, singleEvents: false },
       });
+      if (!res.loginRequired && !res.error && googleNeedsInstances(res.events)) {
+        res = await listGoogleEvents({
+          data: { ...range, calendarId, singleEvents: true },
+        });
+      }
       const page = await mapGoogle(res, calendarId, quiet);
       if (page === null) return;
       truncated = truncated || page.truncated;
@@ -372,7 +380,7 @@ export function CalendarView() {
               </button>
             );
           })}
-          <p className="text-xs text-muted-foreground">Mine and birthdays start on. Family and holidays start hidden.</p>
+          <p className="text-xs text-muted-foreground">Mine and birthdays start on, including Contacts birthdays. Family and holidays start hidden.</p>
         </div>
       ) : null}
 
@@ -404,7 +412,7 @@ export function CalendarView() {
                     key={e.id}
                     type="button"
                     className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
-                    style={{ color: CAT_COLORS[e.cat] }}
+                    style={{ color: e.color || CAT_COLORS[e.cat] }}
                     onClick={() => openEvent(e)}
                   >
                     {e.title}
@@ -471,15 +479,30 @@ export function CalendarView() {
                 </h4>
                 {list!.map((e) => (
                   <div key={e.id} className="flex items-center gap-3 border-b border-border py-2">
-                    <span className="size-2 rounded-full" style={{ background: CAT_COLORS[e.cat] }} />
+                    <span className="size-2 rounded-full" style={{ background: e.color || CAT_COLORS[e.cat] }} />
                     <button type="button" className="grow text-left" onClick={() => openEvent(e)}>
                       <div className="text-sm">{e.title}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">
-                        {fmtWhen(e)} · {e.source}
+                        {fmtWhen(e)}
+                        {e.reminder ? ` · ${e.reminder}m before` : ""} · {sourceLine(e)}
                       </div>
                     </button>
-                    <Button variant="ghost" size="sm" onClick={() => removeEvent(e.seriesId || e.id)}>
-                      Remove
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (e.seriesId) {
+                          const master = events.find((x) => x.id === e.seriesId);
+                          const day = isoDate(new Date(e.start));
+                          updateEvent(e.seriesId, { skip: [...new Set([...(master?.skip ?? []), day])] });
+                          toast("Skipped this date");
+                          return;
+                        }
+                        removeEvent(e.id);
+                        toast("Event removed");
+                      }}
+                    >
+                      {e.seriesId ? "Skip" : "Remove"}
                     </Button>
                   </div>
                 ))}
@@ -619,29 +642,84 @@ export function CalendarView() {
               )}
             </div>
             {repeat !== "none" ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="ev-until">Until</Label>
-                  <Input id="ev-until" type="date" value={repeatUntil} onChange={(e) => setRepeatUntil(e.target.value)} />
+              <>
+                <p className="text-xs text-muted-foreground">Leave until and count empty to repeat forever. A birthday is yearly with neither set.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="ev-until">Until</Label>
+                    <Input id="ev-until" type="date" value={repeatUntil} onChange={(e) => setRepeatUntil(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ev-count">Or count</Label>
+                    <Input
+                      id="ev-count"
+                      type="number"
+                      min={1}
+                      max={500}
+                      placeholder="Forever"
+                      value={repeatCount}
+                      onChange={(e) => setRepeatCount(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="ev-count">Or count</Label>
-                  <Input
-                    id="ev-count"
-                    type="number"
-                    min={1}
-                    max={500}
-                    placeholder="Open"
-                    value={repeatCount}
-                    onChange={(e) => setRepeatCount(e.target.value)}
-                  />
+              </>
+            ) : null}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="ev-remind">Remind (minutes)</Label>
+                <Input
+                  id="ev-remind"
+                  type="number"
+                  min={0}
+                  max={10080}
+                  placeholder="None"
+                  value={reminder}
+                  onChange={(e) => setReminder(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Color</Label>
+                <div className="flex h-11 items-center gap-1">
+                  {["#7986cb", "#33b679", "#f6bf26", "#e67c73", "#8e24aa"].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      aria-label={`Color ${c}`}
+                      aria-pressed={color === c}
+                      className={`size-6 rounded-full border ${color === c ? "border-foreground" : "border-transparent"}`}
+                      style={{ background: c }}
+                      onClick={() => setColor(color === c ? "" : c)}
+                    />
+                  ))}
                 </div>
               </div>
+            </div>
+            {fromGoogle ? (
+              <p className="text-xs text-muted-foreground">Pulled from Google. A change here stays on this desk and is not written back.</p>
+            ) : null}
+            {guests ? <p className="text-xs text-muted-foreground">Guests: {guests}</p> : null}
+            {meet ? (
+              <a href={meet} target="_blank" rel="noopener noreferrer" className="text-sm underline">
+                Meet
+              </a>
             ) : null}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
+              {editId && occurDay ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const master = events.find((x) => x.id === editId);
+                    updateEvent(editId, { skip: [...new Set([...(master?.skip ?? []), occurDay])] });
+                    setOpen(false);
+                    toast("Skipped this date");
+                  }}
+                >
+                  Skip this date
+                </Button>
+              ) : null}
               {editId ? (
                 <Button
                   variant="outline"
@@ -680,6 +758,8 @@ export function CalendarView() {
                     freq && !count && /^\d{4}-\d{2}-\d{2}$/.test(repeatUntil)
                       ? fromManila(+repeatUntil.slice(0, 4), +repeatUntil.slice(5, 7), +repeatUntil.slice(8, 10), 23, 59).toISOString()
                       : undefined;
+                  const minutes = Math.floor(Number(reminder));
+                  const remind = reminder.trim() && Number.isFinite(minutes) && minutes > 0 ? Math.min(10080, minutes) : undefined;
                   const payload = {
                     title: title.trim() || "Event",
                     start: startAt.toISOString(),
@@ -691,6 +771,8 @@ export function CalendarView() {
                     repeatInterval: every && every > 1 ? every : undefined,
                     repeatUntil: untilIso,
                     repeatCount: count,
+                    reminder: remind,
+                    color: color || undefined,
                   };
                   if (editId) {
                     updateEvent(editId, payload);

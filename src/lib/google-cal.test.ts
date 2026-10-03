@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskZone, setDeskZone } from "./format.ts";
-import { defaultGcalOff, gcalLane, gcalRange, noteGcalPage, visibleCalEvents } from "./google-cal.ts";
+import { deskZone, manilaParts, setDeskZone } from "./format.ts";
+import { defaultGcalOff, gcalLane, gcalRange, mapGoogleEvents, noteGcalPage, preferGoogleRules, visibleCalEvents } from "./google-cal.ts";
 import { parseICS } from "./ics.ts";
 
 test("primary calendar is Mine; Family and holidays start hidden", () => {
@@ -10,15 +10,68 @@ test("primary calendar is Mine; Family and holidays start hidden", () => {
   const holidays = gcalLane({ id: "en.ph#holiday@group.v.calendar.google.com", summary: "Holidays in Philippines" });
   const owned = gcalLane({ id: "trips@group.calendar.google.com", summary: "Trips", accessRole: "owner" });
   const birthdays = gcalLane({ id: "addressbook#contacts@group.v.calendar.google.com", summary: "Birthdays" });
+  const contacts = gcalLane({ id: "addressbook#contacts@group.v.calendar.google.com", summary: "Contacts" });
   assert.equal(mine.lane, "mine");
   assert.equal(mine.label, "Mine");
   assert.equal(family.lane, "family");
   assert.equal(holidays.lane, "other");
   assert.equal(owned.lane, "other");
   assert.equal(birthdays.lane, "other");
-  const off = defaultGcalOff([mine, family, holidays, owned, birthdays]);
+  assert.equal(contacts.lane, "other");
+  const off = defaultGcalOff([mine, family, holidays, owned, birthdays, contacts]);
   assert.deepEqual(off, [family.id, holidays.id, owned.id]);
   assert.equal(off.includes(birthdays.id), false);
+  assert.equal(off.includes(contacts.id), false);
+});
+
+test("a Google birthday is one yearly master, and the exclusive end stays on that day", () => {
+  const prev = deskZone();
+  setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
+  try {
+    const rows = mapGoogleEvents(
+      [
+        {
+          id: "ada",
+          summary: "Ada birthday",
+          start: { date: "1990-01-15" },
+          end: { date: "1990-01-16" },
+          recurrence: ["RRULE:FREQ=YEARLY"],
+        },
+        {
+          id: "ada_ex",
+          status: "cancelled",
+          recurringEventId: "ada",
+          originalStartTime: { date: "2030-01-15" },
+        },
+      ],
+      "cal",
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.repeat, "yearly");
+    assert.equal(rows[0]!.repeatUntil, undefined);
+    assert.equal(rows[0]!.repeatCount, undefined);
+    assert.deepEqual(rows[0]!.skip, ["2030-01-15"]);
+    const start = manilaParts(new Date(rows[0]!.start));
+    const end = manilaParts(new Date(rows[0]!.end));
+    assert.equal(start.day, 15);
+    assert.equal(end.day, 15);
+    assert.equal(end.month, 1);
+    const existing = [
+      {
+        id: "g-cal-old",
+        title: "Ada birthday",
+        start: rows[0]!.start,
+        end: rows[0]!.end,
+        cat: "personal" as const,
+        loc: "",
+        source: "google" as const,
+        calId: "cal",
+      },
+    ];
+    assert.equal(preferGoogleRules(existing, rows).length, 0);
+  } finally {
+    setDeskZone(prev);
+  }
 });
 
 test("visibleCalEvents treats untagged Google rows as Mine", () => {

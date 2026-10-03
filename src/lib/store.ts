@@ -16,6 +16,7 @@ import {
 } from "./books";
 import { arrangeNoteBox, isNarrow, normalizeWinBox, packNoteSeat, placeWindow, restoreBox, type DeskBox } from "./desk";
 import { deskZone, fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, setDeskZone, staleTagline, uid } from "./format";
+import { isBirthdayCal, preferGoogleRules } from "./google-cal";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
   Account,
@@ -487,7 +488,7 @@ export const useAtrium = create<State>()(
       importEvents: (incoming) => {
         let added = 0;
         set((s) => {
-          const events = s.events.slice();
+          const events = preferGoogleRules(s.events, incoming).slice();
           const indexById = new Map(events.map((e, i) => [e.id, i]));
           const extra: typeof incoming = [];
           let changed = false;
@@ -516,6 +517,15 @@ export const useAtrium = create<State>()(
                 allDay: e.allDay,
                 calId: e.calId ?? prev.calId,
                 source: "google",
+                repeat: e.repeat ?? prev.repeat,
+                repeatInterval: e.repeatInterval ?? prev.repeatInterval,
+                repeatUntil: e.repeatUntil ?? prev.repeatUntil,
+                repeatCount: e.repeatCount ?? prev.repeatCount,
+                skip: [...new Set([...(prev.skip ?? []), ...(e.skip ?? [])])],
+                color: prev.color ?? e.color,
+                reminder: prev.reminder ?? e.reminder,
+                guests: e.guests ?? prev.guests,
+                meet: e.meet ?? prev.meet,
               };
               indexById.set(e.id, idx);
               changed = true;
@@ -538,7 +548,7 @@ export const useAtrium = create<State>()(
           const known = new Set(s.gcalCals.map((c) => c.id));
           const still = s.gcalOff.filter((id) => cals.some((c) => c.id === id));
           const fresh = (s.gcalCals.length ? cals.filter((c) => !known.has(c.id)) : cals)
-            .filter((c) => c.lane !== "mine" && !/birthday/i.test(c.label))
+            .filter((c) => c.lane !== "mine" && !isBirthdayCal(c))
             .map((c) => c.id);
           return { gcalCals: cals, gcalOff: [...new Set([...still, ...fresh])] };
         }),

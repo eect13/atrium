@@ -54,11 +54,18 @@ export function rruleOf(ev: Pick<CalendarEvent, "repeat" | "repeatInterval" | "r
   if (interval > 1) bits.push(`INTERVAL=${interval}`);
   if (ev.repeatCount && ev.repeatCount > 0) bits.push(`COUNT=${Math.min(500, Math.floor(ev.repeatCount))}`);
   else if (ev.repeatUntil) {
-    const p = manilaParts(new Date(ev.repeatUntil));
+    const d = new Date(ev.repeatUntil);
+    if (Number.isNaN(d.getTime())) return `RRULE:${bits.join(";")}`;
     const pad = (n: number) => String(n).padStart(2, "0");
-    bits.push(`UNTIL=${p.year}${pad(p.month)}${pad(p.day)}T235959Z`);
+    bits.push(
+      `UNTIL=${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`,
+    );
   }
   return `RRULE:${bits.join(";")}`;
+}
+
+function daysInMonth(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function step(start: string, freq: RepeatFreq, interval: number, n: number) {
@@ -66,8 +73,20 @@ function step(start: string, freq: RepeatFreq, interval: number, n: number) {
   const k = n * Math.max(1, interval);
   if (freq === "daily") return fromManila(p.year, p.month, p.day + k, p.hour, p.minute);
   if (freq === "weekly") return fromManila(p.year, p.month, p.day + 7 * k, p.hour, p.minute);
-  if (freq === "monthly") return fromManila(p.year, p.month + k, p.day, p.hour, p.minute);
-  return fromManila(p.year + k, p.month, p.day, p.hour, p.minute);
+  if (freq === "monthly") {
+    const index = p.month - 1 + k;
+    const year = p.year + Math.floor(index / 12);
+    const month = (index % 12) + 1;
+    return fromManila(year, month, Math.min(p.day, daysInMonth(year, month)), p.hour, p.minute);
+  }
+  const year = p.year + k;
+  return fromManila(year, p.month, Math.min(p.day, daysInMonth(year, p.month)), p.hour, p.minute);
+}
+
+function deskDay(d: Date) {
+  const p = manilaParts(d);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
 }
 
 function dayNumber(iso: string) {
@@ -90,12 +109,25 @@ export function expandEvent(ev: CalendarEvent, from: Date, to: Date): CalendarEv
   }
   const interval = Math.min(30, Math.max(1, ev.repeatInterval || 1));
   const untilMs = ev.repeatUntil ? Date.parse(ev.repeatUntil) : Number.NaN;
-  const count = ev.repeatCount && ev.repeatCount > 0 ? Math.min(500, Math.floor(ev.repeatCount)) : 500;
+  const explicitCount = ev.repeatCount && ev.repeatCount > 0 ? Math.min(500, Math.floor(ev.repeatCount)) : undefined;
+  const count = explicitCount ?? Number.POSITIVE_INFINITY;
+  const skipped = new Set(ev.skip ?? []);
   let n = 0;
   if (ev.repeat === "daily" || ev.repeat === "weekly") {
     const span = dayNumber(new Date(fromMs).toISOString()) - dayNumber(ev.start);
     const stepDays = ev.repeat === "daily" ? interval : 7 * interval;
     if (span > stepDays) n = Math.floor(span / stepDays) - 1;
+  } else if (!explicitCount) {
+    const fromP = manilaParts(new Date(fromMs));
+    const startP = manilaParts(new Date(ev.start));
+    if (ev.repeat === "yearly") {
+      const years = fromP.year - startP.year;
+      if (years > interval) n = Math.floor((years - 1) / interval);
+    } else {
+      const months = (fromP.year - startP.year) * 12 + (fromP.month - startP.month);
+      if (months > interval) n = Math.floor((months - 1) / interval);
+    }
+    if (n < 0) n = 0;
   }
   const out: CalendarEvent[] = [];
   for (let guard = 0; n < count && guard < 800; n += 1, guard += 1) {
@@ -103,15 +135,15 @@ export function expandEvent(ev: CalendarEvent, from: Date, to: Date): CalendarEv
     const atMs = at.getTime();
     if (Number.isFinite(untilMs) && atMs > untilMs) break;
     if (atMs >= toMs) break;
-    if (atMs + duration >= fromMs) {
-      out.push({
-        ...ev,
-        id: n === 0 ? ev.id : `${ev.id}#${n}`,
-        seriesId: ev.id,
-        start: at.toISOString(),
-        end: new Date(atMs + duration).toISOString(),
-      });
-    }
+    if (atMs + duration < fromMs) continue;
+    if (skipped.has(deskDay(at))) continue;
+    out.push({
+      ...ev,
+      id: n === 0 ? ev.id : `${ev.id}#${n}`,
+      seriesId: ev.id,
+      start: at.toISOString(),
+      end: new Date(atMs + duration).toISOString(),
+    });
   }
   return out;
 }
