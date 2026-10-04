@@ -69,5 +69,36 @@ test("a full harvest is reused for ten minutes and a miss is not", async () => {
   const afterPartial = partialCalls;
   await harvestRelatedStories(cost, { pull: partial, now: t0 + 1_000 });
   assert.ok(partialCalls > afterPartial);
+
+  clearHarvestCache();
+  let aged = 0;
+  const aging: StoryPull = async () => {
+    aged += 1;
+    return { stories: [story("BDO Unibank profit rises")], missed: [] };
+  };
+  const bdo = { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" };
+  await harvestRelatedStories(bdo, { pull: aging, now: t0 });
+  const afterFresh = aged;
+  await harvestRelatedStories(bdo, { pull: aging, now: t0 + 10 * 60_000 });
+  assert.ok(aged > afterFresh);
+
+  clearHarvestCache();
+  let capped = 0;
+  const capPull: StoryPull = async () => {
+    capped += 1;
+    return { stories: [story("Costco sales rise")], missed: [] };
+  };
+  for (let i = 0; i < 65; i++) {
+    await harvestRelatedStories(
+      { label: `N${i}`, symbol: `N${i}`, name: "Costco", kind: "stock" },
+      { pull: capPull, now: t0 },
+    );
+  }
+  const afterCap = capped;
+  await harvestRelatedStories({ label: "N0", symbol: "N0", name: "Costco", kind: "stock" }, { pull: capPull, now: t0 });
+  assert.ok(capped > afterCap);
+  const newest = capped;
+  await harvestRelatedStories({ label: "N64", symbol: "N64", name: "Costco", kind: "stock" }, { pull: capPull, now: t0 });
+  assert.equal(capped, newest);
   clearHarvestCache();
 });

@@ -142,6 +142,11 @@ export function CalendarView() {
   }, [cursor, setCalCursor]);
   const [subUrl, setSubUrl] = useState("");
 
+  function showDay(date: string) {
+    setCursor(manilaAt(date, 12));
+    setMode("day");
+  }
+
   function openDay(date: string) {
     setEditId(null);
     setStart(toManilaInput(manilaAt(date, 9)));
@@ -398,11 +403,11 @@ export function CalendarView() {
             return (
               <div
                 key={isoDate(c.date) + (c.out ? "-out" : "")}
-                className={`min-h-16 overflow-hidden rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "opacity-40" : "bg-card"} ${isToday ? "border-ring" : "border-border"}`}
+                className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "opacity-40" : "bg-card"} ${isToday ? "border-ring" : "border-border"}`}
               >
                 <button
                   type="button"
-                  className="min-h-6 min-w-6 text-left text-xs leading-none text-muted-foreground sm:min-h-8 sm:min-w-8"
+                  className="flex min-h-11 w-full items-start text-left text-xs leading-none text-muted-foreground"
                   onClick={() => openDay(isoDate(c.date))}
                 >
                   {c.day}
@@ -418,6 +423,26 @@ export function CalendarView() {
                     {e.title}
                   </button>
                 ))}
+                {evs.length > 1 ? (
+                  <button
+                    type="button"
+                    className="mt-0.5 block min-h-11 w-full truncate text-left text-xs text-muted-foreground sm:hidden"
+                    aria-label={`${evs.length - 1} more`}
+                    onClick={() => showDay(isoDate(c.date))}
+                  >
+                    +{evs.length - 1}
+                  </button>
+                ) : null}
+                {evs.length > 3 ? (
+                  <button
+                    type="button"
+                    className="mt-0.5 hidden min-h-8 w-full truncate text-left text-xs text-muted-foreground sm:block"
+                    aria-label={`${evs.length - 3} more`}
+                    onClick={() => showDay(isoDate(c.date))}
+                  >
+                    +{evs.length - 3}
+                  </button>
+                ) : null}
               </div>
             );
           })}

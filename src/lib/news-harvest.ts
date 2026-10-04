@@ -27,6 +27,7 @@ export type StoryBatch = { stories: RelatedStory[]; missed: string[] };
 export type StoryPull = (urls: string[]) => Promise<StoryBatch>;
 
 const HARVEST_TTL_MS = 10 * 60 * 1000;
+const HARVEST_CAP = 64;
 
 type CacheRow = { at: number; desk: RelatedDesk };
 const harvestCache = new Map<string, CacheRow>();
@@ -37,6 +38,27 @@ export function harvestCacheKey(item: { kind: string; symbol: string; label: str
 
 export function clearHarvestCache() {
   harvestCache.clear();
+}
+
+function fresh(row: CacheRow, now: number) {
+  return now >= row.at && now - row.at < HARVEST_TTL_MS;
+}
+
+function dropStale(now: number) {
+  for (const [key, row] of harvestCache) {
+    if (!fresh(row, now)) harvestCache.delete(key);
+  }
+}
+
+function remember(key: string, now: number, desk: RelatedDesk) {
+  dropStale(now);
+  harvestCache.delete(key);
+  harvestCache.set(key, { at: now, desk });
+  while (harvestCache.size > HARVEST_CAP) {
+    const oldest = harvestCache.keys().next().value;
+    if (oldest === undefined) break;
+    harvestCache.delete(oldest);
+  }
 }
 
 async function pullStories(urls: string[]): Promise<StoryBatch> {
@@ -109,9 +131,14 @@ export async function harvestRelatedStories(
   const now = opts?.now ?? Date.now();
   const key = harvestCacheKey(item);
   const hit = harvestCache.get(key);
-  if (hit && now >= hit.at && now - hit.at < HARVEST_TTL_MS) return hit.desk;
+  if (hit && fresh(hit, now)) {
+    harvestCache.delete(key);
+    harvestCache.set(key, hit);
+    return hit.desk;
+  }
+  if (hit) harvestCache.delete(key);
   const desk = await loadHarvest(item, opts?.pull ?? pullStories);
-  if (worthCaching(desk)) harvestCache.set(key, { at: now, desk });
+  if (worthCaching(desk)) remember(key, now, desk);
   return desk;
 }
 
