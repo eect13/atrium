@@ -33,9 +33,21 @@ import {
 import { homedir, platform, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { copyToVibeInstallers } from "./vibe-installers.mjs";
 
 const ROOT = join(fileURLToPath(new URL("..", import.meta.url)));
 const OUT = join(ROOT, "deploy", "android");
+
+/** Final APK → %USERPROFILE%\\Desktop\\Vibe Installers (older same-name file renamed -prev-…, never overwritten). */
+function copyApkToVibeInstallers(apk) {
+  try {
+    const { dest, kept, same } = copyToVibeInstallers(apk);
+    if (kept) console.log(`  kept older file as ${kept}`);
+    console.log(same ? `  already there (same SHA-256): ${dest}` : `  ${dest}`);
+  } catch (err) {
+    console.error(`  copy to Desktop\\Vibe Installers failed: ${apk}`, err?.message ?? err);
+  }
+}
 const WIN = platform() === "win32";
 const GEN = join(ROOT, "src-tauri", "gen", "android");
 const STATIC = join(ROOT, ".vercel", "output", "static");
@@ -859,6 +871,7 @@ function copyApksToDeploy(sdk, env, preferSigned) {
   if (preferSigned && existsSync(preferSigned)) {
     copyFileSync(preferSigned, friendly);
   }
+  if (existsSync(friendly)) copyApkToVibeInstallers(friendly);
 }
 
 
@@ -1225,6 +1238,7 @@ if (tauriStatus === 0) {
     console.log(`  ${dest}`);
   }
   console.log(`  ${join(OUT, "atrium-arm64-release.apk")}`);
+  copyApkToVibeInstallers(join(OUT, "atrium-arm64-release.apk"));
   console.log("\nSideload that APK. Books stay on the phone (IndexedDB).");
   process.exit(0);
 }

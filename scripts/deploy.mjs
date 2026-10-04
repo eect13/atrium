@@ -2,12 +2,15 @@
 /**
  * Windows NSIS packer for Atrium (Tauri 2).
  *   node scripts/deploy.mjs
+ * The setup exe is also copied to %USERPROFILE%\Desktop\Vibe Installers; an older
+ * same-name file there is renamed -prev-YYYYMMDD-HHMM, never overwritten.
  */
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform } from "node:os";
+import { copyToVibeInstallers } from "./vibe-installers.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const WIN = platform() === "win32";
@@ -48,5 +51,12 @@ for (const f of exes) {
   const dest = join(OUT, f.replace(/ /g, "-"));
   copyFileSync(join(NSIS, f), dest);
   console.log(`  ${dest}`);
+  try {
+    const { dest: vibe, kept, same } = copyToVibeInstallers(dest);
+    if (kept) console.log(`  kept older file as ${kept}`);
+    console.log(same ? `  already there (same SHA-256): ${vibe}` : `  ${vibe}`);
+  } catch (err) {
+    console.error(`  copy to Desktop\\Vibe Installers failed: ${dest}`, err?.message ?? err);
+  }
 }
-console.log("\nDone. Installers also under src-tauri/target/release/bundle/nsis/");
+console.log("\nDone. Install from Desktop\\Vibe Installers\\ (also under src-tauri/target/release/bundle/nsis/).");
