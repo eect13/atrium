@@ -27,7 +27,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v10"],
+    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v11"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -42,7 +42,7 @@ export function RelatedNews({ item }: { item: WatchItem }) {
     ? `No talk from the last 30 days. Asked ${asked.join(", ")}.`
     : "No talk from the last 30 days.";
 
-  const items = [...facts, ...rumors];
+  const quiet = !facts.length && !rumors.length && earlier.length > 0;
 
   function lane(title: string, rows: RelatedStory[], empty: string) {
     return (
@@ -85,8 +85,9 @@ export function RelatedNews({ item }: { item: WatchItem }) {
       </p>
       <p className="text-xs text-muted-foreground">
         Daily first. Facts from the last two weeks, talk from the last 30 days. Older copy is earlier, not latest.
+        {quiet ? " Nothing new in that window, so this is the 10 latest relevant stories." : ""}
       </p>
-      {news.isPending && !items.length && !earlier.length ? (
+      {news.isPending && !facts.length && !rumors.length && !earlier.length ? (
         <div className="mt-3 grid gap-4 sm:grid-cols-2" aria-busy>
           <div className="space-y-2">
             <Skeleton className="h-4 w-full" />
@@ -110,10 +111,16 @@ export function RelatedNews({ item }: { item: WatchItem }) {
       ) : (
         <>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            {lane("Latest facts", facts, "No fact copy from the last two weeks.")}
-            {lane("Latest talk", rumors, talkEmpty)}
+            {quiet ? (
+              <div className="sm:col-span-2">{lane("Latest", earlier, "No relevant copy on the wires.")}</div>
+            ) : (
+              <>
+                {lane("Latest facts", facts, "No fact copy from the last two weeks.")}
+                {lane("Latest talk", rumors, talkEmpty)}
+              </>
+            )}
           </div>
-          <div className="mt-4">{lane("Earlier", earlier, "No older copy on the wires.")}</div>
+          {quiet ? null : <div className="mt-4">{lane("Earlier", earlier, "No older copy on the wires.")}</div>}
           {missed.length ? (
             <p className="mt-3 text-xs text-muted-foreground">{missed.join(", ")} didn’t answer.</p>
           ) : null}

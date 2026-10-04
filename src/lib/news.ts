@@ -316,7 +316,7 @@ function fxDeskId(item: { symbol: string; label?: string }) {
 }
 
 const DESK_WIRES: Record<string, string[]> = {
-  PH: ["bilyonaryo.com", "politiko.com.ph", "abante.com.ph", "insiderph.com", "manilatimes.net"],
+  PH: ["bilyonaryo.com", "insiderph.com", "bworldonline.com", "businessmirror.com.ph", "politiko.com.ph", "abante.com.ph", "manilatimes.net"],
   US: ["reuters.com", "wsj.com", "cnbc.com", "ft.com"],
   IN: ["economictimes.indiatimes.com", "livemint.com", "business-standard.com"],
   HK: ["scmp.com", "thestandard.com.hk"],
@@ -339,6 +339,8 @@ const WIRE_LABEL: Record<string, string> = {
   "politiko.com.ph": "Politiko",
   "abante.com.ph": "Abante",
   "insiderph.com": "InsiderPH",
+  "bworldonline.com": "BusinessWorld",
+  "businessmirror.com.ph": "BusinessMirror",
   "manilatimes.net": "Manila Times",
   "philstar.com": "Philstar",
   "inquirer.net": "Inquirer",
@@ -416,6 +418,8 @@ export function relatedNewsUrl(
 
 export const NEWS_LANE_KEEP = 8;
 export const NEWS_LANE_MIN = 5;
+/** When nothing is new, show this many latest relevant stories — not the whole archive. */
+export const NEWS_QUIET_KEEP = 10;
 /** Latest facts stay inside two weeks. Older copy is Earlier, not Latest. */
 export const NEWS_FRESH_DAYS = 14;
 /** Talk can run a month. Beyond that it is archive. */
@@ -519,7 +523,7 @@ export type RelatedStory = {
 const RUMOR_COPY =
   /bilyonaryo|politiko|abante|in talks|sources? say|rumou?r\b|unconfirmed|\balleged(?:ly)?\b|hearsay|tipped to|said to be (?:in talks|eyeing)|according to people familiar|people familiar|unnamed source|mulling|advanced talks|takeover talk|merger talks|exploring a (?:deal|stake|bid)|reportedly/i;
 const FACT_COPY =
-  /pse\.com\.ph|edge\.pse|businessworld|bworldonline|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
+  /pse\.com\.ph|edge\.pse|businessworld|bworldonline|businessmirror|insiderph|reuters|inquirer|bloomberg|abs-cbn|gmanews|gma news|philstar\.com|mb\.com|manila bulletin|businessmirror|rappler|ft\.com|wsj|associated press/i;
 
 export function storyLane(story: { title: string; desc?: string; src?: string }): StoryLane {
   const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`;
@@ -599,7 +603,8 @@ export function pickNewsLanes(related: RelatedStory[], now = new Date()) {
   const facts = related.filter((s) => s.lane !== "rumor" && isFreshStory(s, NEWS_FRESH_DAYS, now)).slice(0, NEWS_LANE_KEEP);
   const rumors = related.filter((s) => s.lane === "rumor" && isFreshStory(s, NEWS_TALK_DAYS, now)).slice(0, NEWS_LANE_KEEP);
   const used = new Set([...facts, ...rumors].map((s) => `${s.link}|${s.title}`.toLowerCase()));
-  const earlier = related.filter((s) => !used.has(`${s.link}|${s.title}`.toLowerCase())).slice(0, NEWS_LANE_KEEP);
+  const quiet = facts.length === 0 && rumors.length === 0;
+  const earlier = related.filter((s) => !used.has(`${s.link}|${s.title}`.toLowerCase())).slice(0, quiet ? NEWS_QUIET_KEEP : NEWS_LANE_KEEP);
   return { facts, rumors, earlier, stories: mergeStories([...facts, ...rumors]) };
 }
 

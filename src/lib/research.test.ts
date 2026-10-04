@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
+import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, NEWS_QUIET_KEEP, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -278,10 +278,11 @@ test("a bare US ticker is not searched as a Philippine stock", () => {
   assert.doesNotMatch(joined, /bilyonaryo/);
   assert.match(newsRowHint(aapl), /Facts · Reuters/);
   assert.equal(newsDeskId({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }), "PH");
-  assert.match(
-    rumorSiteUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }).map((u) => decodeURIComponent(u)).join(" "),
-    /bilyonaryo/,
-  );
+  const bdoWires = rumorSiteUrls({ label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" }).map((u) => decodeURIComponent(u)).join(" ");
+  assert.match(bdoWires, /bilyonaryo/);
+  assert.match(bdoWires, /insiderph\.com/);
+  assert.match(bdoWires, /bworldonline\.com/);
+  assert.match(bdoWires, /businessmirror\.com\.ph/);
   const ual = { label: "UAL", symbol: "UAL", name: "United Airlines", kind: "stock" as const };
   assert.equal(isRelatedStory({ title: "UAL adds a Denver flight", src: "Reuters" }, ual), true);
   assert.equal(isRelatedStory({ title: "Manila shares rise on the open", src: "Inquirer" }, ual), false);
@@ -321,6 +322,19 @@ test("pickNewsLanes keeps at least five facts and five rumors when the wires hav
   assert.equal(picked.rumors.length, 8);
   assert.ok(picked.facts.length >= 5);
   assert.ok(picked.rumors.length >= 5);
+  assert.equal(NEWS_QUIET_KEEP, 10);
+  const old = Array.from({ length: 12 }, (_, i) => ({
+    title: `BDO Unibank archive ${i}`,
+    link: `https://insiderph.com/bdo-${i}`,
+    desc: "",
+    date: "2026-01-01T00:00:00Z",
+    src: "InsiderPH",
+    lane: "fact" as const,
+  }));
+  const quiet = pickNewsLanes(old, new Date("2026-09-09T12:00:00Z"));
+  assert.equal(quiet.facts.length, 0);
+  assert.equal(quiet.rumors.length, 0);
+  assert.equal(quiet.earlier.length, 10);
 });
 
 test("CFA desk splits valuation tape index and gap", () => {

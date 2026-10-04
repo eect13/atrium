@@ -270,7 +270,7 @@ test("starter feeds follow the first open book, not a fixed Philippine list", ()
   assert.ok(vn.includes("vnexpress"));
   assert.ok(!vn.includes("inquirer"));
   const ph = starterFeedIds("PH");
-  assert.ok(ph.includes("bbc") && ph.includes("inquirer"));
+  assert.ok(ph.includes("bbc") && ph.includes("inquirer") && ph.includes("insiderph"));
   const eu = starterFeedIds("EU");
   assert.ok(eu.includes("bbc") && eu.includes("reuters"));
   assert.ok(!eu.includes("inquirer"));

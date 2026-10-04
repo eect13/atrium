@@ -36,6 +36,7 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "gma", name: "GMA News", url: "https://news.google.com/rss/search?q=site:gmanetwork.com+when:1d&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
   { id: "mb", name: "Manila Bulletin", url: "https://news.google.com/rss/search?q=site:mb.com.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
   { id: "bilyonaryo", name: "Bilyonaryo", url: "https://news.google.com/rss/search?q=site:bilyonaryo.com&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
+  { id: "insiderph", name: "InsiderPH", url: gFeed("site:insiderph.com when:7d", "PH"), category: "Philippines" },
   { id: "bworld", name: "BusinessWorld", url: "https://www.bworldonline.com/feed/", category: "Business" },
   { id: "manilatimes", name: "Manila Times", url: "https://www.manilatimes.net/feed/", category: "Philippines" },
   { id: "businessmirror", name: "BusinessMirror", url: "https://businessmirror.com.ph/feed/", category: "Business" },
@@ -118,7 +119,7 @@ export const FEED_PACKS: { id: string; label: string; hint: string; ids: readonl
   {
     id: "philippines",
     label: "Philippines",
-    hint: "Inquirer, Philstar, Rappler, ABS-CBN, GMA and local desks",
+    hint: "Inquirer, Philstar, Rappler, InsiderPH, BusinessWorld and local desks",
     ids: [
       "inquirer",
       "philstar",
@@ -127,6 +128,9 @@ export const FEED_PACKS: { id: string; label: string; hint: string; ids: readonl
       "gma",
       "mb",
       "bilyonaryo",
+      "insiderph",
+      "bworld",
+      "businessmirror",
       "manilatimes",
       "pna",
       "tribune",

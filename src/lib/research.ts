@@ -638,6 +638,7 @@ export {
   NEWS_FRESH_DAYS,
   NEWS_LANE_KEEP,
   NEWS_LANE_MIN,
+  NEWS_QUIET_KEEP,
   NEWS_TALK_DAYS,
   collapseNearDup,
   fillRumorLane,
