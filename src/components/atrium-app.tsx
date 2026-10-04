@@ -545,6 +545,7 @@ export function AtriumApp() {
 
   return (
     <div className="flex h-dvh max-h-dvh overflow-hidden bg-background text-foreground">
+      <h1 className="sr-only">Atrium dashboard</h1>
       <ThemeSync />
       <Suspense fallback={null}>
         <WarmQueries />

@@ -138,10 +138,10 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
             />
           }
         />
-        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           <NoteInk strokes={note.ink ?? []} color={ink} active={drawing} onChange={(inkStrokes) => updateNote(note.id, { ink: inkStrokes })} />
           <NotePhotos photos={note.photos ?? []} onRemove={(pid) => updateNote(note.id, { photos: (note.photos ?? []).filter((p) => p.id !== pid) })} />
-          <NoteEditor note={note} ink={ink} drawing={drawing} onUpdate={(patch) => updateNote(note.id, patch)} />
+          <NoteEditor note={note} ink={ink} drawing={drawing} contained onUpdate={(patch) => updateNote(note.id, patch)} />
         </div>
         <NoteFormat
           ink={ink}
