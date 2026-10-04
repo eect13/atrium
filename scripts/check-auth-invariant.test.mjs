@@ -108,3 +108,11 @@ test("the CLI reports rather than silently passing when run via a symlink", asyn
   assert.equal(error.code, 2);
   assert.match(error.stderr, /could not read the dev server's resolved VITE_AUTH_ENABLED/);
 });
+
+test("--build checks the wrapper only and requires sign-in off", async () => {
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    join(projectRoot(), "scripts/check-auth-invariant.mjs"),
+    "--build",
+  ]);
+  assert.match(stdout, /build has sign-in off/);
+});

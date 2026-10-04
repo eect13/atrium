@@ -19,7 +19,9 @@
  *
  * `scripts/browser-smoke.mjs` runs the comparison on every smoke; run it
  * standalone against a live dev server with `npm run check:auth` (exit 0 agree,
- * 1 diverged, 2 could not observe). Callers comparing the flag should use
+ * 1 diverged, 2 could not observe). CI has no dev server, so it uses
+ * `npm run check:auth -- --build`, which only checks the wrapper's build flag
+ * and fails unless sign-in is off. Callers comparing the flag should use
  * `compareAuthInvariant()` rather than re-deriving it.
  */
 import { APP_ENV_ROUTE } from "./app-env-plugin.mjs";
@@ -90,6 +92,15 @@ export function buildAuthEnabled(root = projectRoot(), processEnv = process.env)
 }
 
 async function main(argv) {
+  if (argv.includes("--build")) {
+    const on = buildAuthEnabled();
+    if (on) {
+      console.error("[auth-invariant] build has sign-in on");
+      process.exit(1);
+    }
+    console.log("[auth-invariant] build has sign-in off");
+    process.exit(0);
+  }
   const devUrlFlag = argv.indexOf("--dev-url");
   const devUrl = devUrlFlag === -1 ? DEFAULT_DEV_URL : argv[devUrlFlag + 1];
   const result = compareAuthInvariant({
