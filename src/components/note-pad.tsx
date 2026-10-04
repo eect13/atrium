@@ -134,11 +134,14 @@ export function NoteEditor({
   ink,
   drawing,
   onUpdate,
+  contained = false,
 }: {
   note: StickyNote;
   ink: string;
   drawing: boolean;
   onUpdate: (patch: Partial<StickyNote>) => void;
+  /** Floated note: the body scrolls inside the column instead of covering the toolbar. */
+  contained?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -203,7 +206,8 @@ export function NoteEditor({
         aria-label="Note body"
         suppressContentEditableWarning
         className={cn(
-          "note-body min-h-12 w-full flex-1 bg-transparent px-3 py-1 text-sm leading-snug outline-none",
+          "note-body w-full flex-1 bg-transparent px-3 py-1 text-sm leading-snug outline-none",
+          contained ? "min-h-0 overflow-auto" : "min-h-12",
           drawing && "pointer-events-none",
         )}
         style={{ color: ink }}
@@ -255,7 +259,7 @@ export function NoteFormat({
     <div
       className={cn(
         "relative z-[4] flex flex-wrap items-center gap-0.5 border-t border-current/10 px-1 pt-0.5",
-        !docked && "note-format-autohide",
+        !docked && "note-format-autohide shrink-0",
       )}
       style={{ color: ink }}
       onPointerDown={(e) => e.stopPropagation()}
