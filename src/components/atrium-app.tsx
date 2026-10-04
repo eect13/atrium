@@ -668,10 +668,12 @@ export function AtriumApp() {
                     autoComplete="off"
                     spellCheck={false}
                     className="h-10 bg-muted pl-9 pr-3 text-base md:pr-16 md:text-sm"
+                    role="combobox"
                     aria-label="Command bar"
                     aria-autocomplete="list"
                     aria-expanded={Boolean(cmd.trim() && hits.length)}
                     aria-controls="omni-hits"
+                    aria-activedescendant={cmd.trim() && omniBox && hit >= 0 && hit < hits.length ? `omni-hit-${hit}` : undefined}
                   />
                 </TooltipTrigger>
                 <TooltipContent>BDO · finance · note: buy rice · Lunch Friday 1pm</TooltipContent>
@@ -687,7 +689,7 @@ export function AtriumApp() {
                   className="fixed z-[80] max-h-72 overflow-auto rounded-md border border-border bg-card py-1 shadow-[var(--shadow-border)]"
                 >
                   {hits.map((h, i) => (
-                    <li key={h.id} role="option" aria-selected={i === hit}>
+                    <li key={h.id} id={`omni-hit-${i}`} role="option" aria-selected={i === hit}>
                       <button
                         type="button"
                         className={cn(
