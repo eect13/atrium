@@ -23,7 +23,7 @@ export function parsePseWikitext(wikitext: string): { ticker: string; name: stri
     if (!tick) continue;
     const ticker = tick[1]!.toUpperCase();
     if (seen.has(ticker)) continue;
-    const nameHit = block.match(/\[\[([^\|\]]+)(?:\|([^\]]+))?\]\]/);
+    const nameHit = block.match(/\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/);
     const name = (nameHit?.[2] || nameHit?.[1] || PSEI_NAMES[ticker] || ticker).replace(/\[\[|\]\]/g, "").trim();
     seen.add(ticker);
     rows.push({ ticker, name });

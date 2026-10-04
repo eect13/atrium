@@ -982,7 +982,7 @@ export const useAtrium = create<State>()(
           };
         }
         if (version < 4) {
-          let watch = [...(p.watch ?? [])];
+          const watch = [...(p.watch ?? [])];
           for (const id of ["bdo", "sm", "jfc"] as const) {
             if (!watch.some((w) => w.id === id)) {
               const item = WATCH_CATALOG.find((w) => w.id === id);
