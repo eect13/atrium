@@ -632,7 +632,7 @@ export function FinancePeek() {
             }}
           >
             <p className="font-display text-3xl tabular-nums">{maskedMoney(liquid, mask, home)}</p>
-            <p className="mt-1 text-sm text-destructive">Spent this month {maskedMoney(spent, mask, home)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">Spent this month {maskedMoney(spent, mask, home)}</p>
           </button>
         </>
       ) : null}

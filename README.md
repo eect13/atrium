@@ -2,7 +2,7 @@
 
 Personal command center. Clock, tape currency, and market books are separate settings. Data stays on this device (`atrium.v1`).
 
-**Version 1.2.45**
+**Version 1.2.46**
 
 ## Look
 
@@ -51,7 +51,7 @@ Preferred layout on Eric’s PC:
 apk.bat
 ```
 
-Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output follows package.json: `deploy/android/atrium-arm64-release.apk` and `deploy/android/atrium-v1.2.45-arm64-release.apk`.
+Needs Microsoft JDK 17, Android SDK (`%LOCALAPPDATA%\Android\Sdk`), NDK, Rust `aarch64-linux-android`. Output follows package.json: `deploy/android/atrium-arm64-release.apk` and `deploy/android/atrium-v1.2.46-arm64-release.apk`.
 
 ### Dev
 
