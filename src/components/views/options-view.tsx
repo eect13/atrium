@@ -75,7 +75,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
     setLon(profile.lon == null ? "" : String(profile.lon));
   }, [profile.name, profile.city, profile.lat, profile.lon]);
 
-  async function useMyLocation() {
+  async function pinMyLocation() {
     setLocating(true);
     try {
       const found = await locateMe();
@@ -223,7 +223,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button type="button" variant="outline" onClick={() => void useMyLocation()} disabled={locating}>
+              <Button type="button" variant="outline" onClick={() => void pinMyLocation()} disabled={locating}>
                 <LocateFixed className="size-4" />
                 {locating ? "Locating…" : "Use my location"}
               </Button>

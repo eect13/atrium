@@ -98,7 +98,7 @@ export function WeatherPin() {
     toast(`Weather pin: ${hit.city}`);
   }
 
-  async function useMyLocation() {
+  async function pinMyLocation() {
     setLocating(true);
     try {
       const found = await locateMe();
@@ -135,7 +135,7 @@ export function WeatherPin() {
       <button
         type="button"
         className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
-        onClick={() => void useMyLocation()}
+        onClick={() => void pinMyLocation()}
         disabled={locating}
       >
         <LocateFixed className="size-4" />
