@@ -252,3 +252,25 @@ export function resizeFrom(
   }
   return { x, y, w, h };
 }
+
+/** Keyboard step for the float grip (WCAG 2.1.1 / 2.5.7). */
+export const DESK_KEY_STEP = 16;
+
+const KEY_DELTA: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+
+/** Arrow keys move a float; Shift+arrows resize it from the se corner. `null` for other keys. */
+export function keyBox(box: DeskBox, key: string, resize: boolean, minW = 180, minH = 120, step = DESK_KEY_STEP): DeskBox | null {
+  const d = KEY_DELTA[key];
+  if (!d) return null;
+  const dx = d[0] * step;
+  const dy = d[1] * step;
+  if (!resize) return { ...box, ...clampDesk(box.x + dx, box.y + dy, box.w, box.h) };
+  const raw = resizeFrom("se", box, dx, dy, minW, minH);
+  const sized = clampSize(raw.x, raw.y, raw.w, raw.h);
+  return { x: raw.x, y: raw.y, ...sized };
+}

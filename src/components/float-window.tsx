@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { X } from "lucide-react";
-import { clampDesk, clampSize, resizeFrom, snapDesk, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
+import { GripHorizontal, X } from "lucide-react";
+import { clampDesk, clampSize, keyBox, resizeFrom, snapDesk, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Tip } from "@/components/ui/tooltip";
@@ -194,6 +194,29 @@ export function FloatWindow({
           {title}
         </span>
         {extra ? <span className="relative z-[4] flex shrink-0 items-center" data-no-drag>{extra}</span> : null}
+        <Tip label="Arrows move · Shift+arrows resize">
+          <button
+            type="button"
+            className={cn(
+              "relative z-[4] flex size-8 shrink-0 items-center justify-center rounded-sm",
+              paper
+                ? "opacity-70 hover:bg-black/10 hover:opacity-100"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            aria-label={`Move or resize ${title}`}
+            onKeyDown={(e) => {
+              const next = keyBox(live.current, e.key, e.shiftKey, minW, minH);
+              if (!next) return;
+              e.preventDefault();
+              onRaise();
+              live.current = next;
+              if (next.x !== x || next.y !== y) onMove(next.x, next.y);
+              if (next.w !== w || next.h !== h) onResize(next.w, next.h);
+            }}
+          >
+            <GripHorizontal className="size-4" />
+          </button>
+        </Tip>
         <Tip label="Close">
           <button
             type="button"

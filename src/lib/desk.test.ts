@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { arrangeNoteBox, boxOffscreen, normalizeWinBox, noteBoardExtent, packNoteSeat, placePopover, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
+import { arrangeNoteBox, boxOffscreen, keyBox, normalizeWinBox, noteBoardExtent, packNoteSeat, placePopover, resizeFrom, restoreBox, snapDesk } from "./desk.ts";
 
 const box = { x: 100, y: 80, w: 200, h: 160 };
 
@@ -99,4 +99,14 @@ test("placePopover right-aligns and stays on-screen", () => {
   const box = placePopover({ left: 20, right: 56, top: 40, bottom: 76, width: 36, height: 36, x: 20, y: 40, toJSON() {} }, 160, 120);
   assert.equal(box.left, 8);
   assert.ok(box.top >= 8);
+});
+
+test("keyBox moves on arrows and resizes from the se corner on Shift+arrows", () => {
+  const box = { x: 260, y: 88, w: 320, h: 360 };
+  assert.deepEqual(keyBox(box, "ArrowRight", false), { x: 276, y: 88, w: 320, h: 360 });
+  assert.deepEqual(keyBox(box, "ArrowUp", false), { x: 260, y: 72, w: 320, h: 360 });
+  assert.deepEqual(keyBox(box, "ArrowLeft", true), { x: 260, y: 88, w: 304, h: 360 });
+  assert.deepEqual(keyBox(box, "ArrowDown", true), { x: 260, y: 88, w: 320, h: 376 });
+  assert.deepEqual(keyBox({ x: 0, y: 0, w: 220, h: 140 }, "ArrowLeft", true, 220, 140), { x: 0, y: 0, w: 220, h: 140 });
+  assert.equal(keyBox(box, "Enter", false), null);
 });
