@@ -776,7 +776,7 @@ export function AtriumApp() {
         </main>
       </div>
 
-      <div className={cn("pointer-events-none fixed inset-0 hidden lg:block", floatsUnder ? "-z-10" : "z-40")}>
+      <div role="region" aria-label="Floating windows" className={cn("pointer-events-none fixed inset-0 hidden lg:block", floatsUnder ? "-z-10" : "z-40")}>
         <Suspense fallback={null}>
           <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />
         </Suspense>
