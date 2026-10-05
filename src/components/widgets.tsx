@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -18,7 +18,6 @@ import {
   fromManila,
   isoDate,
   isoMonth,
-  isAllDayEvent,
   manilaAt,
   manilaParts,
   maskedMoney,
@@ -30,9 +29,11 @@ import {
   pct,
   sameDay,
   dayLabel,
+  deskZone,
   WEEKDAY_NAMES,
 } from "@/lib/format";
-import { eventCatColor, eventCatLabel, eventCatMark, eventCatTagStyle } from "@/lib/event-cats";
+import { eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
+import { CAL_VIEWS, CAL_VIEW_LABEL, calViewFor, pillBars, type CalView } from "@/lib/cal-view";
 import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
@@ -48,15 +49,6 @@ import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteS
 import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
-
-const HOUR_PX = 48;
-const DAY_START = 7;
-const DAY_END = 21;
-
-function hourLabel(hour: number) {
-  const ap = hour >= 12 ? "pm" : "am";
-  return `${hour % 12 || 12}${ap}`;
-}
 
 export function WeatherBody() {
   return <WeatherGlance hours={6} days={5} />;
@@ -79,7 +71,7 @@ export function AgendaBody() {
     );
   }
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {today.map((e) => (
         <button
           key={e.id}
@@ -104,66 +96,70 @@ export function AgendaBody() {
   );
 }
 
-function layoutTimed(list: CalendarEvent[], startH: number) {
-  const startMin = startH * 60;
-  const raw = list
-    .map((e) => {
-      const s = manilaParts(new Date(e.start));
-      const t = manilaParts(new Date(e.end));
-      const a = s.hour * 60 + s.minute;
-      let b = t.hour * 60 + t.minute;
-      if (isoDate(new Date(e.end)) !== isoDate(new Date(e.start))) b += 24 * 60;
-      if (b <= a) b = a + 30;
-      return {
-        e,
-        a,
-        b,
-        top: ((a - startMin) / 60) * HOUR_PX,
-        height: Math.max(36, ((b - a) / 60) * HOUR_PX),
-      };
-    })
-    .toSorted((x, y) => x.a - y.a || y.b - x.b);
+type CatList = ReturnType<typeof useAtrium.getState>["eventCats"];
 
-  const colUntil: number[] = [];
-  return raw.map((item) => {
-    let col = colUntil.findIndex((end) => end <= item.a);
-    if (col < 0) {
-      col = colUntil.length;
-      colUntil.push(item.b);
-    } else {
-      colUntil[col] = item.b;
-    }
-    let cols = col + 1;
-    for (const other of raw) {
-      if (other.e.id === item.e.id) continue;
-      if (other.a < item.b && other.b > item.a) cols = Math.max(cols, 2);
-    }
-    return { ...item, col, cols };
-  });
+/** Solid category fill for an event (per-event colour wins), from the shared tag tokens. */
+function barStyle(cats: CatList, e: CalendarEvent) {
+  return { ...eventCatTagStyle(cats, e.cat, e.color), background: "var(--tag-bg)" };
 }
 
+/** Mini-grid cell marks: solid pill bars only — names live in the day agenda. */
+function DayBars({ list, max, on, cats }: { list: CalendarEvent[]; max: number; on: boolean; cats: CatList }) {
+  if (!list.length) return null;
+  const { bars, more } = pillBars(list.length, max);
+  return (
+    <span className="mt-1 flex w-full flex-col items-stretch gap-0.5 px-1.5" aria-hidden="true">
+      {list.slice(0, bars).map((e) => (
+        <span key={e.id} className="block h-1.5 rounded-full" style={barStyle(cats, e)} />
+      ))}
+      {more ? (
+        <span className={cn("text-center text-[0.625rem] leading-none tabular-nums", on ? "text-primary-foreground" : "text-muted-foreground")}>
+          +{more}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function weekRangeLabel(a: Date, b: Date) {
+  const { locale, tz } = deskZone();
+  try {
+    return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric", timeZone: tz }).formatRange(a, b);
+  } catch {
+    return `${fmtDate(a.toISOString())} – ${fmtDate(b.toISOString())}`;
+  }
+}
+
+/**
+ * Calendar widget / float body. Today | Week | Month (default Month), remembered
+ * per `widgetId`. Month + Week grids carry solid pill bars only; the day agenda
+ * below shows Shape 1 `.cat-tag` pills + event name once.
+ */
 export function CalendarPeek({
   date,
   embedded = false,
   onSelect,
+  widgetId = "float-calendar",
 }: {
   date?: Date;
   embedded?: boolean;
   onSelect?: (e: CalendarEvent) => void;
+  /** Key the Today | Week | Month pick is remembered under. */
+  widgetId?: string;
 }) {
   const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
   const eventCats = useAtrium((s) => s.eventCats);
   const setView = useAtrium((s) => s.setView);
-  const calPeek = useAtrium((s) => s.calPeek);
-  const setCalPeek = useAtrium((s) => s.setCalPeek);
+  const view = useAtrium((s) => calViewFor(s.calViews, widgetId));
+  const setCalView = useAtrium((s) => s.setCalView);
   const [day, setDay] = useState(() => isoDate(date ?? new Date()));
   const [cursor, setCursor] = useState(() => date ?? new Date());
   const [now, setNow] = useState(() => new Date());
-  const scroller = useRef<HTMLDivElement>(null);
-  const todayKey = isoDate(now);
 
   useEffect(() => {
-    if (date) setDay(isoDate(date));
+    if (!date) return;
+    setDay(isoDate(date));
+    setCursor(date);
   }, [date]);
 
   useEffect(() => {
@@ -171,145 +167,89 @@ export function CalendarPeek({
     return () => clearInterval(t);
   }, []);
 
-  const days = useMemo(() => {
-    const origin = manilaParts(now);
-    return Array.from({ length: 7 }, (_, i) =>
-      fromManila(origin.year, origin.month, origin.day - origin.weekdayIndex + i, 12),
-    );
-  }, [todayKey, now]);
+  const grid = useMemo(() => monthCells(cursor), [cursor]);
+  const week = useMemo(() => {
+    const o = manilaParts(manilaAt(day, 12));
+    return Array.from({ length: 7 }, (_, i) => fromManila(o.year, o.month, o.day - o.weekdayIndex + i, 12));
+  }, [day]);
 
   const painted = useMemo(() => {
-    if (!days.length) return stored;
-    const from = manilaAt(isoDate(days[0]!), 0);
-    const to = addDays(manilaAt(isoDate(days[days.length - 1]!), 0), 1);
+    const keys = [isoDate(grid[0]!.date), isoDate(grid[grid.length - 1]!.date), isoDate(week[0]!), isoDate(week[6]!), day].sort();
+    const from = manilaAt(keys[0]!, 0);
+    const to = addDays(manilaAt(keys[keys.length - 1]!, 0), 1);
     return expandEvents(stored, from, to);
-  }, [stored, days]);
+  }, [stored, grid, week, day]);
 
   const byDay = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {};
     for (const e of painted) {
-      for (const day of eventCoverDays(e)) {
-        (map[day] ??= []).push(e);
-      }
+      for (const k of eventCoverDays(e)) (map[k] ??= []).push(e);
     }
+    for (const k of Object.keys(map)) map[k]!.sort((a, b) => a.start.localeCompare(b.start));
     return map;
   }, [painted]);
-  const list = useMemo(
-    () => (byDay[day] ?? []).toSorted((a, b) => a.start.localeCompare(b.start)),
-    [byDay, day],
-  );
-  const allDay = useMemo(() => list.filter(isAllDayEvent), [list]);
-  const timed = useMemo(() => list.filter((e) => !isAllDayEvent(e)), [list]);
-  const startH = useMemo(() => {
-    const hours = timed.map((e) => manilaParts(new Date(e.start)).hour);
-    return Math.min(DAY_START, ...hours, DAY_START);
-  }, [timed]);
-  const endH = useMemo(() => {
-    const hours = timed.map((e) => manilaParts(new Date(e.end)).hour);
-    return Math.max(DAY_END, ...hours, DAY_END);
-  }, [timed]);
-  const hours = useMemo(
-    () => Array.from({ length: endH - startH + 1 }, (_, i) => startH + i),
-    [startH, endH],
-  );
-  const blocks = useMemo(() => layoutTimed(timed, startH), [timed, startH]);
-  const nowParts = manilaParts(now);
-  const nowTop = ((nowParts.hour * 60 + nowParts.minute - startH * 60) / 60) * HOUR_PX;
-  const showNow = day === todayKey && nowTop >= 0 && nowTop <= hours.length * HOUR_PX;
+  const list = byDay[day] ?? [];
+
   const pick = (e: CalendarEvent) => {
     if (onSelect) onSelect(e);
     else setView("calendar");
   };
-  const grid = useMemo(() => monthCells(cursor), [cursor]);
-  const shell = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ w: 360, h: 480 });
-  useEffect(() => {
-    const node = shell.current;
-    if (!node) return;
-    const measure = () => {
-      const r = node.getBoundingClientRect();
-      setBox({ w: r.width, h: r.height });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(node);
-    return () => ro.disconnect();
-  }, []);
-  const roomy = box.w >= 320 && box.h >= 380;
-  const peekMonth =
-    calPeek === "month" ? true : calPeek === "week" ? false : roomy;
-
-  useLayoutEffect(() => {
-    if (peekMonth) return;
-    const node = scroller.current;
-    if (!node) return;
-    const target = showNow ? nowTop - 72 : (blocks[0]?.top ?? 0) - 8;
-    node.scrollTop = Math.max(0, target);
-  }, [day, showNow, nowTop, blocks, peekMonth]);
-
-  const goToday = () => {
-    const n = new Date();
-    setDay(isoDate(n));
-    setCursor(n);
+  const selectDay = (key: string) => {
+    setDay(key);
+    setCursor(manilaAt(key, 12));
   };
-  const navBtn =
-    "min-h-8 shrink-0 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground";
-  const modeBar = (
-    <div className="mb-2 shrink-0 space-y-1">
+  const goToday = () => selectDay(isoDate(new Date()));
+  const step = (dir: -1 | 1) => {
+    if (view === "month") {
+      const p = manilaParts(cursor);
+      setCursor(fromManila(p.year, p.month + dir, 1, 12));
+      return;
+    }
+    selectDay(isoDate(addDays(manilaAt(day, 12), view === "week" ? 7 * dir : dir)));
+  };
+  const pickView = (v: CalView) => {
+    setCalView(widgetId, v);
+    if (v === "today" && !date) goToday();
+  };
+
+  const title =
+    view === "month"
+      ? monthName(cursor)
+      : view === "week"
+        ? weekRangeLabel(week[0]!, week[6]!)
+        : fmtDate(manilaAt(day, 12).toISOString());
+  const navBtn = "min-h-8 shrink-0 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground";
+
+  const header = (
+    <div className="mb-3 shrink-0 space-y-2">
       <div className="flex items-center gap-1" data-tauri-drag-region>
-        <span className="min-w-0 grow truncate px-1 text-sm font-medium" data-tauri-drag-region>
-          {peekMonth ? monthName(cursor) : fmtDate(manilaAt(day, 12).toISOString())}
+        <span className="min-w-0 grow truncate px-1 text-sm font-medium" data-tauri-drag-region aria-live="polite">
+          {title}
         </span>
         <button type="button" data-no-drag className={navBtn} onClick={goToday}>
           Today
         </button>
-        {peekMonth ? (
-          <>
-            <button
-              type="button"
-              data-no-drag
-              className={navBtn}
-              onClick={() => {
-                const p = manilaParts(cursor);
-                setCursor(fromManila(p.year, p.month - 1, 1, 12));
-              }}
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              data-no-drag
-              className={navBtn}
-              onClick={() => {
-                const p = manilaParts(cursor);
-                setCursor(fromManila(p.year, p.month + 1, 1, 12));
-              }}
-            >
-              Next
-            </button>
-          </>
-        ) : null}
+        <button type="button" data-no-drag className={navBtn} aria-label={`Previous ${view === "today" ? "day" : view}`} onClick={() => step(-1)}>
+          Prev
+        </button>
+        <button type="button" data-no-drag className={navBtn} aria-label={`Next ${view === "today" ? "day" : view}`} onClick={() => step(1)}>
+          Next
+        </button>
       </div>
-      <div className="flex items-center gap-1">
-        {(
-          [
-            ["auto", "Auto"],
-            ["month", "Month"],
-            ["week", "Compact"],
-          ] as const
-        ).map(([id, label]) => (
+      <div role="group" aria-label="Calendar view" className="inline-flex rounded-md bg-muted p-0.5" data-no-drag>
+        {CAL_VIEWS.map((v) => (
           <button
-            key={id}
+            key={v}
             type="button"
             data-no-drag
-            aria-pressed={calPeek === id}
+            aria-pressed={view === v}
             className={cn(
-              "min-h-8 rounded-md px-2 text-xs",
-              calPeek === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              "min-h-9 rounded-[calc(var(--radius-md)-2px)] px-3 text-xs",
+              view === v ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
             )}
-            onClick={() => setCalPeek(id)}
+            onClick={() => pickView(v)}
           >
-            {label}
+            {CAL_VIEW_LABEL[v]}
           </button>
         ))}
       </div>
@@ -317,231 +257,130 @@ export function CalendarPeek({
   );
 
   const dayAgenda = (
-    <div className="mt-2 min-h-0 flex-1 overflow-auto">
-      <p className="mb-1 text-xs uppercase tracking-[0.06em] text-muted-foreground">
+    <div className="mt-3 min-h-0 flex-1 overflow-auto">
+      <p className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted-foreground">
         {fmtDate(manilaAt(day, 12).toISOString())}
       </p>
       {!list.length ? (
         <p className="text-sm text-muted-foreground">Nothing on this day.</p>
       ) : (
-        <div className="space-y-1.5">
-          {list.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              className="flex min-h-11 w-full flex-col items-start rounded-md bg-muted/60 px-2.5 py-1.5 text-left"
-              style={{ boxShadow: `inset 3px 0 0 ${eventCatColor(eventCats, e.cat)}` }}
-              aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
-              title={eventCatLabel(eventCats, e.cat)}
-              onClick={() => pick(e)}
-            >
-              <span className="text-sm font-medium leading-snug">
-                <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
-                  {eventCatMark(eventCats, e.cat)}
+        <div className="space-y-1">
+          {list.map((e) => {
+            const cat = eventCatLabel(eventCats, e.cat);
+            return (
+              <button
+                key={e.id}
+                type="button"
+                className="flex min-h-11 w-full items-start gap-2.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-left"
+                aria-label={`${e.title}, ${cat}`}
+                onClick={() => pick(e)}
+              >
+                <span className="cat-tag mt-0.5 shrink-0" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
+                  <span>{cat}</span>
                 </span>
-                {e.title}
-              </span>
-              <span className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                {isAllDayEvent(e) ? "All day" : fmtWhen(e)}
-                {` · ${eventCatLabel(eventCats, e.cat)}`}
-                {e.loc ? ` · ${e.loc}` : ""}
-              </span>
-            </button>
-          ))}
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium leading-snug">{e.title}</span>
+                  <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
+                    {fmtWhen(e)}
+                    {e.loc ? ` · ${e.loc}` : ""}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 
-  if (peekMonth) {
-    return (
-      <div ref={shell} className="flex h-full min-h-0 flex-col">
-        {modeBar}
-        <div role="grid" aria-label={monthName(cursor)} className="grid grid-cols-7 gap-0.5">
-          <div role="row" className="contents">
-          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-            <div
-              key={`${d}-${i}`}
-              role="columnheader"
-              className={cn(
-                "pb-1 text-center text-[0.65rem] text-muted-foreground",
-              )}
-            >
-              <span aria-hidden="true">{d}</span>
-              <abbr className="sr-only">{WEEKDAY_NAMES[i]}</abbr>
-            </div>
-          ))}
-          </div>
-          {Array.from({ length: grid.length / 7 }, (_, w) => grid.slice(w * 7, w * 7 + 7)).map((week) => (
-          <div key={isoDate(week[0].date)} role="row" className="contents">
-          {week.map((c) => {
-            const key = isoDate(c.date);
-            const count = byDay[key]?.length ?? 0;
-            const isToday = sameDay(c.date, now);
-            const on = key === day;
-            const weekend = manilaParts(c.date).weekdayIndex === 0 || manilaParts(c.date).weekdayIndex === 6;
-            return (
-              <div key={key + (c.out ? "-out" : "")} role="gridcell" className="contents">
-              <button
-                type="button"
-                aria-label={dayLabel(c.date, count)}
-                aria-pressed={on}
-                aria-current={isToday ? "date" : undefined}
-                onClick={() => setDay(key)}
-                className={cn(
-                  "flex min-h-9 flex-col items-center justify-center rounded-sm text-xs tabular-nums",
-                  weekend && !on && "text-muted-foreground/70",
-                  on ? "bg-primary text-primary-foreground" : "text-muted-foreground",
-                  isToday && !on && "ring-1 ring-ring",
-                )}
-              >
-                {c.day}
-                {count ? (
-                  <span className="mt-0.5 flex gap-0.5">
-                    {Array.from({ length: Math.min(3, count) }).map((_, i) => (
-                      <span key={i} className={cn("size-1 rounded-full", on ? "bg-primary-foreground" : "bg-ring")} />
-                    ))}
-                  </span>
-                ) : null}
-              </button>
-              </div>
-            );
-          })}
-          </div>
-          ))}
-        </div>
-        {dayAgenda}
-        {embedded ? null : (
-          <button
-            type="button"
-            className="mt-2 shrink-0 text-left text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => setView("calendar")}
-          >
-            Full calendar
-          </button>
-        )}
-      </div>
+  const fullLink = embedded ? null : (
+    <button
+      type="button"
+      className="mt-auto shrink-0 pt-2 text-left text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      onClick={() => setView("calendar")}
+    >
+      Full calendar
+    </button>
+  );
+
+  const cellTone = (on: boolean, isToday: boolean, muted: boolean) =>
+    cn(
+      on ? "bg-primary text-primary-foreground" : muted ? "text-muted-foreground/60" : "text-muted-foreground",
+      isToday && !on && "ring-1 ring-ring",
     );
-  }
 
   return (
-    <div ref={shell} className="flex h-full min-h-0 flex-col">
-      {modeBar}
-      <div className="grid grid-cols-7 gap-1">
-        {days.map((d) => {
-          const key = isoDate(d);
-          const on = key === day;
-          const isToday = sameDay(d, now);
-          const count = byDay[key]?.length ?? 0;
-          const parts = manilaParts(d);
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setDay(key)}
-              className={cn(
-                "flex min-h-11 flex-col items-center justify-center rounded-md text-xs",
-                on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                isToday && !on && "ring-1 ring-ring",
-              )}
-            >
-              <span>{parts.weekday.slice(0, 2)}</span>
-              <span className="tabular-nums">{parts.day}</span>
-              {count ? (
-                <span className={cn("mt-0.5 size-1 rounded-full", on ? "bg-primary-foreground" : "bg-ring")} />
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-[0.06em] text-muted-foreground">
-          {fmtDate(manilaAt(day, 12).toISOString())}
-        </p>
-        {embedded ? null : (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => setView("calendar")}
-          >
-            Full calendar
-          </button>
-        )}
-      </div>
-      {allDay.length ? (
-        <div className="mt-2 space-y-1">
-          {allDay.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              className="flex min-h-9 w-full items-center rounded-sm px-2 text-left text-xs"
-              style={{ boxShadow: `inset 3px 0 0 ${eventCatColor(eventCats, e.cat)}` }}
-              aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
-              title={eventCatLabel(eventCats, e.cat)}
-              onClick={() => pick(e)}
-            >
-              <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
-                {eventCatMark(eventCats, e.cat)}
-              </span>
-              {e.title}
-            </button>
+    <div className="flex h-full min-h-0 flex-col">
+      {header}
+      {view === "month" ? (
+        <div role="grid" aria-label={monthName(cursor)} className="grid grid-cols-7 gap-0.5">
+          <div role="row" className="contents">
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+              <div key={`${d}-${i}`} role="columnheader" className="pb-1 text-center text-[0.65rem] text-muted-foreground">
+                <span aria-hidden="true">{d}</span>
+                <abbr className="sr-only">{WEEKDAY_NAMES[i]}</abbr>
+              </div>
+            ))}
+          </div>
+          {Array.from({ length: grid.length / 7 }, (_, w) => grid.slice(w * 7, w * 7 + 7)).map((row) => (
+            <div key={isoDate(row[0]!.date)} role="row" className="contents">
+              {row.map((c) => {
+                const key = isoDate(c.date);
+                const items = byDay[key] ?? [];
+                const on = key === day;
+                return (
+                  <div key={key + (c.out ? "-out" : "")} role="gridcell" className="contents">
+                    <button
+                      type="button"
+                      aria-label={dayLabel(c.date, items.length)}
+                      aria-pressed={on}
+                      aria-current={sameDay(c.date, now) ? "date" : undefined}
+                      onClick={() => setDay(key)}
+                      className={cn(
+                        "flex min-h-14 flex-col items-center justify-start rounded-sm pt-1.5 text-xs tabular-nums",
+                        cellTone(on, sameDay(c.date, now), c.out),
+                      )}
+                    >
+                      {c.day}
+                      <DayBars list={items} max={3} on={on} cats={eventCats} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           ))}
+        </div>
+      ) : view === "week" ? (
+        <div className="grid grid-cols-7 gap-1" role="group" aria-label={title}>
+          {week.map((d) => {
+            const key = isoDate(d);
+            const items = byDay[key] ?? [];
+            const on = key === day;
+            const parts = manilaParts(d);
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-label={dayLabel(d, items.length)}
+                aria-pressed={on}
+                aria-current={sameDay(d, now) ? "date" : undefined}
+                onClick={() => setDay(key)}
+                className={cn(
+                  "flex min-h-16 flex-col items-center justify-start rounded-md pt-1.5 text-xs",
+                  on ? "" : "bg-muted",
+                  cellTone(on, sameDay(d, now), false),
+                )}
+              >
+                <span>{parts.weekday.slice(0, 2)}</span>
+                <span className="tabular-nums">{parts.day}</span>
+                <DayBars list={items} max={2} on={on} cats={eventCats} />
+              </button>
+            );
+          })}
         </div>
       ) : null}
-      <div ref={scroller} className="relative mt-2 min-h-0 flex-1 overflow-auto">
-        <div className="relative" style={{ height: hours.length * HOUR_PX }}>
-          {hours.map((hour, i) => (
-            <div
-              key={hour}
-              className="absolute left-0 right-0 grid grid-cols-[2.75rem_1fr] border-b border-border"
-              style={{ top: i * HOUR_PX, height: HOUR_PX }}
-            >
-              <span className="pt-1 text-right text-xs tabular-nums text-muted-foreground">
-                {hourLabel(hour)}
-              </span>
-              <div />
-            </div>
-          ))}
-          {blocks.map((item) => (
-            <button
-              key={item.e.id}
-              type="button"
-              className="absolute z-[1] overflow-hidden rounded-sm bg-muted px-2 py-1 text-left"
-              style={{
-                top: item.top,
-                height: item.height,
-                left: `calc(2.75rem + 6px + ${item.col} * ((100% - 2.75rem - 10px) / ${item.cols}))`,
-                width: `calc((100% - 2.75rem - 10px) / ${item.cols} - 4px)`,
-                boxShadow: `inset 3px 0 0 ${eventCatColor(eventCats, item.e.cat)}`,
-              }}
-              aria-label={`${item.e.title}, ${eventCatLabel(eventCats, item.e.cat)}`}
-              title={eventCatLabel(eventCats, item.e.cat)}
-              onClick={() => pick(item.e)}
-            >
-              <span className="block truncate text-sm">
-                <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
-                  {eventCatMark(eventCats, item.e.cat)}
-                </span>
-                {item.e.title}
-              </span>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {fmtWhen(item.e)}
-                {` · ${eventCatLabel(eventCats, item.e.cat)}`}
-                {item.e.loc ? ` · ${item.e.loc}` : ""}
-              </span>
-            </button>
-          ))}
-          {showNow ? (
-            <div
-              className="pointer-events-none absolute left-11 right-0 z-[2] flex items-center"
-              style={{ top: nowTop }}
-            >
-              <span className="size-2 -translate-x-1 rounded-full bg-destructive" />
-              <span className="h-px flex-1 bg-destructive" />
-            </div>
-          ) : null}
-        </div>
-      </div>
+      {dayAgenda}
+      {fullLink}
     </div>
   );
 }
@@ -929,7 +768,7 @@ export function WidgetBody({
 }) {
   if (kind === "weather") return <WeatherBody />;
   if (kind === "agenda") return <AgendaBody />;
-  if (kind === "calendar") return <CalendarPeek />;
+  if (kind === "calendar") return <CalendarPeek widgetId="float-calendar" />;
   if (kind === "quote") return <QuoteBody />;
   if (kind === "finance") return <FinancePeek />;
   if (kind === "clock") return <ClockBody />;

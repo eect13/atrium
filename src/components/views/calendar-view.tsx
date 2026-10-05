@@ -498,7 +498,7 @@ export function CalendarView() {
 
       {mode === "day" && (
         <div className="min-h-96 rounded-lg border border-border bg-card p-3">
-          <CalendarPeek date={cursor} embedded onSelect={openEvent} />
+          <CalendarPeek date={cursor} embedded onSelect={openEvent} widgetId="page-day" />
         </div>
       )}
 

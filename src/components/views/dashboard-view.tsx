@@ -6,8 +6,18 @@ import { useShallow } from "zustand/react/shallow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FloatBtn } from "@/components/desk-chrome";
-import { AgendaBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
-import { DASH_LABEL, DASH_SPAN_N, DEFAULT_DASH, cycleDashSpan, dashSpanClass, moveDash, type DashCard } from "@/lib/dash";
+import { AgendaBody, CalendarPeek, ClockBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
+import {
+  DASH_LABEL,
+  DASH_SPAN_N,
+  DEFAULT_DASH,
+  cycleDashSpan,
+  dashEntry,
+  dashSpanClass,
+  dashVisible,
+  moveDash,
+  type DashCard,
+} from "@/lib/dash";
 import { deskZone } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { NewsItem } from "@/lib/types";
@@ -44,17 +54,17 @@ export function DashboardView({
   const from = useRef<DashCard | null>(null);
   const hover = useRef<DashCard | null>(null);
 
-  const visible = dashOrder.filter((id) => {
-    if (id === "weather") return modules.weather !== false;
-    if (id === "quote") return modules.quotes !== false;
-    if (id === "finance") return modules.finance;
-    if (id === "notes") return modules.notes;
-    if (id === "news") return modules.news;
-    return true;
-  });
+  // Registry (lib/dash.ts) decides which cards exist and which module hides them.
+  const visible = dashVisible(dashOrder, modules);
 
   function body(id: DashCard): ReactNode {
-    if (id === "weather") {
+    return BODY[id]();
+  }
+
+  // One body per registered card — `Record<DashCard, …>` fails typecheck if a
+  // registry entry has no body, so a new widget cannot silently render blank.
+  const BODY: Record<DashCard, () => ReactNode> = {
+    weather: () => {
       return (
         <>
           <p className="font-display text-2xl font-medium tracking-tight md:text-3xl">
@@ -86,11 +96,11 @@ export function DashboardView({
           </div>
         </>
       );
-    }
-    if (id === "agenda") return <AgendaBody />;
-    if (id === "quote") return <QuoteBody />;
-    if (id === "finance") return <FinancePeek />;
-    if (id === "notes") {
+    },
+    agenda: () => <AgendaBody />,
+    quote: () => <QuoteBody />,
+    finance: () => <FinancePeek />,
+    notes: () => {
       return (
         <>
           <NotesPeek />
@@ -101,18 +111,11 @@ export function DashboardView({
           ) : null}
         </>
       );
-    }
-    return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />;
-  }
-
-  function floatKind(id: DashCard) {
-    if (id === "weather") return "weather" as const;
-    if (id === "agenda") return "calendar" as const;
-    if (id === "quote") return "quote" as const;
-    if (id === "finance") return "finance" as const;
-    if (id === "news") return "news" as const;
-    return null;
-  }
+    },
+    news: () => <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />,
+    calendar: () => <CalendarPeek widgetId="dash-calendar" />,
+    clock: () => <ClockBody />,
+  };
 
   function grab(e: React.PointerEvent, id: DashCard) {
     if (dashLocked || e.button !== 0) return;
@@ -178,7 +181,7 @@ export function DashboardView({
       </div>
       <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-12">
         {visible.map((id) => {
-          const kind = floatKind(id);
+          const kind = dashEntry(id).float ?? null;
           return (
             <Card
               key={id}

@@ -18,6 +18,8 @@ test("normalizeDash fills missing cards and drops junk", () => {
     "quote",
     "finance",
     "notes",
+    "calendar",
+    "clock",
   ]);
   assert.deepEqual(normalizeDash(undefined), [...DASH_CARDS]);
 });
@@ -56,4 +58,33 @@ test("Feed rename: dash + float labels say Feed, Quotes plural", async () => {
   assert.equal(DASH_LABEL.news, "Feed");
   assert.equal(WIDGET_LABEL.news, "Feed");
   assert.equal(WIDGET_LABEL.quote, "Quotes");
+});
+
+test("registry: clock + calendar join the existing grid, appended after saved order", async () => {
+  const { DASH_LABEL, DASH_SPAN_N } = await import("./dash.ts");
+  const { WIDGET_LABEL } = await import("./types.ts");
+  const saved = ["weather", "agenda", "quote", "finance", "notes", "news"];
+  assert.deepEqual(normalizeDash(saved).slice(0, 6), saved);
+  assert.deepEqual(normalizeDash(saved).slice(6), ["calendar", "clock"]);
+  assert.equal(DASH_LABEL.clock, WIDGET_LABEL.clock);
+  assert.equal(DASH_LABEL.calendar, WIDGET_LABEL.calendar);
+  assert.equal(DASH_LABEL.agenda, WIDGET_LABEL.agenda);
+  assert.equal(DASH_LABEL.weather, "Today");
+  assert.equal(DASH_SPAN_N.weather, 5);
+  assert.equal(DASH_SPAN_N.calendar + DASH_SPAN_N.clock, 12);
+});
+
+test("registry: removed cards drop out of saved orders", () => {
+  assert.ok(!normalizeDash(["gone", "clock"]).includes("gone" as never));
+});
+
+test("dashVisible follows module toggles", async () => {
+  const { dashVisible } = await import("./dash.ts");
+  const all = normalizeDash(undefined);
+  assert.deepEqual(dashVisible(all, { finance: false, notes: false, news: false, quotes: false, weather: false }), [
+    "agenda",
+    "calendar",
+    "clock",
+  ]);
+  assert.deepEqual(dashVisible(all, { finance: true, notes: true, news: true }), all);
 });

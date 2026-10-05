@@ -42,6 +42,7 @@ import { applyDeskProfile, DEFAULT_REGION, normalizeMarkets, regionOf } from "./
 import { isQuotaError, reportStorageQuota } from "./quota";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
+import { normalizeCalViews, type CalView } from "./cal-view";
 import { asNewsTag, keepNewsChip } from "./headline";
 import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
@@ -171,7 +172,10 @@ type Data = {
   dashOrder: DashCard[];
   dashLocked: boolean;
   dashSpan: Partial<Record<DashCard, number>>;
+  /** @deprecated Pre-Card 128 peek mode; superseded by `calViews`. Kept for persisted back-compat. */
   calPeek: "auto" | "month" | "week";
+  /** Calendar widget / float view (Today | Week | Month) per widget id. Missing = Month. */
+  calViews: Record<string, CalView>;
   newsQuery: string;
   /** Legacy tag chip (pre-Feed). Kept for back-compat; Feed uses feedPrefs.interest. */
   newsTag: string;
@@ -241,6 +245,7 @@ type State = Data & {
   setDashSpan: (id: DashCard, n: number) => void;
   resetDash: () => void;
   setCalPeek: (v: "auto" | "month" | "week") => void;
+  setCalView: (widgetId: string, v: CalView) => void;
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
   updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
@@ -399,6 +404,7 @@ function blankDesk(): Data {
     dashLocked: true,
     dashSpan: {},
     calPeek: "auto",
+    calViews: {},
     newsQuery: "",
     newsTag: "All",
     feedPrefs: { ...DEFAULT_FEED_PREFS },
@@ -916,6 +922,7 @@ export const useAtrium = create<State>()(
         }),
       resetDash: () => set({ dashOrder: [...DEFAULT_DASH], dashSpan: {} }),
       setCalPeek: (calPeek) => set({ calPeek }),
+      setCalView: (widgetId, v) => set((s) => ({ calViews: normalizeCalViews({ ...s.calViews, [widgetId]: v }) })),
       setNewsQuery: (newsQuery) => set({ newsQuery }),
       setNewsTag: (newsTag) => set({ newsTag }),
       updateFeed: (fn) => set((s) => ({ feedPrefs: normalizeFeedPrefs(fn(s.feedPrefs)) })),
@@ -1249,6 +1256,7 @@ export const useAtrium = create<State>()(
         dashLocked: s.dashLocked,
         dashSpan: s.dashSpan,
         calPeek: s.calPeek,
+        calViews: s.calViews,
         newsQuery: s.newsQuery,
         newsTag: s.newsTag,
         feedPrefs: s.feedPrefs,
@@ -1329,6 +1337,7 @@ export const useAtrium = create<State>()(
           dashLocked: (p.dashLocked ?? current.dashLocked) !== false,
           dashSpan: normalizeDashSpan(p.dashSpan ?? current.dashSpan),
           calPeek: ((p.calPeek ?? current.calPeek) === "month" || (p.calPeek ?? current.calPeek) === "week" || (p.calPeek ?? current.calPeek) === "auto") ? (p.calPeek ?? current.calPeek) as "auto" | "month" | "week" : "auto",
+          calViews: normalizeCalViews((p as { calViews?: unknown }).calViews ?? (current as Data).calViews),
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
           newsTag: keepNewsChip(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
           feedPrefs: normalizeFeedPrefs((p as { feedPrefs?: unknown }).feedPrefs ?? (current as Data).feedPrefs),
