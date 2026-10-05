@@ -27,7 +27,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v11"],
+    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v12"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -422,8 +422,6 @@ export function QuoteSheet({
           <a
             href={pdfHref}
             download={`atrium-${row.item.label.toLowerCase()}-research.pdf`}
-            target="_blank"
-            rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
           >
             Open PDF
@@ -431,11 +429,49 @@ export function QuoteSheet({
         ) : null}
       </div>
       {pdfHref ? (
-        <iframe
-          title={`${row.item.label} research`}
-          src={pdfHref}
-          className="h-[480px] w-full rounded-md border border-border bg-white"
-        />
+        <section
+          aria-label={`${row.item.label} research note`}
+          className="max-h-[480px] space-y-3 overflow-y-auto rounded-md border border-border bg-card p-4 text-sm"
+        >
+          <div>
+            <p className="font-medium">
+              {note.ticker} · {note.name}
+            </p>
+            <p className="text-xs text-muted-foreground">{note.issuerLine}</p>
+            <p className="text-xs text-muted-foreground">{note.asOf}</p>
+          </div>
+          <p className="tabular-nums">
+            Last {note.last} · {note.change} · Bias {note.bias}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Support {note.support} · Pivot {note.pivot} · Resistance {note.resistance}
+          </p>
+          {(
+            [
+              ["Standpoint", [...note.thesis.slice(0, 2), ...note.technical.slice(0, 2)]],
+              ["CFA desk", note.expert ?? []],
+              ["Watch", note.watch ?? []],
+              ["Risk", note.risk ?? []],
+              ["Next", note.next ?? []],
+            ] as const
+          )
+            .filter(([, items]) => items.length)
+            .map(([title, items]) => (
+              <div key={title}>
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">{title}</p>
+                <ul className="mt-1 space-y-1">
+                  {items.map((s) => (
+                    <li key={s} className="leading-snug">
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          <p className="text-xs text-muted-foreground">
+            Readable research note. Open PDF downloads the file.
+          </p>
+        </section>
       ) : null}
       {row.q?.kind === "crypto" && row.q.high != null && row.q.low != null ? (
         <p className="text-sm text-muted-foreground">

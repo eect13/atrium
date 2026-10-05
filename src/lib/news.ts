@@ -99,8 +99,27 @@ const ISSUER_NEWS: Record<string, IssuerNews> = {
   },
   SCC: { names: ["Semirara"], minus: [], reject: /$^/ },
   AEV: { names: ["Aboitiz Equity"], minus: [], reject: /$^/ },
+  LPZ: {
+    names: ["Lopez Holdings Corporation", "Lopez Holdings"],
+    minus: [],
+    reject: /$^/,
+  },
 };
 
+
+
+/** News wires rarely use the full legal suffix. Keep both forms for search + match. */
+function issuerAliasNames(name: string) {
+  const full = name.trim();
+  if (!full) return [];
+  const short = full
+    .replace(/\s+(Corporation|Corp\.?|Incorporated|Inc\.?|Limited|Ltd\.?|PLC|Company|Co\.?)\s*$/i, "")
+    .trim();
+  if (!short || short.toLowerCase() === full.toLowerCase()) return [full];
+  // Drop one-word stubs ("Ayala") — they flood the wires. Keep "Lopez Holdings".
+  if (!short.includes(" ") && short.length < 10) return [full];
+  return [full, short];
+}
 
 function quoteTerm(s: string) {
   const t = s.trim();
@@ -133,12 +152,14 @@ export function issuerNews(item: { label: string; symbol: string; name?: string;
     return n.length > 3 || n.includes(" ");
   });
   if (ISSUER_NEWS[t]) {
-    return { ...ISSUER_NEWS[t], names: uniqNames([...ISSUER_NEWS[t].names, ...extra]) };
+    const seeded = [...ISSUER_NEWS[t].names, ...extra].flatMap(issuerAliasNames);
+    return { ...ISSUER_NEWS[t], names: uniqNames(seeded) };
   }
   if (item.kind && item.kind !== "stock") return null;
   const name = (item.name ?? item.label).trim();
   if (!name) return null;
-  return { names: uniqNames([name, extra.find((n) => n !== name) ?? "", official ?? ""]), minus: [], reject: /$^/ };
+  const seeded = [name, extra.find((n) => n !== name) ?? "", official ?? ""].flatMap(issuerAliasNames);
+  return { names: uniqNames(seeded), minus: [], reject: /$^/ };
 }
 
 /** Legal / trade names the CFA desk and harvest use for this ticker. */
@@ -174,7 +195,13 @@ export function issuerSearchQuery(item: { label: string; symbol: string; name?: 
     }
     const bits = [...names];
     if (ticker.length <= 3 && newsDeskId(item) === "PH") {
-      bits.push(`(${ticker} (Philippines OR PSE OR Manila OR peso))`);
+      // Nested (TICKER (PH|…)) empties Google News RSS when OR'd with legal names (LPZ Card 102).
+      // Keep the PH group only when we lack a multi-word issuer name to carry the query.
+      const named = names.some((n) => {
+        const bare = n.replace(/^"|"$/g, "");
+        return bare.includes(" ") || bare.length > 3;
+      });
+      bits.push(named ? ticker : `(${ticker} (Philippines OR PSE OR Manila OR peso))`);
     } else bits.push(ticker);
     return { q: `(${[...new Set(bits)].join(" OR ")})`, minus: minusOf(spec.minus) };
   }

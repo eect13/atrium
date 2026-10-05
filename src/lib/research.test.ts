@@ -105,6 +105,19 @@ test("isRelatedStory keeps Lopez and drops noise", () => {
   assert.equal(isRelatedStory({ title: "Lopez Holdings sets meeting", src: "mb.com.ph" }, psei), false);
 });
 
+test("LPZ is a PH desk with Lopez Holdings search aliases", () => {
+  const item = { label: "LPZ", symbol: "LPZ", name: "Lopez Holdings Corporation", kind: "stock" };
+  assert.equal(newsDeskId(item), "PH");
+  const q = issuerSearchQuery(item);
+  assert.match(q.q, /Lopez Holdings Corporation/);
+  assert.match(q.q, /"Lopez Holdings"/);
+  assert.match(q.q, /\bLPZ\b/);
+  assert.doesNotMatch(q.q, /\(LPZ \(Philippines/);
+  const disp = issuerDisplay(item);
+  assert.equal(disp.legal, "Lopez Holdings Corporation");
+  assert.ok(disp.aliases.includes("Lopez Holdings"));
+});
+
 test("storyLane splits facts from rumor copy", () => {
   assert.equal(storyLane({ title: "PSEi closes higher", src: "BusinessWorld" }), "fact");
   assert.equal(storyLane({ title: "ICT in talks for a port deal — sources say", src: "Bilyonaryo" }), "rumor");

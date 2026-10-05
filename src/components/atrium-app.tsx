@@ -719,7 +719,32 @@ export function AtriumApp() {
         </header>
         <main
           className="min-h-0 min-w-0 flex-1 overflow-y-auto scroll-auto bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6"
-          onFocus={(e) => setFloatsUnder(e.target.matches(":focus-visible"))}
+          onFocus={(e) => {
+            if (!e.target.matches(":focus-visible")) {
+              setFloatsUnder(false);
+              return;
+            }
+            // O9 / 2.4.11: drop the layer only when a float fully covers the focused control —
+            // not on every main focus, so floats stay visible while tabbing clear of them.
+            const focusRect = (e.target as HTMLElement).getBoundingClientRect();
+            const floats = document.querySelectorAll('[aria-label="Floating windows"] article');
+            let covered = false;
+            for (const el of floats) {
+              const r = el.getBoundingClientRect();
+              if (
+                focusRect.width > 0 &&
+                focusRect.height > 0 &&
+                focusRect.top >= r.top - 1 &&
+                focusRect.bottom <= r.bottom + 1 &&
+                focusRect.left >= r.left - 1 &&
+                focusRect.right <= r.right + 1
+              ) {
+                covered = true;
+                break;
+              }
+            }
+            setFloatsUnder(covered);
+          }}
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFloatsUnder(false);
           }}

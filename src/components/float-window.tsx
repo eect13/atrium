@@ -33,8 +33,8 @@ export function ResizeHandles({
       {HANDLES.map((c) => (
         <div
           key={c.id}
-          role="separator"
-          aria-label={`Resize ${c.id}`}
+          aria-hidden="true"
+          data-resize={c.id}
           className={cn(
             "absolute z-[3] touch-none opacity-0 hover:opacity-100",
             "before:absolute before:inset-0 before:bg-transparent",
@@ -161,6 +161,7 @@ export function FloatWindow({
   return (
     <article
       ref={articleRef}
+      aria-label={title}
       className={cn(
         "group absolute flex flex-col overflow-hidden rounded-lg shadow-[var(--shadow-float)]",
         paper ? "" : "bg-card text-card-foreground",
