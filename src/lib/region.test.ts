@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyDeskProfile, applyDeskRegion, DESK_REGIONS, isoCountry, normalizeMarkets, regionOf, toggleMarket } from "./region.ts";
-import { deskZone, fromManila, hexColor, inkOnPaper, manilaParts, setDeskZone } from "./format.ts";
+import { deskZone, fromManila, hexColor, inkOnPaper, NOTE_COLORS, manilaParts, setDeskZone } from "./format.ts";
 
 test("Philippines is the factory desk region", () => {
   const ph = regionOf("PH");
@@ -55,4 +55,14 @@ test("hexColor normalizes and inkOnPaper picks contrast", () => {
   assert.equal(hexColor("#e8e4d4"), "#e8e4d4");
   assert.equal(inkOnPaper("#e8e4d4"), "#1c1b16");
   assert.equal(inkOnPaper("#111111"), "#f6f3ea");
+});
+
+test("inkOnPaper picks whichever ink contrasts more (FORM-WCAG #3: #9aa0a6 takes dark ink)", () => {
+  assert.equal(inkOnPaper("#9aa0a6"), "#1c1b16");
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+  };
+  const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x! + 0.05) / (y! + 0.05); };
+  for (const paper of NOTE_COLORS) assert.ok(ratio(inkOnPaper(paper), paper) >= 4.5, `${paper}: ${ratio(inkOnPaper(paper), paper).toFixed(2)}`);
 });

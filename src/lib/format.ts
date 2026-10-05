@@ -494,15 +494,21 @@ export function hsvToHex(h: number, s: number, v: number): string {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
-/** Body ink that holds contrast on a sticky-note paper color. */
-export function inkOnPaper(raw: string): string {
+function relLum(raw: string): number {
   const h = hexColor(raw).slice(1);
-  const r = Number.parseInt(h.slice(0, 2), 16) / 255;
-  const g = Number.parseInt(h.slice(2, 4), 16) / 255;
-  const b = Number.parseInt(h.slice(4, 6), 16) / 255;
-  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const y = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return y > 0.45 ? "#1c1b16" : "#f6f3ea";
+  const lin = (i: number) => {
+    const c = Number.parseInt(h.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+}
+
+/** Body ink that holds contrast on a sticky-note paper color: whichever ink contrasts more. */
+export function inkOnPaper(raw: string): string {
+  const y = relLum(raw);
+  const dark = (y + 0.05) / (relLum("#1c1b16") + 0.05);
+  const light = (relLum("#f6f3ea") + 0.05) / (y + 0.05);
+  return dark >= light ? "#1c1b16" : "#f6f3ea";
 }
 
 /** Month grid for the calendar and the floating month peek. */
