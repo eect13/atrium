@@ -340,7 +340,6 @@ export function CalendarPeek({
               key={`${d}-${i}`}
               className={cn(
                 "pb-1 text-center text-[0.65rem] text-muted-foreground",
-                (i === 0 || i === 6) && "opacity-50",
               )}
             >
               {d}
@@ -359,7 +358,6 @@ export function CalendarPeek({
                 onClick={() => setDay(key)}
                 className={cn(
                   "flex min-h-9 flex-col items-center justify-center rounded-sm text-xs tabular-nums",
-                  c.out && "opacity-40",
                   weekend && !on && "text-muted-foreground/70",
                   on ? "bg-primary text-primary-foreground" : "text-muted-foreground",
                   isToday && !on && "ring-1 ring-ring",
