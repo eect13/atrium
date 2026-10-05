@@ -1,6 +1,6 @@
 import { isTauri } from "@/lib/http";
 import { writeLocal } from "@/lib/quota";
-import { closeAllNativeFloats } from "@/lib/native-float";
+import { closeAllNativeFloatsForExit } from "@/lib/native-float";
 
 const KEY = "atrium.win";
 
@@ -68,7 +68,7 @@ export function rememberMainWindow() {
     un2 = await win.onResized(bump);
     try {
       const stopClose = await win.onCloseRequested(async () => {
-        await closeAllNativeFloats();
+        await closeAllNativeFloatsForExit();
       });
       if (dead) stopClose();
       else unClose = stopClose;

@@ -53,6 +53,7 @@ function labelFor(kind: "note" | "widget", id: string) {
 }
 
 const goneWatch = new Set<string>();
+let closingAll = false;
 
 async function watchGone(label: string, win: { once: (ev: string, cb: () => void) => Promise<unknown> | unknown }, onGone?: () => void) {
   if (!onGone || goneWatch.has(label)) return;
@@ -60,7 +61,7 @@ async function watchGone(label: string, win: { once: (ev: string, cb: () => void
   try {
     await win.once("tauri://destroyed", () => {
       goneWatch.delete(label);
-      if (floatKeepRequested()) return;
+      if (closingAll || floatKeepRequested()) return;
       onGone();
     });
   } catch {
@@ -136,6 +137,34 @@ export async function closeAllNativeFloats() {
     );
   } finally {
     releaseFloatKeepSoon();
+  }
+}
+
+/**
+ * Main window is going away: close the floats, wait until they are gone, then
+ * drop the keep flag. The 400 ms release timer dies with the main window, which
+ * left `atrium.float.keep` stuck in localStorage for every later session.
+ */
+export async function closeAllNativeFloatsForExit(timeoutMs = 1500) {
+  if (!isTauri()) return;
+  closingAll = true;
+  await closeAllNativeFloats();
+  try {
+    const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const self = getCurrentWebviewWindow().label;
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) {
+      const all = await getAllWebviewWindows();
+      if (all.every((w) => w.label === self)) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  } catch {
+    /* window list unavailable: clear anyway */
+  }
+  try {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(KEEP_KEY);
+  } catch {
+    /* private mode */
   }
 }
 
