@@ -325,6 +325,8 @@ export function AtriumApp() {
     })),
   );
   const [cmd, setCmd] = useState("");
+  // FORM-WCAG #2 (2.4.11): while keyboard focus is in main, the float layer drops under it.
+  const [floatsUnder, setFloatsUnder] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hit, setHit] = useState(-1);
   const [omniBox, setOmniBox] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -714,7 +716,13 @@ export function AtriumApp() {
             <ThemeToggle />
           </div>
         </header>
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto scroll-auto bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6">
+        <main
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto scroll-auto bg-background p-3 pb-dock md:p-5 lg:p-6 lg:pb-6"
+          onFocus={(e) => setFloatsUnder(e.target.matches(":focus-visible"))}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFloatsUnder(false);
+          }}
+        >
           <ViewCrash>
           {view === "dashboard" && (
             <Suspense fallback={<ViewFallback />}>
@@ -767,7 +775,7 @@ export function AtriumApp() {
         </main>
       </div>
 
-      <div className="pointer-events-none fixed inset-0 z-40 hidden lg:block">
+      <div className={cn("pointer-events-none fixed inset-0 hidden lg:block", floatsUnder ? "-z-10" : "z-40")}>
         <Suspense fallback={null}>
           <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />
         </Suspense>
