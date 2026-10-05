@@ -12,14 +12,15 @@ export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
 type Handle = ResizeCorner | ResizeEdge;
 
 const HANDLES: { id: Handle; box: string; cursor: string }[] = [
-  { id: "n", box: "left-3 right-3 top-0 h-1.5", cursor: "cursor-n-resize" },
-  { id: "s", box: "left-3 right-3 bottom-0 h-1.5", cursor: "cursor-s-resize" },
-  { id: "e", box: "top-3 bottom-3 right-0 w-1.5", cursor: "cursor-e-resize" },
-  { id: "w", box: "top-3 bottom-3 left-0 w-1.5", cursor: "cursor-w-resize" },
-  { id: "nw", box: "left-0 top-0 size-3", cursor: "cursor-nw-resize" },
-  { id: "ne", box: "right-0 top-0 size-3", cursor: "cursor-ne-resize" },
-  { id: "sw", box: "bottom-0 left-0 size-3", cursor: "cursor-sw-resize" },
-  { id: "se", box: "bottom-0 right-0 size-3", cursor: "cursor-se-resize" },
+  // FORM-WCAG #9 / O3: ≥24px hit strips (2.5.8). Visual stay opacity-0; Form flip was 6px edges.
+  { id: "n", box: "left-6 right-6 top-0 h-6", cursor: "cursor-n-resize" },
+  { id: "s", box: "left-6 right-6 bottom-0 h-6", cursor: "cursor-s-resize" },
+  { id: "e", box: "top-6 bottom-6 right-0 w-6", cursor: "cursor-e-resize" },
+  { id: "w", box: "top-6 bottom-6 left-0 w-6", cursor: "cursor-w-resize" },
+  { id: "nw", box: "left-0 top-0 size-6", cursor: "cursor-nw-resize" },
+  { id: "ne", box: "right-0 top-0 size-6", cursor: "cursor-ne-resize" },
+  { id: "sw", box: "bottom-0 left-0 size-6", cursor: "cursor-sw-resize" },
+  { id: "se", box: "bottom-0 right-0 size-6", cursor: "cursor-se-resize" },
 ];
 
 export function ResizeHandles({

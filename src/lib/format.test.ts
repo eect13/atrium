@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addDays, dayLabel, foldNoteChecks, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, noteTitle, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
+import { addDays, catLabel, catMark, dayLabel, foldNoteChecks, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, noteTitle, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
 
 test("moneyShort compact last for large notionals", () => {
   assert.equal(moneyShort(4_850_048, "PHP"), "₱4.85M");
@@ -91,4 +91,11 @@ test("dayLabel names a grid day with weekday, date, month and event count (FORM-
   assert.equal(dayLabel(fromManila(2026, 10, 5, 12), 4), "Mon 5 Oct, 4 events");
   assert.equal(dayLabel(fromManila(2026, 9, 27, 12), 1), "Sun 27 Sep, 1 event");
   assert.equal(dayLabel(fromManila(2026, 10, 27, 12), 0), "Tue 27 Oct");
+});
+
+test("catLabel and catMark give non-colour category cues (FORM-WCAG #15 / O7)", () => {
+  assert.equal(catLabel("work"), "Work");
+  assert.equal(catMark("health"), "H");
+  assert.equal(catLabel("mystery"), "mystery");
+  assert.equal(catMark("mystery"), "?");
 });

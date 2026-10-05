@@ -14,6 +14,8 @@ import { redirectToLoginIfRequired } from "@/lib/app-data";
 import {
   addDays,
   CAT_COLORS,
+  catLabel,
+  catMark,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -131,6 +133,8 @@ export function CalendarView() {
   const [occurDay, setOccurDay] = useState<string | null>(null);
   const [fromGoogle, setFromGoogle] = useState(false);
   const seenMonth = useRef("");
+  /** FORM-WCAG #13 / O5: restore focus to the control that opened the dialog. */
+  const returnFocus = useRef<HTMLElement | null>(null);
   const shown = useMemo(() => {
     const span = paintSpan(cursor, mode);
     return expandEvents(listed, span.from, span.to);
@@ -168,6 +172,7 @@ export function CalendarView() {
     setMeet("");
     setOccurDay(null);
     setFromGoogle(false);
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setOpen(true);
   }
 
@@ -191,6 +196,7 @@ export function CalendarView() {
     setMeet(master.meet ?? "");
     setOccurDay(ev.seriesId ? isoDate(new Date(ev.start)) : null);
     setFromGoogle(master.source === "google");
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setOpen(true);
   }
 
@@ -310,14 +316,14 @@ export function CalendarView() {
         <Button variant="outline" size="sm" onClick={() => setCursor(shiftCursor(cursor, mode, 1))}>
           Next
         </Button>
-        <div className="flex rounded-md border border-border">
+        <div className="flex flex-wrap rounded-md border border-border">
           {(["month", "week", "day", "agenda"] as const).map((m) => (
             <button
               key={m}
               type="button"
               aria-pressed={mode === m}
               onClick={() => setMode(m)}
-              className={`min-h-11 px-3 text-xs capitalize ${mode === m ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+              className={`min-h-11 shrink-0 px-3 text-xs capitalize ${mode === m ? "bg-muted text-foreground" : "text-muted-foreground"}`}
             >
               {m}
             </button>
@@ -426,17 +432,22 @@ export function CalendarView() {
                   <button
                     key={e.id}
                     type="button"
-                    className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight min-h-6 sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
-                    style={{ color: e.color || CAT_COLORS[e.cat] }}
+                    className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight min-h-6 text-foreground sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
+                    style={{ boxShadow: `inset 2px 0 0 ${e.color || CAT_COLORS[e.cat]}` }}
+                    aria-label={`${e.title}, ${catLabel(e.cat)}`}
+                    title={catLabel(e.cat)}
                     onClick={() => openEvent(e)}
                   >
+                    <span className="mr-0.5 font-medium text-muted-foreground" aria-hidden="true">
+                      {catMark(e.cat)}
+                    </span>
                     {e.title}
                   </button>
                 ))}
                 {evs.length > 1 ? (
                   <button
                     type="button"
-                    className="mt-0.5 block min-h-11 w-full truncate text-left text-xs text-muted-foreground sm:hidden"
+                    className="mt-0.5 block min-h-11 w-full shrink-0 text-left text-xs text-muted-foreground sm:hidden"
                     aria-label={`${evs.length - 1} more`}
                     onClick={() => showDay(isoDate(c.date))}
                   >
@@ -446,7 +457,7 @@ export function CalendarView() {
                 {evs.length > 3 ? (
                   <button
                     type="button"
-                    className="mt-0.5 hidden min-h-8 w-full truncate text-left text-xs text-muted-foreground sm:block"
+                    className="mt-0.5 hidden min-h-8 w-full shrink-0 text-left text-xs text-muted-foreground sm:block"
                     aria-label={`${evs.length - 3} more`}
                     onClick={() => showDay(isoDate(c.date))}
                   >
@@ -516,12 +527,19 @@ export function CalendarView() {
                 </h4>
                 {list!.map((e) => (
                   <div key={e.id} className="flex items-center gap-3 border-b border-border py-2">
-                    <span className="size-2 rounded-full" style={{ background: e.color || CAT_COLORS[e.cat] }} />
-                    <button type="button" className="grow text-left" onClick={() => openEvent(e)}>
+                    <span
+                      className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-[0.625rem] font-semibold text-foreground"
+                      style={{ boxShadow: `inset 0 0 0 1.5px ${e.color || CAT_COLORS[e.cat]}` }}
+                      title={catLabel(e.cat)}
+                      aria-hidden="true"
+                    >
+                      {catMark(e.cat)}
+                    </span>
+                    <button type="button" className="grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${catLabel(e.cat)}`}>
                       <div className="text-sm">{e.title}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">
                         {fmtWhen(e)}
-                        {e.reminder ? ` · ${e.reminder}m before` : ""} · {sourceLine(e)}
+                        {e.reminder ? ` · ${e.reminder}m before` : ""} · {catLabel(e.cat)} · {sourceLine(e)}
                       </div>
                     </button>
                     <Button
@@ -554,7 +572,12 @@ export function CalendarView() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            returnFocus.current?.focus?.();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{editId ? "Edit event" : "New event"}</DialogTitle>
           </DialogHeader>

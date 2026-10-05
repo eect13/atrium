@@ -423,6 +423,32 @@ export const CAT_COLORS: Record<string, string> = {
   other: "var(--color-muted-foreground)",
 };
 
+/** Visible labels for event categories (FORM-WCAG #15 / O7 — not colour-only). */
+export const CAT_LABELS: Record<string, string> = {
+  work: "Work",
+  personal: "Personal",
+  family: "Family",
+  health: "Health",
+  other: "Other",
+};
+
+/** Single-letter non-colour marks paired with CAT_COLORS. */
+export const CAT_MARK: Record<string, string> = {
+  work: "W",
+  personal: "P",
+  family: "F",
+  health: "H",
+  other: "O",
+};
+
+export function catLabel(cat: string) {
+  return CAT_LABELS[cat] ?? cat;
+}
+
+export function catMark(cat: string) {
+  return CAT_MARK[cat] ?? "?";
+}
+
 export const NOTE_COLORS = [
   "#ffffff",
   "#f3f3f3",

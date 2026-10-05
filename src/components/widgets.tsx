@@ -12,6 +12,8 @@ import { useShallow } from "zustand/react/shallow";
 import {
   addDays,
   CAT_COLORS,
+  catLabel,
+  catMark,
   deskZone,
   fmtDate,
   fmtWhen,
@@ -318,11 +320,19 @@ export function CalendarPeek({
               type="button"
               className="flex min-h-11 w-full flex-col items-start rounded-md bg-muted/60 px-2.5 py-1.5 text-left"
               style={{ boxShadow: `inset 3px 0 0 ${CAT_COLORS[e.cat]}` }}
+              aria-label={`${e.title}, ${catLabel(e.cat)}`}
+              title={catLabel(e.cat)}
               onClick={() => pick(e)}
             >
-              <span className="text-sm font-medium leading-snug">{e.title}</span>
+              <span className="text-sm font-medium leading-snug">
+                <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
+                  {catMark(e.cat)}
+                </span>
+                {e.title}
+              </span>
               <span className="mt-0.5 text-xs tabular-nums text-muted-foreground">
                 {isAllDayEvent(e) ? "All day" : fmtWhen(e)}
+                {` · ${catLabel(e.cat)}`}
                 {e.loc ? ` · ${e.loc}` : ""}
               </span>
             </button>
@@ -455,8 +465,13 @@ export function CalendarPeek({
               type="button"
               className="flex min-h-9 w-full items-center rounded-sm px-2 text-left text-xs"
               style={{ boxShadow: `inset 3px 0 0 ${CAT_COLORS[e.cat]}` }}
+              aria-label={`${e.title}, ${catLabel(e.cat)}`}
+              title={catLabel(e.cat)}
               onClick={() => pick(e)}
             >
+              <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
+                {catMark(e.cat)}
+              </span>
               {e.title}
             </button>
           ))}
@@ -488,11 +503,19 @@ export function CalendarPeek({
                 width: `calc((100% - 2.75rem - 10px) / ${item.cols} - 4px)`,
                 boxShadow: `inset 3px 0 0 ${CAT_COLORS[item.e.cat]}`,
               }}
+              aria-label={`${item.e.title}, ${catLabel(item.e.cat)}`}
+              title={catLabel(item.e.cat)}
               onClick={() => pick(item.e)}
             >
-              <span className="block truncate text-sm">{item.e.title}</span>
+              <span className="block truncate text-sm">
+                <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
+                  {catMark(item.e.cat)}
+                </span>
+                {item.e.title}
+              </span>
               <span className="text-xs tabular-nums text-muted-foreground">
                 {fmtWhen(item.e)}
+                {` · ${catLabel(item.e.cat)}`}
                 {item.e.loc ? ` · ${item.e.loc}` : ""}
               </span>
             </button>
