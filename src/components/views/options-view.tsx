@@ -654,13 +654,12 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Atrium stays on this device. Hook Fantastical, Google, Outlook, or Apple by exporting an .ics or
-            pasting a public iCal URL on the Calendar screen. Google Calendar can also be pulled when this
-            app is opened through a connected Grok session.
+            Atrium stays on this device. Add calendars by exporting an .ics or pasting a public iCal URL on
+            the Calendar screen — works with Fantastical, Google, Outlook, Apple, and other apps that speak
+            iCal. Google Calendar can also sync when a Google account is connected in this session.
           </p>
           <p>
-            Cash books still have their own JSON on the Cash tab. The profile backup above is the
-            whole desk.
+            Cash books keep their own JSON on the Cash tab. Profile backup above saves the whole desk.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setView("finance")}>

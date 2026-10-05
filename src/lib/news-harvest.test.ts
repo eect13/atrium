@@ -102,3 +102,27 @@ test("a full harvest is reused for ten minutes and a miss is not", async () => {
   assert.equal(capped, newest);
   clearHarvestCache();
 });
+
+test("empty dated harvest retries an undated related pull", async () => {
+  clearHarvestCache();
+  const t0 = 1_700_000_000_000;
+  const urls: string[] = [];
+  let calls = 0;
+  const pull: StoryPull = async (batch) => {
+    calls += 1;
+    urls.push(...batch);
+    const undated = batch.some((u) => !/after%3A|after:/.test(u) && !decodeURIComponent(u).includes("after:"));
+    if (undated) {
+      return { stories: [story("BDO Unibank profit rises", "BusinessWorld")], missed: [] };
+    }
+    return { stories: [], missed: [] };
+  };
+  const desk = await harvestRelatedStories(
+    { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" },
+    { pull, now: t0 },
+  );
+  assert.ok(calls >= 2);
+  assert.ok(urls.some((u) => !decodeURIComponent(u).includes("after:")));
+  assert.ok(desk.facts.length + desk.rumors.length + desk.earlier.length > 0);
+  clearHarvestCache();
+});

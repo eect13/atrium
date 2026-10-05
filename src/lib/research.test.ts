@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, NEWS_QUIET_KEEP, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
+import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, NEWS_QUIET_KEEP, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, undatedRelatedNewsUrl, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -116,6 +116,27 @@ test("LPZ is a PH desk with Lopez Holdings search aliases", () => {
   const disp = issuerDisplay(item);
   assert.equal(disp.legal, "Lopez Holdings Corporation");
   assert.ok(disp.aliases.includes("Lopez Holdings"));
+});
+
+test("short PH tickers never nest a Philippines RSS group", () => {
+  const samples = [
+    { label: "LPZ", symbol: "LPZ", name: "Lopez Holdings Corporation", kind: "stock" },
+    { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" },
+    { label: "AC", symbol: "AC", name: "Ayala Corp", kind: "stock" },
+    { label: "JFC", symbol: "JFC", name: "Jollibee", kind: "stock" },
+    { label: "SM", symbol: "SM", name: "SM Investments", kind: "stock" },
+    { label: "AEV", symbol: "AEV", name: "Aboitiz Equity", kind: "stock" },
+    { label: "DMC", symbol: "DMC", name: "DMCI Holdings", kind: "stock" },
+  ];
+  for (const item of samples) {
+    assert.equal(newsDeskId(item), "PH", item.label);
+    const q = issuerSearchQuery(item).q;
+    assert.doesNotMatch(q, /\(Philippines OR PSE OR Manila OR peso\)/, item.label);
+    assert.match(q, new RegExp(`\\b${item.label}\\b`));
+    const undated = decodeURIComponent(undatedRelatedNewsUrl(item));
+    assert.doesNotMatch(undated, /after:\d{4}-\d{2}-\d{2}/, item.label);
+    assert.match(decodeURIComponent(relatedNewsUrl(item, "30d")), /after:\d{4}-\d{2}-\d{2}/, item.label);
+  }
 });
 
 test("storyLane splits facts from rumor copy", () => {

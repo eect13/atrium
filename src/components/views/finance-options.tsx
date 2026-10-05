@@ -84,11 +84,11 @@ export function DeskStorage() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          This desk keeps a flat 10 GB on the device — same idea as Finance Manager. Used is Atrium’s
-          own data here. There is no cloud.
+          This desk reserves {formatBytes(quota)} on this device for Atrium data only. Nothing is
+          uploaded to a cloud.
         </p>
         <p className="text-sm font-medium">
-          {formatBytes(store.used)} used of 10 GB
+          {formatBytes(store.used)} used of {formatBytes(quota)}
         </p>
         <div className="h-2 overflow-hidden rounded-full bg-muted">
           <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
@@ -98,17 +98,17 @@ export function DeskStorage() {
         </p>
         <p className="text-xs text-muted-foreground">
           {store.persisted === true
-            ? "This browser agreed to keep the desk."
+            ? "This device agreed to keep the desk."
             : store.persisted === false
-              ? "Not persistent yet — the browser may evict data if storage is tight."
-              : "Persistence unknown on this browser."}
+              ? "Not locked yet — this device may clear desk data if storage is tight."
+              : "Persistence status unknown on this device."}
         </p>
         {store.persisted !== true ? (
           <Button
             variant="outline"
             onClick={async () => {
               const ok = await requestPersistentStorage();
-              toast(ok ? "Browser will try to keep this desk" : "Browser declined persistence");
+              toast(ok ? "This device will try to keep the desk" : "Persistence was declined");
               void storageInfo().then(setStore);
             }}
           >

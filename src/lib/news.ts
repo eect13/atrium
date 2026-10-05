@@ -193,16 +193,10 @@ export function issuerSearchQuery(item: { label: string; symbol: string; name?: 
       const bits = [ticker, ...names].filter((s, i, a) => s && a.indexOf(s) === i);
       return { q: `(${bits.join(" OR ")})`, minus: minusOf(spec.minus) };
     }
-    const bits = [...names];
-    if (ticker.length <= 3 && newsDeskId(item) === "PH") {
-      // Nested (TICKER (PH|…)) empties Google News RSS when OR'd with legal names (LPZ Card 102).
-      // Keep the PH group only when we lack a multi-word issuer name to carry the query.
-      const named = names.some((n) => {
-        const bare = n.replace(/^"|"$/g, "");
-        return bare.includes(" ") || bare.length > 3;
-      });
-      bits.push(named ? ticker : `(${ticker} (Philippines OR PSE OR Manila OR peso))`);
-    } else bits.push(ticker);
+    // Never nest (TICKER (Philippines|PSE|…)) — that shape empties Google News RSS for
+    // short PH tickers across the book (LPZ 0 raw; AC/AEV/DMC lose Latest). Legal names
+    // + bare ticker carry the query; PH wires + isRelatedStory already scope relevance.
+    const bits = [...names, ticker];
     return { q: `(${[...new Set(bits)].join(" OR ")})`, minus: minusOf(spec.minus) };
   }
   const bits = [ticker, name].filter((s, i, a) => s && a.indexOf(s) === i);
@@ -440,6 +434,17 @@ export function relatedNewsUrl(
   now = new Date(),
 ) {
   const q = relatedNewsQuery(item, window, now);
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${newsLocale(item)}`;
+}
+
+/** Same issuer query without after: — used when dated Google RSS returns nothing. */
+export function undatedRelatedNewsUrl(
+  item: { label: string; symbol: string; name?: string; kind: string },
+  window: NewsWindow = "30d",
+  now = new Date(),
+) {
+  const dated = relatedNewsQuery(item, window, now);
+  const q = dated.replace(/\s+after:\d{4}-\d{2}-\d{2}\b/, "").trim();
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${newsLocale(item)}`;
 }
 

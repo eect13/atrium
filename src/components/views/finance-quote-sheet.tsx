@@ -27,7 +27,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v12"],
+    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v13"],
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
