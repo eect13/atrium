@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Quote, RefreshCw, Shuffle, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -100,6 +100,7 @@ export function QuotesView() {
   const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
   const [bust, setBust] = useState(0);
+  const [filterFallback, setFilterFallback] = useState<string | null>(null);
   const filterQ = mode === "author" ? "" : person;
   const quotes = useDeskQuotes(
     mode === "author" && search.trim() ? "author" : mode === "popular" ? "popular" : "random",
@@ -153,7 +154,8 @@ export function QuotesView() {
     setMode("author");
   }
 
-  /** Modular search: Exact → author; otherwise text filter on popular/random. */
+  /** Modular search: Exact → author; otherwise text filter on popular/random.
+   *  When the filter yields empty, fall through to author mode (c35599a / Card 125). */
   function runSearch() {
     const n = person.trim();
     if (n.length < 2) return;
@@ -163,7 +165,21 @@ export function QuotesView() {
     }
     setSearch("");
     if (mode === "author") setMode("popular");
+    // Already filtering this query on popular/random and nothing matches → author.
+    if (mode !== "author") {
+      if (!list.length) goAuthor(n);
+      return;
+    }
+    // Just left author — confirm empty after the popular pool loads.
+    setFilterFallback(n);
   }
+
+  useEffect(() => {
+    if (!filterFallback || quotes.isFetching || quotes.isLoading) return;
+    const q = filterFallback;
+    setFilterFallback(null);
+    if (!(quotes.data?.quotes ?? []).length) goAuthor(q);
+  }, [filterFallback, quotes.isFetching, quotes.isLoading, quotes.data?.quotes]);
 
   return (
     <div className="mx-auto max-w-5xl">

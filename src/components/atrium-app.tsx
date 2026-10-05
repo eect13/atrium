@@ -152,7 +152,7 @@ async function pullFeeds(list: Feed[]): Promise<{ items: NewsItem[]; missed: str
   const missed: string[] = [];
   for (let i = 0; i < batches.length; i += 1) {
     const b = batches[i];
-    if (b?.status === "fulfilled") items.push(...b.value.items);
+    if (b?.status === "fulfilled" && b.value.items.length) items.push(...b.value.items);
     else missed.push(list[i]?.name || "A feed");
   }
   return { items, missed };
