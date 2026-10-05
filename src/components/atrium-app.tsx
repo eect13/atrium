@@ -691,21 +691,22 @@ export function AtriumApp() {
                   className="fixed z-[80] max-h-72 overflow-auto rounded-md border border-border bg-card py-1 shadow-[var(--shadow-border)]"
                 >
                   {hits.map((h, i) => (
-                    <li key={h.id} id={`omni-hit-${i}`} role="option" aria-selected={i === hit}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm",
-                          i === hit ? "bg-muted" : "hover:bg-muted",
-                        )}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          runCommand(h.fill);
-                        }}
-                      >
-                        <span className="truncate">{h.label}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">{h.hint}</span>
-                      </button>
+                    <li
+                      key={h.id}
+                      id={`omni-hit-${i}`}
+                      role="option"
+                      aria-selected={i === hit}
+                      className={cn(
+                        "flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm",
+                        i === hit ? "bg-muted" : "hover:bg-muted",
+                      )}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        runCommand(h.fill);
+                      }}
+                    >
+                      <span className="truncate">{h.label}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{h.hint}</span>
                     </li>
                   ))}
                 </ul>
