@@ -29,6 +29,8 @@ import {
   noteTitle,
   pct,
   sameDay,
+  dayLabel,
+  WEEKDAY_NAMES,
 } from "@/lib/format";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
@@ -334,27 +336,36 @@ export function CalendarPeek({
     return (
       <div ref={shell} className="flex h-full min-h-0 flex-col">
         {modeBar}
-        <div className="grid grid-cols-7 gap-0.5">
+        <div role="grid" aria-label={monthName(cursor)} className="grid grid-cols-7 gap-0.5">
+          <div role="row" className="contents">
           {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
             <div
               key={`${d}-${i}`}
+              role="columnheader"
               className={cn(
                 "pb-1 text-center text-[0.65rem] text-muted-foreground",
               )}
             >
-              {d}
+              <span aria-hidden="true">{d}</span>
+              <abbr className="sr-only">{WEEKDAY_NAMES[i]}</abbr>
             </div>
           ))}
-          {grid.map((c) => {
+          </div>
+          {Array.from({ length: grid.length / 7 }, (_, w) => grid.slice(w * 7, w * 7 + 7)).map((week) => (
+          <div key={isoDate(week[0].date)} role="row" className="contents">
+          {week.map((c) => {
             const key = isoDate(c.date);
             const count = byDay[key]?.length ?? 0;
             const isToday = sameDay(c.date, now);
             const on = key === day;
             const weekend = manilaParts(c.date).weekdayIndex === 0 || manilaParts(c.date).weekdayIndex === 6;
             return (
+              <div key={key + (c.out ? "-out" : "")} role="gridcell" className="contents">
               <button
-                key={key + (c.out ? "-out" : "")}
                 type="button"
+                aria-label={dayLabel(c.date, count)}
+                aria-pressed={on}
+                aria-current={isToday ? "date" : undefined}
                 onClick={() => setDay(key)}
                 className={cn(
                   "flex min-h-9 flex-col items-center justify-center rounded-sm text-xs tabular-nums",
@@ -372,8 +383,11 @@ export function CalendarPeek({
                   </span>
                 ) : null}
               </button>
+              </div>
             );
           })}
+          </div>
+          ))}
         </div>
         {dayAgenda}
         {embedded ? null : (

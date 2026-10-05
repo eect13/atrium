@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addDays, foldNoteChecks, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, noteTitle, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
+import { addDays, dayLabel, foldNoteChecks, fromManila, hexToHsv, hsvToHex, manilaParts, moneyShort, monthCells, notePlain, noteTitle, relativeDesk, setDeskZone, staleTagline } from "./format.ts";
 
 test("moneyShort compact last for large notionals", () => {
   assert.equal(moneyShort(4_850_048, "PHP"), "₱4.85M");
@@ -84,4 +84,11 @@ test("relativeDesk is desk-relative, not a month-old stamp", () => {
   assert.equal(relativeDesk("2026-09-06T12:00:00Z", now), "12d ago");
   assert.match(relativeDesk("2026-07-29T00:00:00Z", now), /Jul/);
   assert.equal(relativeDesk("", now), "");
+});
+
+test("dayLabel names a grid day with weekday, date, month and event count (FORM-WCAG #6)", () => {
+  setDeskZone({ tz: "Asia/Manila" });
+  assert.equal(dayLabel(fromManila(2026, 10, 5, 12), 4), "Mon 5 Oct, 4 events");
+  assert.equal(dayLabel(fromManila(2026, 9, 27, 12), 1), "Sun 27 Sep, 1 event");
+  assert.equal(dayLabel(fromManila(2026, 10, 27, 12), 0), "Tue 27 Oct");
 });

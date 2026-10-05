@@ -512,6 +512,16 @@ export function inkOnPaper(raw: string): string {
 }
 
 /** Month grid for the calendar and the floating month peek. */
+export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** Accessible name for a month-grid day: "Mon 5 Oct, 4 events". */
+export function dayLabel(d: Date, count: number) {
+  const p = manilaParts(d);
+  const base = `${WEEKDAYS[p.weekdayIndex]} ${p.day} ${MONTHS_SHORT[p.month - 1]}`;
+  return count ? `${base}, ${count} ${count === 1 ? "event" : "events"}` : base;
+}
+
 export function monthCells(cursor: Date) {
   const { year: y, month: m } = manilaParts(cursor);
   const first = fromManila(y, m, 1, 12);

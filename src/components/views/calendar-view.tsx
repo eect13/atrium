@@ -31,6 +31,8 @@ import {
   WORLD_ZONES,
   uid,
   weekRangeLabel,
+  dayLabel,
+  WEEKDAY_NAMES,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
 import { gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents, mapGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
@@ -390,24 +392,32 @@ export function CalendarView() {
       ) : null}
 
       {mode === "month" && (
-        <div className="grid grid-cols-7 gap-1.5">
-          {weekdays.map((d) => (
-            <div key={d} className="px-1 pb-1 text-center text-xs text-muted-foreground">
-              <span className="sm:hidden">{d[0]}</span>
-              <span className="hidden sm:inline">{d}</span>
+        <div role="grid" aria-label={monthName(cursor)} className="grid grid-cols-7 gap-1.5">
+          <div role="row" className="contents">
+          {weekdays.map((d, i) => (
+            <div key={d} role="columnheader" className="px-1 pb-1 text-center text-xs text-muted-foreground">
+              <span aria-hidden="true" className="sm:hidden">{d[0]}</span>
+              <span aria-hidden="true" className="hidden sm:inline">{d}</span>
+              <abbr className="sr-only">{WEEKDAY_NAMES[i]}</abbr>
             </div>
           ))}
-          {grid.map((c) => {
+          </div>
+          {Array.from({ length: grid.length / 7 }, (_, w) => grid.slice(w * 7, w * 7 + 7)).map((week) => (
+          <div key={isoDate(week[0].date)} role="row" className="contents">
+          {week.map((c) => {
             const evs = onDate(c.date);
             const isToday = sameDay(c.date, new Date());
             return (
               <div
                 key={isoDate(c.date) + (c.out ? "-out" : "")}
+                role="gridcell"
                 className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "border-dashed" : "bg-card"} ${isToday ? "border-ring" : "border-border"}`}
               >
                 <button
                   type="button"
                   className="flex min-h-11 w-full items-start text-left text-xs leading-none text-muted-foreground"
+                  aria-label={dayLabel(c.date, evs.length)}
+                  aria-current={isToday ? "date" : undefined}
                   onClick={() => openDay(isoDate(c.date))}
                 >
                   {c.day}
@@ -446,6 +456,8 @@ export function CalendarView() {
               </div>
             );
           })}
+          </div>
+          ))}
         </div>
       )}
 
