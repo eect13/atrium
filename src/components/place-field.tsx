@@ -28,6 +28,7 @@ export function PlaceField({
   const [hits, setHits] = useState<PlaceHit[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [active, setActive] = useState(-1);
   const picked = useRef(false);
   const seq = useRef(0);
   const hitFor = useRef("");
@@ -35,6 +36,7 @@ export function PlaceField({
   useEffect(() => {
     const query = q.trim();
     setHits([]);
+    setActive(-1);
     hitFor.current = "";
     if (query.length < 2) return;
     const t = window.setTimeout(() => {
@@ -85,9 +87,11 @@ export function PlaceField({
       <input
         id={inputId}
         aria-label={ariaLabel}
+        role="combobox"
         aria-autocomplete="list"
         aria-controls={listId}
-        aria-expanded={open}
+        aria-expanded={open && hits.length > 0}
+        aria-activedescendant={open && active >= 0 && active < hits.length ? `${listId}-${active}` : undefined}
         value={q}
         placeholder={pinned?.trim() || placeholder || "City or ZIP"}
         onChange={(e) => {
@@ -102,9 +106,16 @@ export function PlaceField({
           }, 160);
         }}
         onKeyDown={(e) => {
+          if ((e.key === "ArrowDown" || e.key === "ArrowUp") && hits.length) {
+            e.preventDefault();
+            setOpen(true);
+            setActive((a) => (e.key === "ArrowDown" ? (a + 1) % hits.length : a <= 0 ? hits.length - 1 : a - 1));
+            return;
+          }
           if (e.key === "Enter") {
             e.preventDefault();
-            void submit(q);
+            if (open && active >= 0 && active < hits.length) pick(hits[active]);
+            else void submit(q);
           }
           if (e.key === "Escape") setOpen(false);
         }}
@@ -114,20 +125,23 @@ export function PlaceField({
         <ul
           id={listId}
           role="listbox"
+          aria-label={ariaLabel}
           className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-card p-1 text-card-foreground shadow-[var(--shadow-float)]"
         >
           {hits.map((hit, i) => (
-            <li key={`${hit.lat},${hit.lon},${i}`} role="option">
-              <button
-                type="button"
-                className={cn(
-                  "flex min-h-10 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted",
-                )}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(hit)}
-              >
-                {hit.detail || hit.city}
-              </button>
+            <li
+              key={`${hit.lat},${hit.lon},${i}`}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === active}
+              className={cn(
+                "flex min-h-10 w-full items-center rounded-sm px-2 text-left text-sm",
+                i === active ? "bg-muted" : "hover:bg-muted",
+              )}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(hit)}
+            >
+              {hit.detail || hit.city}
             </li>
           ))}
         </ul>
