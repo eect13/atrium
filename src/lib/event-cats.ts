@@ -1,5 +1,7 @@
 /** User/data-driven calendar event categories (no hardcoded product copy in UI). */
 
+import { catLabel } from "@/lib/format";
+
 export type EventCategory = {
   id: string;
   label: string;
@@ -59,7 +61,7 @@ export function findEventCat(cats: EventCategory[], id: string): EventCategory |
 }
 
 export function eventCatLabel(cats: EventCategory[], id: string) {
-  return findEventCat(cats, id)?.label ?? id;
+  return findEventCat(cats, id)?.label ?? catLabel(id);
 }
 
 export function eventCatColor(cats: EventCategory[], id: string) {
@@ -88,7 +90,7 @@ export function catsWithOrphans(cats: EventCategory[], usedIds: string[]): Event
   for (const id of usedIds) {
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, label: id });
+    out.push({ id, label: catLabel(id) });
   }
   return out;
 }

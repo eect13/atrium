@@ -246,7 +246,7 @@ export function NoteColor({
           type="button"
           aria-label="Note color"
           aria-expanded={open}
-          className="flex size-9 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
+          className="flex size-11 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
           onClick={() => setOpen((v) => !v)}
         >
           <Palette className="size-3.5" />

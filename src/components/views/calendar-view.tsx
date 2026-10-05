@@ -664,7 +664,7 @@ export function CalendarView() {
                 >
                   {catOptions.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.label}
+                      {eventCatLabel(eventCats, c.id)}
                     </option>
                   ))}
                 </select>
