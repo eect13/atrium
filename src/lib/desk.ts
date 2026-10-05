@@ -14,7 +14,7 @@ export type ResizeCorner = "nw" | "ne" | "sw" | "se";
 export type ResizeEdge = "n" | "s" | "e" | "w";
 export type ResizeHandle = ResizeCorner | ResizeEdge;
 export type DeskBox = { x: number; y: number; w: number; h: number };
-export const WIDGET_KINDS = ["weather", "agenda", "calendar", "quote", "finance", "news"] as const;
+export const WIDGET_KINDS = ["weather", "agenda", "calendar", "quote", "finance", "news", "clock"] as const;
 
 export function isNarrow(width = typeof window === "undefined" ? 1280 : window.innerWidth) {
   return width < MD;

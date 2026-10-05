@@ -44,6 +44,7 @@ import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreen
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { asNewsTag, keepNewsChip } from "./headline";
 import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
+import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
@@ -175,6 +176,7 @@ type Data = {
   /** Legacy tag chip (pre-Feed). Kept for back-compat; Feed uses feedPrefs.interest. */
   newsTag: string;
   feedPrefs: FeedPrefs;
+  clockPrefs: ClockPrefs;
   railCollapsed: boolean;
   boardQuery: string;
   boardFocus: string | null;
@@ -242,6 +244,7 @@ type State = Data & {
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
   updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
+  updateClock: (fn: (p: ClockPrefs) => ClockPrefs) => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
   enableStarterFeeds: () => void;
@@ -312,6 +315,7 @@ function windowSize(kind: WidgetKind) {
   if (kind === "news") return { w: 360, h: 240 };
   if (kind === "weather") return { w: 320, h: 360 };
   if (kind === "finance") return { w: 340, h: 280 };
+  if (kind === "clock") return { w: 300, h: 280 };
   return { w: 300, h: 240 };
 }
 
@@ -398,6 +402,7 @@ function blankDesk(): Data {
     newsQuery: "",
     newsTag: "All",
     feedPrefs: { ...DEFAULT_FEED_PREFS },
+    clockPrefs: { ...DEFAULT_CLOCK_PREFS },
     railCollapsed: false,
     boardQuery: "",
     boardFocus: null,
@@ -914,6 +919,7 @@ export const useAtrium = create<State>()(
       setNewsQuery: (newsQuery) => set({ newsQuery }),
       setNewsTag: (newsTag) => set({ newsTag }),
       updateFeed: (fn) => set((s) => ({ feedPrefs: normalizeFeedPrefs(fn(s.feedPrefs)) })),
+      updateClock: (fn) => set((s) => ({ clockPrefs: normalizeClockPrefs(fn(s.clockPrefs)) })),
       toggleFeed: (id) =>
         set((s) => ({
           feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
@@ -1246,6 +1252,7 @@ export const useAtrium = create<State>()(
         newsQuery: s.newsQuery,
         newsTag: s.newsTag,
         feedPrefs: s.feedPrefs,
+        clockPrefs: s.clockPrefs,
         railCollapsed: s.railCollapsed,
         boardQuery: s.boardQuery,
         boardFocus: s.boardFocus,
@@ -1325,6 +1332,7 @@ export const useAtrium = create<State>()(
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
           newsTag: keepNewsChip(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
           feedPrefs: normalizeFeedPrefs((p as { feedPrefs?: unknown }).feedPrefs ?? (current as Data).feedPrefs),
+          clockPrefs: normalizeClockPrefs((p as { clockPrefs?: unknown }).clockPrefs ?? (current as Data).clockPrefs),
           modules: {
             calendar: true,
             weather: (p.modules as { weather?: boolean } | undefined)?.weather !== false,

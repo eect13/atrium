@@ -6,7 +6,7 @@ export type CalMode = "month" | "week" | "day" | "agenda";
 /** Category id — defaults plus user-managed (see event-cats). */
 export type EventCat = string;
 export type EventSource = "local" | "ics" | "google";
-export type WidgetKind = "weather" | "agenda" | "calendar" | "quote" | "finance" | "news";
+export type WidgetKind = "weather" | "agenda" | "calendar" | "quote" | "finance" | "news" | "clock";
 export type WatchKind = "crypto" | "fx" | "stock" | "global" | "cmdty";
 
 export type BoardTab = "all" | "watcher" | "blue" | "reit" | "div" | "crypto" | "fx" | "global" | "cmdty" | "screen";
@@ -84,6 +84,7 @@ export const WIDGET_LABEL: Record<WidgetKind, string> = {
   quote: "Quotes",
   finance: "Finance",
   news: "Feed",
+  clock: "Clock",
 };
 
 export type CalendarEvent = {

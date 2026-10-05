@@ -53,7 +53,7 @@ function shiftCursor(cursor: Date, mode: CalMode, dir: -1 | 1) {
 }
 
 function sourceLine(e: CalendarEvent) {
-  if (e.source === "google") return "Pulled from Google";
+  if (e.source === "google") return "Connected calendar";
   return e.source;
 }
 
@@ -224,7 +224,7 @@ export function CalendarView() {
     if (res.loginRequired) {
       if (!quiet) {
         redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: res.loginUrl });
-        toast("Connect Google Calendar, then try again.");
+        toast("Connect a calendar account, then try again.");
       }
       return null;
     }
@@ -245,7 +245,7 @@ export function CalendarView() {
       if (listedCals.loginRequired) {
         if (!quiet) {
           redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true, loginUrl: listedCals.loginUrl });
-          toast("Connect Google Calendar, then try again.");
+          toast("Connect a calendar account, then try again.");
         }
         return;
       }
@@ -257,7 +257,7 @@ export function CalendarView() {
     const off = useAtrium.getState().gcalOff;
     const selected = ids?.length ? ids : cals.filter((c) => !off.includes(c.id)).map((c) => c.id);
     if (!selected.length) {
-      if (!quiet) toast(cals.length ? "Those calendars are hidden" : "No Google calendars yet");
+      if (!quiet) toast(cals.length ? "Those calendars are hidden" : "No connected calendars yet");
       return;
     }
     const mapped: CalendarEvent[] = [];
@@ -278,7 +278,7 @@ export function CalendarView() {
     }
     const n = importEvents(mapped);
     if (!quiet || n) importedToast(n);
-    if (truncated) toast("Google stopped early. Later events in this window may be missing.");
+    if (truncated) toast("Calendar sync stopped early. Later events in this window may be missing.");
   }
 
   useEffect(() => {
@@ -367,8 +367,8 @@ export function CalendarView() {
         <Button variant="outline" size="sm" onClick={() => downloadICS(listed)}>
           Export
         </Button>
-        <Button variant="outline" size="sm" onClick={() => void pullGoogle()}>
-          Google
+        <Button variant="outline" className="h-11" onClick={() => void pullGoogle()}>
+          Connect calendar
         </Button>
         <Button size="sm" onClick={() => openDay(isoDate())}>
           New event
@@ -376,11 +376,11 @@ export function CalendarView() {
         <FloatBtn kind="calendar" />
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
-        Integrate by importing an .ics, pasting a public iCal URL, exporting Atrium, or pulling Google Calendar when connected.
+        Integrate by importing an .ics, pasting a public iCal URL, exporting Atrium, or connecting a calendar account when signed in.
       </p>
       <div className="mb-6 flex flex-col gap-2 sm:flex-row">
         <Input
-          placeholder="Public iCal URL (Google secret address, Outlook, Apple)"
+          placeholder="Public iCal URL (secret iCal address, Outlook, Apple…)"
           value={subUrl}
           onChange={(e) => setSubUrl(e.target.value)}
         />
@@ -390,7 +390,7 @@ export function CalendarView() {
       </div>
       {gcalCals.length ? (
         <div className="mb-6 flex flex-wrap items-center gap-2">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Google</p>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Connected calendars</p>
           {gcalCals.map((c) => {
             const on = !gcalOff.includes(c.id);
             return (
@@ -780,7 +780,7 @@ export function CalendarView() {
               </div>
             </div>
             {fromGoogle ? (
-              <p className="text-xs text-muted-foreground">Pulled from Google. A change here stays on this desk and is not written back.</p>
+              <p className="text-xs text-muted-foreground">From a connected calendar. A change here stays on this desk and is not written back.</p>
             ) : null}
             {guests ? <p className="text-xs text-muted-foreground">Guests: {guests}</p> : null}
             {meet ? (

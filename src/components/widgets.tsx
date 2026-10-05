@@ -32,13 +32,14 @@ import {
   dayLabel,
   WEEKDAY_NAMES,
 } from "@/lib/format";
-import { eventCatColor, eventCatLabel, eventCatMark } from "@/lib/event-cats";
+import { eventCatColor, eventCatLabel, eventCatMark, eventCatTagStyle } from "@/lib/event-cats";
 import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
 import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
+import { cityFromTz, clockList, formatZoneTime, formatZoneWeekday } from "@/lib/clock";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
@@ -85,17 +86,15 @@ export function AgendaBody() {
           type="button"
           className="flex min-h-11 w-full items-start gap-3 text-left"
           onClick={() => setView("calendar")}
+          aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
         >
-          <span
-            className="mt-1 size-2 shrink-0 rounded-full"
-            style={{ background: eventCatColor(eventCats, e.cat) }}
-            title={eventCatLabel(eventCats, e.cat)}
-          />
-          <span>
-            <span className="block text-sm font-medium">{e.title}</span>
+          <span className="cat-tag cat-tag-lg mt-0.5 shrink-0" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
+            <span>{eventCatLabel(eventCats, e.cat)}</span>
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium leading-snug">{e.title}</span>
             <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
               {fmtWhen(e)}
-              {` · ${eventCatLabel(eventCats, e.cat)}`}
               {e.loc ? ` · ${e.loc}` : ""}
             </span>
           </span>
@@ -874,6 +873,47 @@ export function NewsPeek({
   );
 }
 
+export function ClockBody({ preview = false }: { preview?: boolean }) {
+  const profile = useAtrium((s) => s.profile);
+  const clockPrefs = useAtrium((s) => s.clockPrefs);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const primary = profile.tz?.trim() || "UTC";
+  const zones = clockList(primary, clockPrefs);
+  const hour24 = clockPrefs.hour24;
+  const locale = profile.locale;
+  const main = zones[0]!;
+  const rest = zones.slice(1);
+  return (
+    <div className={preview ? "space-y-1" : "space-y-3"}>
+      <div>
+        <p className="font-display text-3xl font-medium tabular-nums tracking-tight">
+          {formatZoneTime(now, main, { hour24, seconds: !preview, locale })}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {preview
+            ? cityFromTz(main)
+            : `${formatZoneWeekday(now, main, locale)} · ${cityFromTz(main)}`}
+          {!preview ? ` · ${hour24 ? "24h" : "12h"}` : ""}
+        </p>
+      </div>
+      {rest.length ? (
+        <ul className="space-y-1.5">
+          {rest.map((z) => (
+            <li key={z} className="flex min-h-9 items-center justify-between gap-3 text-sm">
+              <span className="truncate text-muted-foreground">{cityFromTz(z)}</span>
+              <span className="tabular-nums">{formatZoneTime(now, z, { hour24, locale })}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function WidgetBody({
   kind,
   headlines,
@@ -892,5 +932,6 @@ export function WidgetBody({
   if (kind === "calendar") return <CalendarPeek />;
   if (kind === "quote") return <QuoteBody />;
   if (kind === "finance") return <FinancePeek />;
+  if (kind === "clock") return <ClockBody />;
   return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />;
 }

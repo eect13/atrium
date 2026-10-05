@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { X } from "lucide-react";
+import { MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
@@ -22,6 +23,7 @@ import {
   withInterest,
   withoutHub,
   withoutInterest,
+  patchHub,
   type DigestFreq,
   type DigestLine,
   type FeedPrefs,
@@ -30,6 +32,12 @@ import {
   storyKey,
 } from "@/lib/feed";
 import type { NewsItem } from "@/lib/types";
+import {
+  downloadHubItemMarkdown,
+  downloadHubItemPdf,
+  downloadHubMarkdown,
+  downloadHubPdf,
+} from "@/lib/hub-export";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 
 type Update = (fn: (p: FeedPrefs) => FeedPrefs) => void;
@@ -151,42 +159,191 @@ export function SummaryBlock({
   );
 }
 
-function HubCard({ item, onRemove, compact }: { item: HubItem; onRemove: () => void; compact?: boolean }) {
+function HubCard({
+  item,
+  update,
+  compact,
+}: {
+  item: HubItem;
+  update: Update;
+  compact?: boolean;
+}) {
+  const [menu, setMenu] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [note, setNote] = useState(item.note ?? "");
+  const root = useRef<HTMLElement | null>(null);
+  useEffect(() => setNote(item.note ?? ""), [item.note, item.id]);
+  useEffect(() => {
+    if (!menu && !confirm) return;
+    const ac = new AbortController();
+    window.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!root.current?.contains(e.target as Node)) {
+          setMenu(false);
+          setConfirm(false);
+        }
+      },
+      { signal: ac.signal },
+    );
+    return () => ac.abort();
+  }, [menu, confirm]);
+
+  function remove() {
+    update((p) => withoutHub(p, item.id));
+    toast(`Removed ${item.title}`);
+    setConfirm(false);
+    setMenu(false);
+  }
+
   return (
-    <article className={`${CARD} group relative p-3 ${compact ? "w-44 shrink-0" : ""}`}>
-      <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={onExternalAnchorClick} className="block">
-        <div className={`flex items-center justify-center rounded-lg bg-muted ${compact ? "h-24" : "aspect-video"}`}>
-          <span className={EYEBROW}>{item.kind}</span>
+    <article ref={root} className={`${CARD} relative p-3 ${compact ? "w-52 shrink-0" : ""}`}>
+      <div className="flex items-start gap-2">
+        <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={onExternalAnchorClick} className="min-w-0 grow">
+          <p className="line-clamp-2 text-sm font-medium leading-snug">{item.title}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.src || hostOf(item.url)}</p>
+        </a>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            aria-label={`More for ${item.title}`}
+            aria-expanded={menu}
+            aria-haspopup="menu"
+            className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => {
+              setConfirm(false);
+              setMenu((v) => !v);
+            }}
+          >
+            <MoreHorizontal className="size-4" />
+          </button>
+          {menu ? (
+            <div role="menu" className="absolute right-0 top-12 z-30 w-40 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]">
+              <button
+                type="button"
+                role="menuitem"
+                className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
+                onClick={() => {
+                  downloadHubItemMarkdown(item);
+                  setMenu(false);
+                  toast("Exported .md");
+                }}
+              >
+                Export
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm text-destructive hover:bg-destructive/15"
+                onClick={() => {
+                  setMenu(false);
+                  setConfirm(true);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ) : null}
         </div>
-        <p className="mt-2 line-clamp-2 text-sm font-medium leading-snug">{item.title}</p>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.src || hostOf(item.url)}</p>
-      </a>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${item.title} from hub`}
-        className="absolute right-1.5 top-1.5 inline-flex size-9 items-center justify-center rounded-md bg-card/80 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <X className="size-4" />
-      </button>
+      </div>
+      {confirm ? (
+        <div className="mt-2 rounded-md border border-destructive/50 bg-destructive/10 p-2" role="group" aria-label={`Delete ${item.title}?`}>
+          <p className="text-sm">Delete <strong className="font-semibold">{item.title}</strong>?</p>
+          <div className="mt-2 flex gap-2">
+            <Button type="button" variant="outline" className="h-11" onClick={() => setConfirm(false)}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" className="h-11" onClick={remove}>
+              Delete
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={() => {
+            const next = note.trim();
+            if ((item.note ?? "") === next) return;
+            update((p) => patchHub(p, item.id, { note: next }));
+          }}
+          placeholder="Optional note…"
+          className="mt-2 min-h-[4.5rem] resize-y"
+          aria-label={`Note for ${item.title}`}
+        />
+      )}
     </article>
   );
 }
 
 /** B · resource hub. `rail` = desktop 320px column; `strip` = phone horizontal scroller. */
 export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update: Update; onAdd: () => void; layout: "rail" | "strip" }) {
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!exportOpen) return;
+    const ac = new AbortController();
+    window.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!exportRef.current?.contains(e.target as Node)) setExportOpen(false);
+      },
+      { signal: ac.signal },
+    );
+    return () => ac.abort();
+  }, [exportOpen]);
+
   const head = (
-    <div className="mb-2 flex items-center justify-between gap-2">
+    <div className="mb-2 flex flex-wrap items-center gap-2">
       <h3 className={EYEBROW}>Resource hub</h3>
+      <div className="grow" />
+      <div className="relative" ref={exportRef}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-11"
+          aria-expanded={exportOpen}
+          aria-haspopup="menu"
+          onClick={() => setExportOpen((v) => !v)}
+          disabled={!prefs.hub.length}
+        >
+          Export hub
+        </Button>
+        {exportOpen ? (
+          <div role="menu" className="absolute right-0 top-12 z-30 w-44 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]">
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                downloadHubMarkdown(prefs.hub);
+                setExportOpen(false);
+                toast("Exported hub .md");
+              }}
+            >
+              Export .md
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                downloadHubPdf(prefs.hub);
+                setExportOpen(false);
+                toast("Exported hub PDF");
+              }}
+            >
+              Export PDF
+            </button>
+          </div>
+        ) : null}
+      </div>
       <Button variant="ghost" size="sm" className="min-h-11" onClick={onAdd}>
-        Add
+        + Add
       </Button>
     </div>
   );
-  const remove = (h: HubItem) => {
-    update((p) => withoutHub(p, h.id));
-    toast(`Removed ${h.title}`);
-  };
+
   if (!prefs.hub.length) {
     return (
       <section aria-label="Resource hub">
@@ -203,13 +360,13 @@ export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update
       {layout === "rail" ? (
         <div className="space-y-3">
           {prefs.hub.map((h) => (
-            <HubCard key={h.id} item={h} onRemove={() => remove(h)} />
+            <HubCard key={h.id} item={h} update={update} />
           ))}
         </div>
       ) : (
         <div className="scroll-auto -mx-3 flex gap-3 overflow-x-auto px-3 pb-1">
           {prefs.hub.map((h) => (
-            <HubCard key={h.id} item={h} compact onRemove={() => remove(h)} />
+            <HubCard key={h.id} item={h} compact update={update} />
           ))}
         </div>
       )}
@@ -272,12 +429,17 @@ export function InterestDialog({
   suggestions: string[];
 }) {
   const [draft, setDraft] = useState("");
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   const add = (label: string) => {
     update((p) => withInterest(p, label));
     setDraft("");
   };
+  function close(next: boolean) {
+    if (!next) setConfirmId(null);
+    setOpen(next);
+  }
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Interests</DialogTitle>
@@ -313,19 +475,65 @@ export function InterestDialog({
           <div>
             <p className={`${EYEBROW} mb-2`}>Yours</p>
             {prefs.interests.length ? (
-              <ul className="space-y-1">
-                {prefs.interests.map((i) => (
-                  <li key={i} className="flex min-h-11 items-center justify-between gap-2">
-                    <span className="truncate text-sm">{i}</span>
-                    <Button variant="ghost" size="sm" className="min-h-11" onClick={() => update((p) => withoutInterest(p, i))}>
-                      Remove
-                    </Button>
-                  </li>
-                ))}
+              <ul className="space-y-2">
+                {prefs.interests.map((i) =>
+                  confirmId === i ? (
+                    <li
+                      key={i}
+                      className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2 py-1.5"
+                      role="group"
+                      aria-label={`Delete ${i}?`}
+                    >
+                      <p className="min-w-0 grow text-sm">
+                        Delete <strong className="font-semibold">{i}</strong>? Stories stay; the tab goes.
+                      </p>
+                      <div className="ml-auto flex gap-2">
+                        <Button type="button" variant="outline" className="h-11" onClick={() => setConfirmId(null)} autoFocus>
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          className="h-11"
+                          onClick={() => {
+                            update((p) => withoutInterest(p, i));
+                            setConfirmId(null);
+                            toast(`Removed ${i}`);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </li>
+                  ) : (
+                    <li key={i} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-border px-2">
+                      <span className="truncate text-sm">{i}</span>
+                      <button
+                        type="button"
+                        className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Delete ${i}`}
+                        onClick={() => setConfirmId(i)}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </li>
+                  ),
+                )}
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">None yet — All shows every story.</p>
             )}
+          </div>
+          <div className="border-t border-border pt-3">
+            <label className="flex min-h-11 items-center justify-between gap-3 text-sm">
+              <span>Daily digest hero</span>
+              <Switch checked={prefs.digestOn} onCheckedChange={(v) => update((p) => ({ ...p, digestOn: v }))} />
+            </label>
+          </div>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" className="h-11" onClick={() => close(false)}>
+              Done
+            </Button>
           </div>
         </div>
       </DialogContent>

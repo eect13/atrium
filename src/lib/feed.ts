@@ -9,7 +9,7 @@ export type StockRef = { id?: string; label: string; symbol: string; name?: stri
 export type StockOf = (interest: string) => StockRef | null | undefined;
 
 export type HubKind = "link" | "video" | "doc";
-export type HubItem = { id: string; url: string; title: string; kind: HubKind; src?: string; at: string };
+export type HubItem = { id: string; url: string; title: string; kind: HubKind; src?: string; at: string; note?: string };
 export type DigestFreq = "daily" | "weekdays" | "weekly";
 
 export type FeedPrefs = {
@@ -95,6 +95,7 @@ function asHub(raw: unknown): HubItem | null {
   const url = typeof r.url === "string" ? r.url.trim() : "";
   if (!/^https?:\/\//i.test(url)) return null;
   const kind = r.kind === "video" || r.kind === "doc" || r.kind === "link" ? r.kind : hubKind(url);
+  const note = typeof r.note === "string" ? r.note.trim().slice(0, 2000) : "";
   return {
     id: typeof r.id === "string" && r.id ? r.id : url,
     url,
@@ -102,6 +103,7 @@ function asHub(raw: unknown): HubItem | null {
     kind,
     src: typeof r.src === "string" && r.src.trim() ? r.src.trim() : undefined,
     at: typeof r.at === "string" ? r.at : "",
+    ...(note ? { note } : {}),
   };
 }
 
@@ -158,12 +160,41 @@ export function withoutInterest(p: FeedPrefs, label: string): FeedPrefs {
 export function withHub(p: FeedPrefs, item: Omit<HubItem, "kind"> & { kind?: HubKind }): FeedPrefs {
   const url = item.url.trim();
   if (!/^https?:\/\//i.test(url) || p.hub.some((h) => h.url === url)) return p;
-  const next: HubItem = { ...item, url, title: item.title.trim() || hostOf(url), kind: item.kind ?? hubKind(url) };
+  const note = typeof item.note === "string" ? item.note.trim().slice(0, 2000) : "";
+  const next: HubItem = {
+    ...item,
+    url,
+    title: item.title.trim() || hostOf(url),
+    kind: item.kind ?? hubKind(url),
+    ...(note ? { note } : { note: undefined }),
+  };
+  if (!note) delete next.note;
   return { ...p, hub: [next, ...p.hub].slice(0, HUB_MAX) };
 }
 
 export function withoutHub(p: FeedPrefs, id: string): FeedPrefs {
   return { ...p, hub: p.hub.filter((h) => h.id !== id) };
+}
+
+export function patchHub(p: FeedPrefs, id: string, patch: Partial<Pick<HubItem, "title" | "note" | "url">>): FeedPrefs {
+  return {
+    ...p,
+    hub: p.hub.map((h) => {
+      if (h.id !== id) return h;
+      const next = { ...h, ...patch };
+      if (typeof patch.note === "string") {
+        const note = patch.note.trim().slice(0, 2000);
+        if (note) next.note = note;
+        else delete next.note;
+      }
+      if (typeof patch.title === "string") next.title = patch.title.trim() || hostOf(next.url);
+      if (typeof patch.url === "string" && /^https?:\/\//i.test(patch.url.trim())) {
+        next.url = patch.url.trim();
+        next.kind = hubKind(next.url);
+      }
+      return next;
+    }),
+  };
 }
 
 function toggle(list: string[], key: string): string[] {

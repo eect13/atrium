@@ -247,13 +247,36 @@ export function FeedView({
                 <Input
                   value={newsQuery}
                   onChange={(e) => setNewsQuery(e.target.value)}
-                  placeholder="Search this feed"
+                  placeholder="Search sources & topics"
                   className="h-11 pl-9"
-                  aria-label="Search feed"
+                  aria-label="Search sources and topics"
                   autoComplete="off"
                 />
               </form>
             ) : null}
+            {(() => {
+              const qn = newsQuery.trim().toLowerCase();
+              if (!qn) return null;
+              const topics = prefs.interests.filter((i) => i.toLowerCase().includes(qn)).slice(0, 6);
+              const sources = [...new Set(pool.map((n) => n.src).filter(Boolean))]
+                .filter((s) => (s ?? "").toLowerCase().includes(qn))
+                .slice(0, 6) as string[];
+              if (!topics.length && !sources.length) return null;
+              return (
+                <div className="mb-3 flex flex-wrap gap-2" aria-label="Matching topics and sources">
+                  {topics.map((i) => (
+                    <span key={`int-${i}`} className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                      Topic · {i}
+                    </span>
+                  ))}
+                  {sources.map((s) => (
+                    <span key={`src-${s}`} className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                      Source · {s}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
             {hero ? (
               <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
                 <a

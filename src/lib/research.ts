@@ -4,6 +4,7 @@ import { nameWeight, sleeveWeight, weightTake } from "./psei-weight.ts";
 import { isPseiItem, PSEI_SYMBOL } from "./yahoo.ts";
 import { bankFiling, distortedPublicTape, filingFreshness, justifiedPb, liveBankFiling } from "./pse-fundamentals.ts";
 import { issuerDisplay } from "./news.ts";
+import { deskPdf, downloadPdf as savePdfBytes, wrapPdfText, type DeskPdfLine } from "./desk-pdf.ts";
 
 export type ResearchNote = {
   ticker: string;
@@ -37,32 +38,6 @@ export type ResearchNote = {
   metrics: { pe: string; ep: string; pb: string; yld: string; wt: string; week: string; weekLabel: string; vol: string; roe: string; nim: string; npl: string; cet1: string; ch1y: string; rsi: string; sma50: string };
 };
 
-function ascii(s: string) {
-  return s
-    .replaceAll("₱", "PHP ")
-    .replaceAll("¥", "JPY ")
-    .replaceAll("€", "EUR ")
-    .replaceAll("£", "GBP ")
-    .replaceAll("₩", "KRW ")
-    .replaceAll("₹", "INR ")
-    .replace(/[^\x20-\x7E]/g, "")
-    .trim();
-}
-
-function wrap(text: string, width: number) {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (next.length > width) {
-      if (cur) lines.push(cur);
-      cur = w.length > width ? w.slice(0, width) : w;
-    } else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
 
 function moneyShown(n: number | undefined, ccy: string) {
   if (n == null || !Number.isFinite(n)) return "-";
@@ -461,112 +436,10 @@ export function buildResearch(row: BoardRow, asOf = new Date(), opts?: { sparkLa
   };
 }
 
-function pdfEscape(s: string) {
-  return ascii(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-}
-
-type PdfLine = { text: string; size: number; bold?: boolean; gap?: number; gray?: boolean };
-
-function headerOps() {
-  return [
-    "0.08 0.08 0.09 rg",
-    "0 792 595 50 re f",
-    "1 1 1 rg",
-    "BT",
-    "/F2 11 Tf",
-    "1 0 0 1 48 810 Tm",
-    "(ATRIUM RESEARCH) Tj",
-    "ET",
-    "0.82 0.82 0.8 rg",
-    "48 786 499 0.6 re f",
-  ].join("\n");
-}
-
-function lineOps(line: PdfLine, y: number) {
-  const font = line.bold ? "F2" : "F1";
-  const fill = line.gray ? "0.42 0.42 0.4 rg" : "0.09 0.09 0.09 rg";
-  return [
-    "BT",
-    fill,
-    `/${font} ${line.size} Tf`,
-    `1 0 0 1 48 ${y} Tm`,
-    `(${pdfEscape(line.text)}) Tj`,
-    "ET",
-  ].join("\n");
-}
-
-function paginateOps(lines: PdfLine[]): string[] {
-  const pages: string[] = [];
-  let ops: string[] = [headerOps()];
-  let y = 768;
-  for (const line of lines) {
-    const gap = line.gap ?? 14;
-    if (y - gap < 40) {
-      pages.push(ops.join("\n"));
-      ops = [headerOps()];
-      y = 768;
-    }
-    ops.push(lineOps(line, y));
-    y -= gap;
-  }
-  pages.push(ops.join("\n"));
-  return pages;
-}
-
-function encodePdf(pages: string[]): Uint8Array {
-  const enc = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  const offsets: number[] = [0];
-  let pos = 0;
-  const push = (s: string) => {
-    const b = enc.encode(s);
-    chunks.push(b);
-    pos += b.byteLength;
-  };
-  const obj = (n: number, body: string) => {
-    offsets[n] = pos;
-    push(`${n} 0 obj ${body} endobj\n`);
-  };
-  push("%PDF-1.4\n");
-  const kids = pages.map((_, i) => `${5 + 2 * i} 0 R`).join(" ");
-  obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
-  obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
-  obj(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  obj(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
-  pages.forEach((draw, i) => {
-    const pageNo = 5 + 2 * i;
-    const contentNo = 6 + 2 * i;
-    const stream = enc.encode(draw);
-    obj(
-      pageNo,
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentNo} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`,
-    );
-    offsets[contentNo] = pos;
-    push(`${contentNo} 0 obj << /Length ${stream.byteLength} >> stream\n`);
-    chunks.push(stream);
-    pos += stream.byteLength;
-    push("\nendstream endobj\n");
-  });
-  const xrefAt = pos;
-  const last = 4 + 2 * pages.length;
-  let xref = `xref\n0 ${last + 1}\n0000000000 65535 f \n`;
-  for (let i = 1; i <= last; i += 1) {
-    xref += `${String(offsets[i] ?? 0).padStart(10, "0")} 00000 n \n`;
-  }
-  push(xref);
-  push(`trailer << /Size ${last + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`);
-  const out = new Uint8Array(pos);
-  let o = 0;
-  for (const c of chunks) {
-    out.set(c, o);
-    o += c.byteLength;
-  }
-  return out;
-}
-
 /** Helvetica desk note — paginates when the Expert take runs long. */
 export function researchPdf(note: ResearchNote): Uint8Array {
-  const lines: PdfLine[] = [
+  const wrap = wrapPdfText;
+  const lines: DeskPdfLine[] = [
     { text: `${note.ticker}  ${note.name}`, size: 18, bold: true, gap: 16 },
     { text: note.issuerLine, size: 9, gap: 8, gray: true },
     { text: note.asOf, size: 9, gap: 8, gray: true },
@@ -577,7 +450,7 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     { text: `High ${note.high}    Low ${note.low}`, size: 10, gap: 12 },
     { text: `PE ${note.metrics.pe}    E/P ${note.metrics.ep}    P/B ${note.metrics.pb}    Yld ${note.metrics.yld}`, size: 10, gap: 12 },
     ...(note.metrics.roe !== "—"
-      ? [{ text: `ROE ${note.metrics.roe}    NIM ${note.metrics.nim}    NPL ${note.metrics.npl}    CET1 ${note.metrics.cet1}`, size: 10, gap: 12 } as PdfLine]
+      ? [{ text: `ROE ${note.metrics.roe}    NIM ${note.metrics.nim}    NPL ${note.metrics.npl}    CET1 ${note.metrics.cet1}`, size: 10, gap: 12 } as DeskPdfLine]
       : []),
     { text: `Support ${note.support}    Pivot ${note.pivot}    Resistance ${note.resistance}`, size: 10, gap: 18 },
     { text: `52w chg ${note.metrics.ch1y}    SMA50 ${note.metrics.sma50}    RSI ${note.metrics.rsi}`, size: 10, gap: 18 },
@@ -586,25 +459,25 @@ export function researchPdf(note: ResearchNote): Uint8Array {
     ...note.technical.slice(0, 2).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
     ...((note.expert ?? []).length
       ? [
-          { text: "CFA DESK / EXPERT", size: 9, bold: true, gap: 14 } as PdfLine,
+          { text: "CFA DESK / EXPERT", size: 9, bold: true, gap: 14 } as DeskPdfLine,
           ...(note.expert ?? []).slice(0, 8).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
     ...((note.watch ?? []).length
       ? [
-          { text: "WATCH", size: 9, bold: true, gap: 14 } as PdfLine,
+          { text: "WATCH", size: 9, bold: true, gap: 14 } as DeskPdfLine,
           ...(note.watch ?? []).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
     ...((note.risk ?? []).length
       ? [
-          { text: "RISK", size: 9, bold: true, gap: 14 } as PdfLine,
+          { text: "RISK", size: 9, bold: true, gap: 14 } as DeskPdfLine,
           ...(note.risk ?? []).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
     ...((note.next ?? []).length
       ? [
-          { text: "NEXT", size: 9, bold: true, gap: 14 } as PdfLine,
+          { text: "NEXT", size: 9, bold: true, gap: 14 } as DeskPdfLine,
           ...(note.next ?? []).flatMap((t) => wrap(t, 86).map((text, i) => ({ text: i === 0 ? `* ${text}` : `  ${text}`, size: 10, gap: 12 }))),
         ]
       : []),
@@ -615,24 +488,13 @@ export function researchPdf(note: ResearchNote): Uint8Array {
       gray: true,
     },
   ];
-  return encodePdf(paginateOps(lines));
+  return deskPdf(lines, "ATRIUM RESEARCH");
 }
 
 export function downloadPdf(filename: string, bytes: Uint8Array) {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-  const blob = new Blob([copy], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  return url;
+  return savePdfBytes(filename, bytes);
 }
+
 
 export {
   NEWS_FRESH_DAYS,

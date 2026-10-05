@@ -28,6 +28,14 @@ import { Chip, FIELD_SELECT } from "./finance-chip";
 import { packIsOn, sortedFeedPacks } from "@/lib/feeds";
 import { DigestFields } from "./feed-panels";
 import { DESK_REGIONS, clockZones, normalizeMarkets, regionOf, toggleMarket } from "@/lib/region";
+import {
+  cityFromTz,
+  formatZoneTime,
+  resolveZoneId,
+  withClockZone,
+  withoutClockZone,
+} from "@/lib/clock";
+import { ClockBody } from "@/components/widgets";
 import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
@@ -41,6 +49,7 @@ const OPTIONAL = [
 const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" | "weather" }[] = [
   { kind: "weather", need: "weather" },
   { kind: "calendar" },
+  { kind: "clock" },
   { kind: "quote", need: "quotes" },
   { kind: "finance", need: "finance" },
   { kind: "news", need: "news" },
@@ -53,11 +62,123 @@ const JUMP = [
   { id: "opt-modules", label: "Modules" },
   { id: "opt-markets", label: "Markets" },
   { id: "opt-news", label: "Feed" },
+  { id: "opt-clocks", label: "Clocks" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
   { id: "opt-storage", label: "Storage" },
   { id: "opt-data", label: "Data" },
 ];
+
+
+function WorldClocksCard() {
+  const profile = useAtrium((s) => s.profile);
+  const clockPrefs = useAtrium((s) => s.clockPrefs);
+  const updateClock = useAtrium((s) => s.updateClock);
+  const [draft, setDraft] = useState("");
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const primary = profile.tz?.trim() || regionOf(profile.region).tz;
+  const rows = clockPrefs.zones;
+  function add() {
+    const id = resolveZoneId(draft);
+    if (!id) {
+      toast("Use a city or IANA zone");
+      return;
+    }
+    if (id === primary || clockPrefs.zones.includes(id)) {
+      toast("Already on the list");
+      setDraft("");
+      return;
+    }
+    updateClock((p) => withClockZone(p, id));
+    setDraft("");
+    toast(`Added ${cityFromTz(id)}`);
+  }
+  return (
+    <Card id="opt-clocks" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle>World clocks</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <label className="flex min-h-11 items-center justify-between gap-3 text-sm">
+          <span>24-hour time</span>
+          <Switch
+            checked={clockPrefs.hour24}
+            onCheckedChange={(v) => updateClock((p) => ({ ...p, hour24: v }))}
+            aria-label="24-hour time"
+          />
+        </label>
+        <ul className="space-y-1">
+          {rows.length ? (
+            rows.map((z) => (
+              <li key={z} className="flex min-h-11 items-center gap-2 rounded-md border border-border px-2">
+                <span className="min-w-0 grow truncate text-sm">
+                  {cityFromTz(z)}
+                  <span className="text-muted-foreground"> · {z}</span>
+                </span>
+                <span className="shrink-0 tabular-nums text-sm">
+                  {formatZoneTime(now, z, { hour24: clockPrefs.hour24, locale: profile.locale })}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 shrink-0"
+                  aria-label={`Remove ${cityFromTz(z)}`}
+                  onClick={() => {
+                    updateClock((p) => withoutClockZone(p, z));
+                    toast(`Removed ${cityFromTz(z)}`);
+                  }}
+                >
+                  ×
+                </Button>
+              </li>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">No world zones yet — desk clock stays primary.</p>
+          )}
+        </ul>
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+        >
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Add zone (city or IANA)"
+            className="h-11"
+            aria-label="Add zone"
+            autoComplete="off"
+            list="opt-clock-zones"
+          />
+          <datalist id="opt-clock-zones">
+            {clockZones().map((z) => (
+              <option key={z.id} value={z.id}>
+                {z.label}
+              </option>
+            ))}
+          </datalist>
+          <Button type="submit" className="h-11" disabled={!draft.trim()}>
+            Add
+          </Button>
+        </form>
+        <div className="rounded-xl border border-border bg-muted/40 p-3 lg:hidden">
+          <p className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">Widget preview</p>
+          <ClockBody preview />
+        </div>
+        <p className="hidden text-xs text-muted-foreground lg:block">
+          Pin Clock from Floating desk or the desk menu. Floats stay desktop-only.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
 function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: (p: Partial<Profile>) => void }) {
   const setView = useAtrium((s) => s.setView);
@@ -629,6 +750,9 @@ export function OptionsView() {
           </div>
         </CardContent>
       </Card>
+
+      <WorldClocksCard />
+
       <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
         <DialogContent>
           <DialogHeader>
@@ -686,8 +810,8 @@ export function OptionsView() {
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
             Atrium stays on this device. Add calendars by exporting an .ics or pasting a public iCal URL on
-            the Calendar screen — works with Fantastical, Google, Outlook, Apple, and other apps that speak
-            iCal. Google Calendar can also sync when a Google account is connected in this session.
+            the Calendar screen — works with Fantastical, Outlook, Apple, and other apps that speak iCal.
+            Connected calendar accounts can also sync when signed in on this session.
           </p>
           <p>
             Cash books keep their own JSON on the Cash tab. Profile backup above saves the whole desk.

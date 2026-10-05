@@ -21,6 +21,7 @@ import {
   withInterest,
   withoutHub,
   withoutInterest,
+  patchHub,
 } from "./feed.ts";
 
 const s = (title: string, src: string, link: string, extra: Record<string, string> = {}) => ({ title, src, link, desc: "", category: "", date: "", ...extra });
@@ -180,4 +181,15 @@ test("short plain terms need word edges (no 'ai' inside 'said')", () => {
   assert.equal(matchesInterest(s("Officials said rates hold", "Wire", "y1"), "ai"), false);
   assert.equal(matchesInterest(s("New AI chip ships", "Wire", "y2"), "ai"), true);
   assert.equal(matchesInterest(s("Back to basics", "Wire", "y3"), "AC"), false);
+});
+
+test("hub note persists through normalize and patchHub", () => {
+  let p = withHub(DEFAULT_FEED_PREFS, { id: "h1", url: "https://example.com/a", title: "A", at: "t", note: "  hello  " });
+  assert.equal(p.hub[0]!.note, "hello");
+  p = normalizeFeedPrefs(p);
+  assert.equal(p.hub[0]!.note, "hello");
+  p = patchHub(p, "h1", { note: "  " });
+  assert.equal(p.hub[0]!.note, undefined);
+  p = patchHub(p, "h1", { note: "kept" });
+  assert.equal(p.hub[0]!.note, "kept");
 });
