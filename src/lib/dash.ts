@@ -55,10 +55,10 @@ export function normalizeDashSpan(raw?: unknown): Partial<Record<DashCard, numbe
 export const DASH_LABEL: Record<DashCard, string> = {
   weather: "Today",
   agenda: "Up next",
-  quote: "Quote",
+  quote: "Quotes",
   finance: "Finance",
   notes: "Notes",
-  news: "Headlines",
+  news: "News",
 };
 
 export function normalizeDash(raw?: unknown): DashCard[] {

@@ -24,6 +24,43 @@ async fn fetch_text(url: String) -> Result<String, String> {
     Ok(text)
 }
 
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if blocked_url(&url) {
+        return Err("That address is not allowed".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = url;
+        Err("Open URL is not supported on this platform".into())
+    }
+}
+
 fn blocked_url(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url) else {
         return true;
@@ -103,7 +140,7 @@ pub fn run() {
     }
 
     builder
-        .invoke_handler(tauri::generate_handler![fetch_text])
+        .invoke_handler(tauri::generate_handler![fetch_text, open_url])
         .setup(|app| {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {

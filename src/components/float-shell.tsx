@@ -132,6 +132,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
               ink={ink}
               color={note.color}
               pinned
+              reveal="always"
               onColor={(color) => updateNote(note.id, { color })}
               onFloat={() => void dismiss(() => unpinNote(note.id))}
               onDelete={() => void dismiss(() => removeNote(note.id))}
@@ -146,6 +147,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
         <NoteFormat
           ink={ink}
           drawing={drawing}
+          docked
           canUndo={Boolean(note.ink?.length)}
           canRedo={inkRedo.canRedoFor(note.id)}
           onDraw={() => setDrawing((v) => !v)}

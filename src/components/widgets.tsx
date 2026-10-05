@@ -11,10 +11,6 @@ import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
   addDays,
-  CAT_COLORS,
-  catLabel,
-  catMark,
-  deskZone,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -34,6 +30,8 @@ import {
   dayLabel,
   WEEKDAY_NAMES,
 } from "@/lib/format";
+import { eventCatColor, eventCatLabel, eventCatMark } from "@/lib/event-cats";
+import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
 import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
@@ -63,6 +61,7 @@ export function WeatherBody() {
 
 export function AgendaBody() {
   const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
+  const eventCats = useAtrium((s) => s.eventCats);
   const setView = useAtrium((s) => s.setView);
   const todayStart = manilaAt(isoDate(new Date()), 0);
   const events = expandEvents(stored, todayStart, addDays(todayStart, 1));
@@ -85,11 +84,16 @@ export function AgendaBody() {
           className="flex min-h-11 w-full items-start gap-3 text-left"
           onClick={() => setView("calendar")}
         >
-          <span className="mt-1 size-2 shrink-0 rounded-full bg-ring" />
+          <span
+            className="mt-1 size-2 shrink-0 rounded-full"
+            style={{ background: eventCatColor(eventCats, e.cat) }}
+            title={eventCatLabel(eventCats, e.cat)}
+          />
           <span>
             <span className="block text-sm font-medium">{e.title}</span>
             <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
               {fmtWhen(e)}
+              {` · ${eventCatLabel(eventCats, e.cat)}`}
               {e.loc ? ` · ${e.loc}` : ""}
             </span>
           </span>
@@ -147,6 +151,7 @@ export function CalendarPeek({
   onSelect?: (e: CalendarEvent) => void;
 }) {
   const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
+  const eventCats = useAtrium((s) => s.eventCats);
   const setView = useAtrium((s) => s.setView);
   const calPeek = useAtrium((s) => s.calPeek);
   const setCalPeek = useAtrium((s) => s.setCalPeek);
@@ -319,20 +324,20 @@ export function CalendarPeek({
               key={e.id}
               type="button"
               className="flex min-h-11 w-full flex-col items-start rounded-md bg-muted/60 px-2.5 py-1.5 text-left"
-              style={{ boxShadow: `inset 3px 0 0 ${CAT_COLORS[e.cat]}` }}
-              aria-label={`${e.title}, ${catLabel(e.cat)}`}
-              title={catLabel(e.cat)}
+              style={{ boxShadow: `inset 3px 0 0 ${eventCatColor(eventCats, e.cat)}` }}
+              aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
+              title={eventCatLabel(eventCats, e.cat)}
               onClick={() => pick(e)}
             >
               <span className="text-sm font-medium leading-snug">
                 <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
-                  {catMark(e.cat)}
+                  {eventCatMark(eventCats, e.cat)}
                 </span>
                 {e.title}
               </span>
               <span className="mt-0.5 text-xs tabular-nums text-muted-foreground">
                 {isAllDayEvent(e) ? "All day" : fmtWhen(e)}
-                {` · ${catLabel(e.cat)}`}
+                {` · ${eventCatLabel(eventCats, e.cat)}`}
                 {e.loc ? ` · ${e.loc}` : ""}
               </span>
             </button>
@@ -464,13 +469,13 @@ export function CalendarPeek({
               key={e.id}
               type="button"
               className="flex min-h-9 w-full items-center rounded-sm px-2 text-left text-xs"
-              style={{ boxShadow: `inset 3px 0 0 ${CAT_COLORS[e.cat]}` }}
-              aria-label={`${e.title}, ${catLabel(e.cat)}`}
-              title={catLabel(e.cat)}
+              style={{ boxShadow: `inset 3px 0 0 ${eventCatColor(eventCats, e.cat)}` }}
+              aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
+              title={eventCatLabel(eventCats, e.cat)}
               onClick={() => pick(e)}
             >
               <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
-                {catMark(e.cat)}
+                {eventCatMark(eventCats, e.cat)}
               </span>
               {e.title}
             </button>
@@ -501,21 +506,21 @@ export function CalendarPeek({
                 height: item.height,
                 left: `calc(2.75rem + 6px + ${item.col} * ((100% - 2.75rem - 10px) / ${item.cols}))`,
                 width: `calc((100% - 2.75rem - 10px) / ${item.cols} - 4px)`,
-                boxShadow: `inset 3px 0 0 ${CAT_COLORS[item.e.cat]}`,
+                boxShadow: `inset 3px 0 0 ${eventCatColor(eventCats, item.e.cat)}`,
               }}
-              aria-label={`${item.e.title}, ${catLabel(item.e.cat)}`}
-              title={catLabel(item.e.cat)}
+              aria-label={`${item.e.title}, ${eventCatLabel(eventCats, item.e.cat)}`}
+              title={eventCatLabel(eventCats, item.e.cat)}
               onClick={() => pick(item.e)}
             >
               <span className="block truncate text-sm">
                 <span className="mr-1 font-medium text-muted-foreground" aria-hidden="true">
-                  {catMark(item.e.cat)}
+                  {eventCatMark(eventCats, item.e.cat)}
                 </span>
                 {item.e.title}
               </span>
               <span className="text-xs tabular-nums text-muted-foreground">
                 {fmtWhen(item.e)}
-                {` · ${catLabel(item.e.cat)}`}
+                {` · ${eventCatLabel(eventCats, item.e.cat)}`}
                 {item.e.loc ? ` · ${item.e.loc}` : ""}
               </span>
             </button>
@@ -842,7 +847,7 @@ export function NewsPeek({
         const age = storyAge(n.date);
         const desk = storyDesk(n);
         return (
-          <a key={`${n.src}-${n.link}-${n.title}`} href={n.link} target="_blank" rel="noopener noreferrer" className="block">
+          <a key={`${n.src}-${n.link}-${n.title}`} href={n.link} target="_blank" rel="noopener noreferrer" onClick={onExternalAnchorClick} className="block">
             <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tagStory(n)}</span>
             <span className="mt-0.5 block text-sm leading-snug">{n.title}</span>
             <span className="text-xs text-muted-foreground">

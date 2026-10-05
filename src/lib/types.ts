@@ -3,7 +3,8 @@ import type { ScreenCap, ScreenPe, ScreenVol, ScreenYld, ScreenerId } from "./sc
 export type ModuleId = "calendar" | "weather" | "notes" | "finance" | "news" | "quotes";
 export type ViewId = "dashboard" | ModuleId | "options";
 export type CalMode = "month" | "week" | "day" | "agenda";
-export type EventCat = "work" | "personal" | "family" | "health" | "other";
+/** Category id — defaults plus user-managed (see event-cats). */
+export type EventCat = string;
 export type EventSource = "local" | "ics" | "google";
 export type WidgetKind = "weather" | "agenda" | "calendar" | "quote" | "finance" | "news";
 export type WatchKind = "crypto" | "fx" | "stock" | "global" | "cmdty";
@@ -75,13 +76,14 @@ export const DEFAULT_MARKET_PREFS: MarketPrefs = {
   compareIndex: "^NSEI",
 };
 
+/** Float / Windows-menu titles. Keep in sync with NAV module labels in atrium-app. */
 export const WIDGET_LABEL: Record<WidgetKind, string> = {
   weather: "Weather",
   agenda: "Up next",
   calendar: "Calendar",
-  quote: "Quote",
+  quote: "Quotes",
   finance: "Finance",
-  news: "Headlines",
+  news: "News",
 };
 
 export type CalendarEvent = {

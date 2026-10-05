@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
+import { onExternalAnchorClick } from "@/lib/http";
 import { FEED_PRESETS, compareRegion, packIsOn, probeFeed, sortedFeedPacks, sourceRegion } from "@/lib/feeds";
 import { NEWS_TAGS, asNewsTag, keepNewsChip, newsTagList, storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { DEFAULT_FEEDS, useAtrium } from "@/lib/store";
@@ -216,6 +217,7 @@ export function NewsView({
             href={hero.link}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={onExternalAnchorClick}
             className="flex min-h-52 flex-col justify-end rounded-xl bg-card p-5 shadow-[var(--shadow-border)]"
           >
             <StoryTag tag={tagStory(hero)} />
@@ -230,6 +232,7 @@ export function NewsView({
                 href={n.link}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={onExternalAnchorClick}
                 className="block border-b border-border pb-3"
               >
                 <StoryTag tag={tagStory(n)} />
@@ -295,6 +298,7 @@ export function NewsView({
             href={n.link}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={onExternalAnchorClick}
             className="flex min-h-36 flex-col rounded-lg bg-card p-4 shadow-[var(--shadow-border)]"
           >
             <StoryTag tag={tagStory(n)} />

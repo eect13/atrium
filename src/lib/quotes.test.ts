@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorMatches, authorSlug, exactAuthor, liveQuotePool, matchQuoteQuery, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss, topicLocals } from "./quotes.ts";
+import { authorChipsFromQuotes, authorMatches, authorSlug, exactAuthor, liveQuotePool, matchQuoteQuery, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss, quoteTopicChips, topicLocals } from "./quotes.ts";
 
 const SNIP = `
 <a href="/quotes/albert_einstein_121993" class="b-qt qt_121993 oncl_q" title="view quote">We cannot solve our problems with the same thinking we used when we created them.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_121993 oncl_a" title="view author">Albert Einstein</a>
@@ -131,4 +131,20 @@ test("matchQuoteQuery looks in line and person", () => {
   assert.equal(matchQuoteQuery(q, "jobs"), true);
   assert.equal(matchQuoteQuery(q, "aurelius"), false);
   assert.equal(matchQuoteQuery(q, "  "), true);
+});
+
+test("quoteTopicChips is driven by pool data", () => {
+  const chips = quoteTopicChips();
+  assert.ok(chips.some((c) => c.id === "all"));
+  assert.ok(chips.length >= 2);
+  assert.ok(chips.every((c) => c.label));
+});
+
+test("authorChipsFromQuotes dedupes from results", () => {
+  const names = authorChipsFromQuotes([
+    { text: "One line long enough here.", author: "Ada", href: "https://example.com", source: "local" },
+    { text: "Two line long enough here.", author: "Ada", href: "https://example.com", source: "local" },
+    { text: "Three line long enough here.", author: "Bob", href: "https://example.com", source: "local" },
+  ]);
+  assert.deepEqual(names, ["Ada", "Bob"]);
 });

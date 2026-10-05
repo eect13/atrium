@@ -1,15 +1,25 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Quote, Shuffle, Star } from "lucide-react";
-import { useState } from "react";
+import { Quote, RefreshCw, Shuffle, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Chip } from "@/components/views/finance-chip";
 import { FloatBtn } from "@/components/desk-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LOCAL_QUOTES, QUOTE_TOPICS, fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
+import {
+  LOCAL_QUOTES,
+  authorChipsFromQuotes,
+  fetchQuotes,
+  nextQuoteSeed,
+  quoteTopicChips,
+  readQuoteSeed,
+  suggestAuthors,
+  writeQuoteSession,
+  type DeskQuote,
+} from "@/lib/quotes";
 import { cn } from "@/lib/utils";
 
 export function useDeskQuotes(
@@ -19,9 +29,10 @@ export function useDeskQuotes(
   topic = "all",
   q = "",
   exact = false,
+  bust = 0,
 ) {
   return useQuery({
-    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic, q.trim().toLowerCase(), exact],
+    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic, q.trim().toLowerCase(), exact, bust],
     queryFn: () =>
       fetchQuotes({
         data: {
@@ -32,10 +43,13 @@ export function useDeskQuotes(
           exact: exact || undefined,
           limit: mode === "author" ? 24 : 16,
           seed,
+          bust: bust > 0 || undefined,
         },
       }).catch(() => ({ quotes: LOCAL_QUOTES, from: "local" as const })),
-    staleTime: mode === "random" ? Infinity : 30 * 60_000,
+    // Live refresh without requiring an app reset (was Infinity for random).
+    staleTime: mode === "random" ? 0 : 5 * 60_000,
     gcTime: 6 * 60 * 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -85,17 +99,23 @@ export function QuotesView() {
   const [topic, setTopic] = useState("all");
   const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
+  const [bust, setBust] = useState(0);
+  const filterQ = mode === "author" ? "" : person;
   const quotes = useDeskQuotes(
     mode === "author" && search.trim() ? "author" : mode === "popular" ? "popular" : "random",
     mode === "author" ? search : "",
     seed,
     topic,
-    mode === "author" ? "" : person,
+    filterQ,
     exact,
+    bust,
   );
-  const list = quotes.data?.quotes ?? [];
+  const list = useMemo(() => quotes.data?.quotes ?? [], [quotes.data?.quotes]);
   const hero = list[0];
   const rest = list.slice(1);
+  // Chips from desk corpus + current result set (not a hardcoded dump).
+  const topicChips = useMemo(() => quoteTopicChips([...LOCAL_QUOTES, ...list]), [list]);
+  const authorChips = useMemo(() => authorChipsFromQuotes(list), [list]);
 
   function pin(q: DeskQuote) {
     writeQuoteSession(q);
@@ -104,13 +124,22 @@ export function QuotesView() {
 
   function goRandom() {
     setSeed(nextQuoteSeed());
+    setBust((n) => n + 1);
     setMode("random");
     setSearch("");
+    void queryClient.invalidateQueries({ queryKey: ["quotes"] });
   }
 
   function goPopular() {
     setMode("popular");
     setSearch("");
+    void queryClient.invalidateQueries({ queryKey: ["quotes"] });
+  }
+
+  function refresh() {
+    if (mode === "random") setSeed(nextQuoteSeed());
+    setBust((n) => n + 1);
+    void queryClient.invalidateQueries({ queryKey: ["quotes"] });
   }
 
   function goAuthor(name: string) {
@@ -120,7 +149,20 @@ export function QuotesView() {
       return;
     }
     setSearch(n);
+    setPerson(n);
     setMode("author");
+  }
+
+  /** Modular search: Exact → author; otherwise text filter on popular/random. */
+  function runSearch() {
+    const n = person.trim();
+    if (n.length < 2) return;
+    if (exact) {
+      goAuthor(n);
+      return;
+    }
+    setSearch("");
+    if (mode === "author") setMode("popular");
   }
 
   return (
@@ -131,9 +173,11 @@ export function QuotesView() {
           <p className="text-xs text-muted-foreground">
             {mode === "author" && search
               ? `By ${search}`
-              : mode === "popular"
+              : filterQ.trim()
+                ? `Filter: ${filterQ.trim()}`
+                : mode === "popular"
                   ? "Popular voices"
-                  : "A new roll each session"}
+                  : "Fresh roll — refresh anytime"}
           </p>
         </div>
         <div className="grow" />
@@ -145,10 +189,22 @@ export function QuotesView() {
           <Star className="size-3.5" />
           Popular
         </Chip>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9"
+          onClick={refresh}
+          disabled={quotes.isFetching}
+          aria-label="Refresh quotes"
+        >
+          <RefreshCw className={cn("size-3.5", quotes.isFetching && "animate-spin")} />
+          Refresh
+        </Button>
         <FloatBtn kind="quote" />
       </div>
       <div className="mb-4 flex flex-wrap gap-2">
-        {QUOTE_TOPICS.map((t) => (
+        {topicChips.map((t) => (
           <Chip
             key={t.id}
             active={topic === t.id}
@@ -161,29 +217,38 @@ export function QuotesView() {
           </Chip>
         ))}
       </div>
-
-
+      {authorChips.length > 1 ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {authorChips.map((name) => (
+            <Chip key={name} active={mode === "author" && search === name} onClick={() => goAuthor(name)}>
+              {name}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
 
       <form
         className="mb-6 flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          const n = person.trim();
-          if (n.length < 2) return;
-          goAuthor(n);
+          runSearch();
         }}
       >
-                <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           <Input
-          value={person}
-          onChange={(e) => {
-            setPerson(e.target.value);
-          }}
-          placeholder="Type a name — Albert, Maya, Seneca"
-          className="h-11 min-w-0 w-full"
-          aria-label="Search quotes"
-          autoComplete="off"
-        />
+            value={person}
+            onChange={(e) => {
+              setPerson(e.target.value);
+              if (mode === "author" && !exact) {
+                setSearch("");
+                setMode("popular");
+              }
+            }}
+            placeholder="Search text or name — courage, Einstein, bicycle"
+            className="h-11 min-w-0 w-full"
+            aria-label="Search quotes"
+            autoComplete="off"
+          />
           {person.trim().length >= 2 && suggestAuthors(person).length ? (
             <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-card p-1 shadow-[var(--shadow-float)]">
               {suggestAuthors(person).map((a) => (
@@ -217,7 +282,6 @@ export function QuotesView() {
           Exact
         </Chip>
       </form>
-
 
       {quotes.isPending && !list.length ? (
         <div className="space-y-4">
@@ -254,7 +318,7 @@ export function QuotesView() {
       )}
       {quotes.data?.from === "local" ? (
         <p className="mt-4 text-xs text-muted-foreground">
-          Public feed was quiet — showing the desk copy. Try Random again in a moment.
+          Public feed was quiet — showing the desk copy. Try Refresh again in a moment.
         </p>
       ) : (
         <p className="mt-4 text-xs text-muted-foreground">Source: public quote feed.</p>

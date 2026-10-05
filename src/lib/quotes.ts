@@ -54,7 +54,7 @@ export function readQuoteSeed() {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 const FETCH_MS = 6_000;
-const CACHE_MS = 6 * 60 * 60_000;
+const CACHE_MS = 5 * 60_000;
 
 const NAMED: Record<string, string> = {
   amp: "&",
@@ -398,6 +398,37 @@ export function topicLocals(id: QuoteTopicId, local: DeskQuote[] = LOCAL_QUOTES)
   return hit.length ? hit : local;
 }
 
+/** Topic chips present in a quote pool (data-driven; skips empty topics). */
+export function quoteTopicChips(pool: DeskQuote[] = LOCAL_QUOTES): { id: QuoteTopicId; label: string }[] {
+  const out: { id: QuoteTopicId; label: string }[] = [{ id: "all", label: "All" }];
+  for (const t of QUOTE_TOPICS) {
+    if (t.id === "all") continue;
+    const words = TOPIC_WORDS[t.id] ?? [];
+    const hit = pool.some((q) => {
+      const blob = `${q.text} ${q.author}`.toLowerCase();
+      return words.some((w) => blob.includes(w));
+    });
+    if (hit) out.push({ id: t.id, label: t.label });
+  }
+  return out;
+}
+
+/** Author chips from the current result set (search/filter chrome, not a dump of every name). */
+export function authorChipsFromQuotes(quotes: DeskQuote[], limit = 8): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const q of quotes) {
+    const name = q.author.trim();
+    if (!name) continue;
+    const key = authorSlug(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function matchQuoteQuery(q: DeskQuote, query: string) {
   const n = query.trim().toLowerCase();
   if (!n) return true;
@@ -439,6 +470,7 @@ export const fetchQuotes = createServerFn({ method: "POST" })
       exact: z.boolean().optional(),
       limit: z.number().int().min(1).max(40).optional(),
       seed: z.string().max(40).optional(),
+      bust: z.boolean().optional(),
     }),
   )
   .handler(async ({ data }): Promise<{ quotes: DeskQuote[]; author?: string; from: string; topic?: string }> => {
@@ -446,6 +478,7 @@ export const fetchQuotes = createServerFn({ method: "POST" })
     const seed = data.seed ?? `${Date.now()}`;
     const topic = normalizeQuoteTopic(data.topic);
     const query = (data.q ?? "").trim();
+    if (data.bust) cache().clear();
     const daily = topic === "all" ? await fromRss() : await fromTopic(topic);
     const locals = topicLocals(topic);
 

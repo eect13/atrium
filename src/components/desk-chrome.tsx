@@ -5,7 +5,7 @@ import { AppWindow, House } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
-import type { WidgetKind } from "@/lib/types";
+import { WIDGET_LABEL, type WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function FloatBtn({ kind }: { kind: WidgetKind }) {
@@ -80,13 +80,13 @@ export function DeskMenu() {
       })),
     );
   const items: { kind: WidgetKind; label: string }[] = [
-    ...(modules.weather !== false ? [{ kind: "weather" as const, label: "Weather" }] : []),
-    { kind: "calendar", label: "Calendar" },
+    ...(modules.weather !== false ? [{ kind: "weather" as const, label: WIDGET_LABEL.weather }] : []),
+    { kind: "calendar", label: WIDGET_LABEL.calendar },
   ];
   const afterNotes: { kind: WidgetKind; label: string }[] = [
-    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: "Quote" }] : []),
-    ...(modules.finance ? [{ kind: "finance" as const, label: "Finance" }] : []),
-    ...(modules.news ? [{ kind: "news" as const, label: "News" }] : []),
+    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: WIDGET_LABEL.quote }] : []),
+    ...(modules.finance ? [{ kind: "finance" as const, label: WIDGET_LABEL.finance }] : []),
+    ...(modules.news ? [{ kind: "news" as const, label: WIDGET_LABEL.news }] : []),
   ];
   const pinnedN = notes.filter((n) => n.pinned).length;
   const showNotes = modules.notes !== false;

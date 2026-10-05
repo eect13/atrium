@@ -171,6 +171,7 @@ export function DesktopLayer({
                   ink={ink}
                   color={n.color}
                   pinned
+                  reveal="always"
                   onColor={(color) => updateNote(n.id, { color })}
                   onFloat={() => unpinNote(n.id)}
                   onDelete={() => removeNote(n.id)}
@@ -204,6 +205,7 @@ export function DesktopLayer({
                 <NoteFormat
                   ink={ink}
                   drawing={drawing}
+                  docked
                   canUndo={Boolean(n.ink?.length)}
                   canRedo={inkRedo.canRedoFor(n.id)}
                   onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}

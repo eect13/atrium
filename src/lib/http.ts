@@ -78,3 +78,35 @@ export async function httpJson<T = unknown>(url: string, headers?: Record<string
   const text = await httpText(url, headers);
   return JSON.parse(text) as T;
 }
+
+/** Open a public http(s) URL in the system browser (Tauri) or a new tab (web). */
+export async function openExternal(url: string): Promise<boolean> {
+  const safe = publicHttpUrl(url);
+  if (!safe) return false;
+  if (isTauri()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await withTimeout(invoke("open_url", { url: safe }), 8_000, "Timed out");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const w = window.open(safe, "_blank", "noopener,noreferrer");
+    return Boolean(w);
+  } catch {
+    return false;
+  }
+}
+
+/** Use on <a href> click: always go through openExternal so desktop WebView opens the OS browser. */
+export function onExternalAnchorClick(e: {
+  preventDefault: () => void;
+  currentTarget: { href: string; getAttribute: (name: string) => string | null };
+}) {
+  const href = e.currentTarget.getAttribute("href") || e.currentTarget.href;
+  if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+  e.preventDefault();
+  void openExternal(href);
+}

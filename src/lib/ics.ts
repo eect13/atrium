@@ -151,14 +151,12 @@ export function parseICS(text: string): CalendarEvent[] {
       : allDay
         ? parseDt(rawS, 23)
         : parseDt(rawS, 9, tzOf("DTSTART"));
-    const catRaw = (get("CATEGORIES") || "other").toLowerCase().split(",")[0];
+    const catRaw = ((get("CATEGORIES") || "other").toLowerCase().split(",")[0] ?? "other").trim();
     const cat =
-      catRaw === "work" ||
-      catRaw === "personal" ||
-      catRaw === "family" ||
-      catRaw === "health"
-        ? catRaw
-        : "other";
+      catRaw
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 32) || "other";
     const rawUid = get("UID").trim();
     const rule = parseRrule(get("RRULE"));
     events.push({

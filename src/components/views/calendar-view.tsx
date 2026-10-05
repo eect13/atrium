@@ -10,12 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CalendarPeek } from "@/components/widgets";
 import { FloatBtn } from "@/components/desk-chrome";
+import { EventCatManager } from "@/components/event-cat-manager";
 import { redirectToLoginIfRequired } from "@/lib/app-data";
 import {
   addDays,
-  CAT_COLORS,
-  catLabel,
-  catMark,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -41,8 +39,9 @@ import { gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents,
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { expandEvents } from "@/lib/repeat";
+import { catsWithOrphans, eventCatColor, eventCatLabel, eventCatMark } from "@/lib/event-cats";
 import { useAtrium } from "@/lib/store";
-import type { CalMode, CalendarEvent, EventCat } from "@/lib/types";
+import type { CalMode, CalendarEvent } from "@/lib/types";
 
 function shiftCursor(cursor: Date, mode: CalMode, dir: -1 | 1) {
   const p = manilaParts(cursor);
@@ -85,9 +84,10 @@ function paintSpan(cursor: Date, mode: CalMode) {
 type RepeatChoice = "none" | "daily" | "weekly" | "monthly" | "yearly";
 
 export function CalendarView() {
-  const { events, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor, gcalCals, gcalOff, setGcalCals, toggleGcal } = useAtrium(
+  const { events, eventCats, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor, gcalCals, gcalOff, setGcalCals, toggleGcal } = useAtrium(
     useShallow((s) => ({
       events: s.events,
+      eventCats: s.eventCats,
       addEvent: s.addEvent,
       updateEvent: s.updateEvent,
       removeEvent: s.removeEvent,
@@ -118,7 +118,7 @@ export function CalendarView() {
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(() => toManilaInput(manilaAt(isoDate(), 9)));
   const [end, setEnd] = useState(() => toManilaInput(manilaAt(isoDate(), 10)));
-  const [cat, setCat] = useState<EventCat>("work");
+  const [cat, setCat] = useState("work");
   const [loc, setLoc] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [eventTz, setEventTz] = useState("desk");
@@ -147,6 +147,11 @@ export function CalendarView() {
     setCalCursor(isoDate(cursor));
   }, [cursor, setCalCursor]);
   const [subUrl, setSubUrl] = useState("");
+  const [catsOpen, setCatsOpen] = useState(false);
+  const catOptions = useMemo(
+    () => catsWithOrphans(eventCats, events.map((e) => e.cat).concat(cat)),
+    [eventCats, events, cat],
+  );
 
   function showDay(date: string) {
     setCursor(manilaAt(date, 12));
@@ -159,7 +164,7 @@ export function CalendarView() {
     setEnd(toManilaInput(manilaAt(date, 10)));
     setTitle("");
     setLoc("");
-    setCat("work");
+    setCat(eventCats[0]?.id ?? "work");
     setAllDay(false);
     setEventTz("desk");
     setRepeat("none");
@@ -433,13 +438,13 @@ export function CalendarView() {
                     key={e.id}
                     type="button"
                     className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight min-h-6 text-foreground sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
-                    style={{ boxShadow: `inset 2px 0 0 ${e.color || CAT_COLORS[e.cat]}` }}
-                    aria-label={`${e.title}, ${catLabel(e.cat)}`}
-                    title={catLabel(e.cat)}
+                    style={{ boxShadow: `inset 2px 0 0 ${e.color || eventCatColor(eventCats, e.cat)}` }}
+                    aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
+                    title={eventCatLabel(eventCats, e.cat)}
                     onClick={() => openEvent(e)}
                   >
                     <span className="mr-0.5 font-medium text-muted-foreground" aria-hidden="true">
-                      {catMark(e.cat)}
+                      {eventCatMark(eventCats, e.cat)}
                     </span>
                     {e.title}
                   </button>
@@ -529,17 +534,17 @@ export function CalendarView() {
                   <div key={e.id} className="flex items-center gap-3 border-b border-border py-2">
                     <span
                       className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-[0.625rem] font-semibold text-foreground"
-                      style={{ boxShadow: `inset 0 0 0 1.5px ${e.color || CAT_COLORS[e.cat]}` }}
-                      title={catLabel(e.cat)}
+                      style={{ boxShadow: `inset 0 0 0 1.5px ${e.color || eventCatColor(eventCats, e.cat)}` }}
+                      title={eventCatLabel(eventCats, e.cat)}
                       aria-hidden="true"
                     >
-                      {catMark(e.cat)}
+                      {eventCatMark(eventCats, e.cat)}
                     </span>
-                    <button type="button" className="grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${catLabel(e.cat)}`}>
+                    <button type="button" className="grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}>
                       <div className="text-sm">{e.title}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">
                         {fmtWhen(e)}
-                        {e.reminder ? ` · ${e.reminder}m before` : ""} · {catLabel(e.cat)} · {sourceLine(e)}
+                        {e.reminder ? ` · ${e.reminder}m before` : ""} · {eventCatLabel(eventCats, e.cat)} · {sourceLine(e)}
                       </div>
                     </button>
                     <Button
@@ -655,14 +660,21 @@ export function CalendarView() {
                   id="ev-cat"
                   className="h-11 w-full rounded-md border border-border bg-muted px-3 text-sm"
                   value={cat}
-                  onChange={(e) => setCat(e.target.value as EventCat)}
+                  onChange={(e) => setCat(e.target.value)}
                 >
-                  {(["work", "personal", "family", "health", "other"] as const).map((c) => (
-                    <option key={c} value={c}>
-                      {c}
+                  {catOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  onClick={() => setCatsOpen(true)}
+                >
+                  Manage categories
+                </button>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="ev-loc">Location</Label>
@@ -850,6 +862,7 @@ export function CalendarView() {
           </div>
         </DialogContent>
       </Dialog>
+      <EventCatManager open={catsOpen} onOpenChange={setCatsOpen} />
     </div>
   );
 }

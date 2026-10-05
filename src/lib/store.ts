@@ -47,6 +47,7 @@ import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
+import { DEFAULT_EVENT_CATS, normalizeEventCats, type EventCategory } from "./event-cats";
 
 export const STARTER_FEED_IDS = starterFeedIds("PH");
 
@@ -150,6 +151,7 @@ type Data = {
   view: ViewId;
   modules: Modules;
   events: CalendarEvent[];
+  eventCats: EventCategory[];
   notes: StickyNote[];
   notesLayout: NotesLayout;
   windows: FloatWin[];
@@ -188,6 +190,10 @@ type State = Data & {
   addEvent: (e: CalendarEvent) => void;
   updateEvent: (id: string, patch: Partial<CalendarEvent>) => void;
   removeEvent: (id: string) => void;
+  setEventCats: (cats: EventCategory[]) => void;
+  addEventCat: (cat: EventCategory) => void;
+  updateEventCat: (id: string, patch: Partial<EventCategory>) => void;
+  removeEventCat: (id: string, remapTo?: string) => void;
   importEvents: (e: CalendarEvent[]) => number;
   setGcalCals: (cals: GCalDesk[], off?: string[]) => void;
   toggleGcal: (id: string) => void;
@@ -366,6 +372,7 @@ function blankDesk(): Data {
     view: "dashboard",
     modules: { calendar: true, weather: true, notes: true, finance: true, news: true, quotes: true },
     events: [],
+    eventCats: DEFAULT_EVENT_CATS.map((c) => ({ ...c })),
     notes: [],
     notesLayout: "board",
     windows: [],
@@ -485,6 +492,27 @@ export const useAtrium = create<State>()(
           events: s.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
         })),
       removeEvent: (id) => set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
+      setEventCats: (cats) => set({ eventCats: normalizeEventCats(cats) }),
+      addEventCat: (cat) =>
+        set((s) => {
+          if (s.eventCats.some((c) => c.id === cat.id)) return s;
+          return { eventCats: [...s.eventCats, cat] };
+        }),
+      updateEventCat: (id, patch) =>
+        set((s) => ({
+          eventCats: s.eventCats.map((c) => (c.id === id ? { ...c, ...patch, id: c.id } : c)),
+        })),
+      removeEventCat: (id, remapTo) =>
+        set((s) => {
+          if (s.eventCats.length <= 1) return s;
+          const fallback = remapTo && s.eventCats.some((c) => c.id === remapTo)
+            ? remapTo
+            : s.eventCats.find((c) => c.id !== id)?.id ?? "other";
+          return {
+            eventCats: s.eventCats.filter((c) => c.id !== id),
+            events: s.events.map((e) => (e.cat === id ? { ...e, cat: fallback } : e)),
+          };
+        }),
       importEvents: (incoming) => {
         let added = 0;
         set((s) => {
@@ -931,7 +959,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 32,
+      version: 33,
       storage: createJSONStorage(() => ({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
@@ -1181,6 +1209,9 @@ export const useAtrium = create<State>()(
             gcalOff: Array.isArray(raw.gcalOff) ? raw.gcalOff : [],
           };
         }
+        if (version < 33) {
+          p = { ...p, eventCats: normalizeEventCats((p as { eventCats?: unknown }).eventCats) };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -1189,6 +1220,7 @@ export const useAtrium = create<State>()(
         view: s.view,
         modules: s.modules,
         events: s.events,
+        eventCats: s.eventCats,
         notes: s.notes,
         notesLayout: s.notesLayout,
         windows: s.windows,
@@ -1254,6 +1286,7 @@ export const useAtrium = create<State>()(
           gcalCals: Array.isArray(p.gcalCals) ? p.gcalCals : (current as Data).gcalCals ?? [],
           gcalOff: Array.isArray(p.gcalOff) ? p.gcalOff : (current as Data).gcalOff ?? [],
           digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
+          eventCats: normalizeEventCats(p.eventCats ?? (current as Data).eventCats),
           profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,
