@@ -28,12 +28,20 @@ export type FeedPrefs = {
   hidden: string[];
   /** Curate: source names muted (case-insensitive). */
   muted: string[];
+  /** Layout: Sources · N control (and pack chips) on Feed. Default on. */
+  showSourcesStrip: boolean;
+  /** Layout: Summary block under digest hero. Default on. */
+  showSummary: boolean;
+  /** Layout: Resource hub rail (desktop) / strip (phone). Default on. */
+  showHub: boolean;
+  /** Layout: roomy story rows when on; compact when off. Default on. */
+  comfortableDensity: boolean;
 };
 
 export const DIGEST_FREQS: { id: DigestFreq; label: string }[] = [
-  { id: "daily", label: "daily" },
-  { id: "weekdays", label: "weekdays" },
-  { id: "weekly", label: "weekly" },
+  { id: "daily", label: "Daily" },
+  { id: "weekdays", label: "Weekdays" },
+  { id: "weekly", label: "Weekly" },
 ];
 
 export const FEED_ALL = "All";
@@ -51,6 +59,10 @@ export const DEFAULT_FEED_PREFS: FeedPrefs = {
   pinned: [],
   hidden: [],
   muted: [],
+  showSourcesStrip: true,
+  showSummary: true,
+  showHub: true,
+  comfortableDensity: true,
 };
 
 type Story = { title: string; link: string; desc?: string; src?: string; category?: string; region?: string; date?: string };
@@ -141,6 +153,10 @@ export function normalizeFeedPrefs(raw: unknown): FeedPrefs {
     pinned: strList(r.pinned, CURATE_MAX),
     hidden: strList(r.hidden, CURATE_MAX),
     muted: strList(r.muted, CURATE_MAX),
+    showSourcesStrip: r.showSourcesStrip !== false,
+    showSummary: r.showSummary !== false,
+    showHub: r.showHub !== false,
+    comfortableDensity: r.comfortableDensity !== false,
   };
 }
 

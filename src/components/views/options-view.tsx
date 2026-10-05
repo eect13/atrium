@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { OptionsSwitchRow } from "@/components/ui/options-switch-row";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
@@ -665,6 +666,9 @@ export function OptionsView() {
         <Card id="opt-news" className="scroll-mt-4">
           <CardHeader>
             <CardTitle>Feed</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Layout and digest behaviour for the Feed page. Context-neutral — no fixed topics or tickers.
+            </p>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-3">
@@ -686,8 +690,51 @@ export function OptionsView() {
                 {sortedFeedPacks().map((p) => `${p.label}: ${p.hint}`).join(" · ")}
               </p>
             </div>
-            <div className="space-y-3 border-t border-border pt-4">
-              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Digest</p>
+            <div className="space-y-1 border-t border-border pt-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.08em] text-muted-foreground">Layout</p>
+              <OptionsSwitchRow
+                title="Sources strip"
+                hint="Show the Sources · N control and pack chips on Feed. Off hides the strip; saved sources stay."
+              >
+                <Switch
+                  checked={feedPrefs.showSourcesStrip}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, showSourcesStrip: v }))}
+                  aria-label="Sources strip"
+                />
+              </OptionsSwitchRow>
+              <OptionsSwitchRow
+                title="Summary block"
+                hint="Show the counted Summary under the digest hero. Off keeps digest and stories only."
+              >
+                <Switch
+                  checked={feedPrefs.showSummary}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, showSummary: v }))}
+                  aria-label="Summary block"
+                />
+              </OptionsSwitchRow>
+              <OptionsSwitchRow
+                title="Resource hub"
+                hint="Show the hub rail (desktop) or strip (phone). Off hides the rail; hub items stay saved."
+              >
+                <Switch
+                  checked={feedPrefs.showHub}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, showHub: v }))}
+                  aria-label="Resource hub"
+                />
+              </OptionsSwitchRow>
+              <OptionsSwitchRow
+                title="Comfortable story density"
+                hint="On = roomy story rows. Off = compact list for denser scanning."
+              >
+                <Switch
+                  checked={feedPrefs.comfortableDensity}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, comfortableDensity: v }))}
+                  aria-label="Comfortable story density"
+                />
+              </OptionsSwitchRow>
+            </div>
+            <div className="space-y-1 border-t border-border pt-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.08em] text-muted-foreground">Digest</p>
               <DigestFields prefs={feedPrefs} update={updateFeed} />
             </div>
             <div className="space-y-3 border-t border-border pt-4">

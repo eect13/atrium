@@ -112,6 +112,14 @@ export function FeedView({
           ? `No stories for ${interest} yet. Pick All or edit the interest.`
         : "No stories from the sources on. Try another source or Refresh.";
 
+  const roomy = prefs.comfortableDensity !== false;
+  const storyGap = roomy ? "space-y-3" : "space-y-1.5";
+  const storyPad = roomy ? "pb-3" : "pb-1.5";
+  const cardPad = roomy ? "p-4" : "p-3";
+  const cardMin = roomy ? "min-h-36" : "min-h-28";
+  const gridGap = roomy ? "gap-4" : "gap-2";
+  const restGap = roomy ? "gap-3" : "gap-2";
+
   const chips = (
     <div className="scroll-auto flex min-w-0 flex-nowrap gap-2 overflow-x-auto pb-1 lg:justify-end lg:pb-0" role="group" aria-label="Interests">
       <Chip active={interest === FEED_ALL} onClick={() => updateFeed((p) => ({ ...p, interest: FEED_ALL }))}>
@@ -137,9 +145,11 @@ export function FeedView({
         <div className="order-last w-full min-w-0 lg:order-none lg:w-auto lg:flex-1">{chips}</div>
         <div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0">
           <div className="hidden items-center gap-2 md:flex">
-            <Button variant="outline" className="min-h-11" onClick={() => open("sources")}>
-              {onCount ? `Sources · ${onCount}` : "Sources"}
-            </Button>
+            {prefs.showSourcesStrip ? (
+              <Button variant="outline" className="min-h-11" onClick={() => open("sources")}>
+                {onCount ? `Sources · ${onCount}` : "Sources"}
+              </Button>
+            ) : null}
             <Button variant="outline" className="min-h-11" onClick={() => open("digest")}>
               Digest
             </Button>
@@ -148,9 +158,11 @@ export function FeedView({
             </Button>
           </div>
           <div className="flex items-center gap-2 md:hidden">
-            <Button variant="outline" size="icon" className="size-11" aria-label={`Sources${onCount ? `, ${onCount} on` : ""}`} onClick={() => open("sources")}>
-              <Rss />
-            </Button>
+            {prefs.showSourcesStrip ? (
+              <Button variant="outline" size="icon" className="size-11" aria-label={`Sources${onCount ? `, ${onCount} on` : ""}`} onClick={() => open("sources")}>
+                <Rss />
+              </Button>
+            ) : null}
             <div
               ref={moreRef}
               className="relative"
@@ -195,7 +207,7 @@ export function FeedView({
         </p>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+      <div className={`grid gap-4 lg:items-start ${prefs.showHub ? "lg:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
         <div className="min-w-0 space-y-4">
           {!onCount && !items.length ? (
             <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
@@ -223,13 +235,17 @@ export function FeedView({
           ) : (
             <>
               <DigestHero lines={digest} prefs={prefs} loading={loading || stockNews.isFetching} onSettings={() => open("digest")} />
-              <SummaryBlock summary={summary} interest={interest} sourcesOn={onCount} stock={stock?.label} />
+              {prefs.showSummary ? (
+                <SummaryBlock summary={summary} interest={interest} sourcesOn={onCount} stock={stock?.label} />
+              ) : null}
             </>
           )}
 
-          <div className="lg:hidden">
-            <Hub prefs={prefs} update={updateFeed} onAdd={() => open("hub")} layout="strip" />
-          </div>
+          {prefs.showHub ? (
+            <div className="lg:hidden">
+              <Hub prefs={prefs} update={updateFeed} onAdd={() => open("hub")} layout="strip" />
+            </div>
+          ) : null}
 
           <section aria-labelledby="feed-stories">
             <div className="mb-2 flex items-center gap-2">
@@ -278,20 +294,20 @@ export function FeedView({
               );
             })()}
             {hero ? (
-              <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
+              <div className={`grid md:grid-cols-[1.4fr_1fr] ${gridGap}`}>
                 <a
                   href={hero.link}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={onExternalAnchorClick}
-                  className="flex min-h-44 flex-col justify-end rounded-xl bg-card p-5 shadow-[var(--shadow-border)]"
+                  className={`flex flex-col justify-end rounded-xl bg-card shadow-[var(--shadow-border)] ${roomy ? "min-h-44 p-5" : "min-h-36 p-4"}`}
                 >
                   <StoryTag tag={tagStory(hero)} />
-                  <h4 className="font-display mt-2 text-2xl font-medium leading-snug tracking-tight">{hero.title}</h4>
+                  <h4 className={`font-display mt-2 font-medium leading-snug tracking-tight ${roomy ? "text-2xl" : "text-xl"}`}>{hero.title}</h4>
                   {hero.desc ? <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{hero.desc}</p> : null}
                   <SourceLine n={hero} className="mt-3 text-xs text-muted-foreground" />
                 </a>
-                <div className="space-y-3">
+                <div className={storyGap}>
                   {rest.slice(0, 4).map((n, i) => (
                     <a
                       key={storyKey(n, i)}
@@ -299,7 +315,7 @@ export function FeedView({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={onExternalAnchorClick}
-                      className="block border-b border-border pb-3"
+                      className={`block border-b border-border ${storyPad}`}
                     >
                       <StoryTag tag={tagStory(n)} />
                       <span className="mt-1 block text-sm leading-snug">{n.title}</span>
@@ -309,16 +325,16 @@ export function FeedView({
                 </div>
               </div>
             ) : loading && onCount ? (
-              <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]" aria-busy>
+              <div className={`grid md:grid-cols-[1.4fr_1fr] ${gridGap}`} aria-busy>
                 <div className="flex min-h-44 flex-col justify-end rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
                   <Skeleton className="h-3 w-14" />
                   <Skeleton className="mt-3 h-8 w-5/6" />
                   <Skeleton className="mt-2 h-4 w-3/4" />
                   <Skeleton className="mt-4 h-3 w-20" />
                 </div>
-                <div className="space-y-3">
+                <div className={storyGap}>
                   {Array.from({ length: 4 }, (_, i) => (
-                    <div key={i} className="border-b border-border pb-3">
+                    <div key={i} className={`border-b border-border ${storyPad}`}>
                       <Skeleton className="h-3 w-12" />
                       <Skeleton className="mt-2 h-4 w-full" />
                       <Skeleton className="mt-1 h-3 w-16" />
@@ -337,7 +353,7 @@ export function FeedView({
               </div>
             ) : null}
             {rest.length > 4 ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className={`mt-4 grid sm:grid-cols-2 xl:grid-cols-3 ${restGap}`}>
                 {rest.slice(4).map((n, i) => (
                   <a
                     key={storyKey(n, i + 4)}
@@ -345,7 +361,7 @@ export function FeedView({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={onExternalAnchorClick}
-                    className="flex min-h-36 flex-col rounded-lg bg-card p-4 shadow-[var(--shadow-border)]"
+                    className={`flex flex-col rounded-lg bg-card shadow-[var(--shadow-border)] ${cardMin} ${cardPad}`}
                   >
                     <StoryTag tag={tagStory(n)} />
                     <h4 className="mt-2 text-sm font-medium leading-snug">{n.title}</h4>
@@ -358,9 +374,11 @@ export function FeedView({
           </section>
         </div>
 
-        <aside className="hidden lg:block" aria-label="Resource hub rail">
-          <Hub prefs={prefs} update={updateFeed} onAdd={() => open("hub")} layout="rail" />
-        </aside>
+        {prefs.showHub ? (
+          <aside className="hidden lg:block" aria-label="Resource hub rail">
+            <Hub prefs={prefs} update={updateFeed} onAdd={() => open("hub")} layout="rail" />
+          </aside>
+        ) : null}
       </div>
 
       <FeedSources

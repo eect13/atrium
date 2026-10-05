@@ -238,7 +238,7 @@ function NavButton({
       aria-label={collapsed ? label : undefined}
       onClick={onClick}
       className={cn(
-        "flex min-h-11 items-center rounded-md text-left text-sm transition-[background-color,color] duration-150 ease-out",
+        "flex min-h-11 items-center rounded-md text-left text-sm transition-[background-color,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         collapsed ? "w-full justify-center px-0" : "gap-3 px-3",
         on ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
       )}
@@ -273,7 +273,7 @@ function RailFoot({
         <button
           type="button"
           className={cn(
-            "flex min-h-11 w-full items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
+            "flex min-h-11 w-full items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "justify-center" : "gap-3 px-3",
           )}
           onClick={onToggle}

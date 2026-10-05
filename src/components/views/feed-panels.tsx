@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { OptionsSwitchRow } from "@/components/ui/options-switch-row";
 import { uid } from "@/lib/format";
 import { onExternalAnchorClick } from "@/lib/http";
 import { storyAge, storyDesk, tagStory } from "@/lib/headline";
@@ -554,44 +555,50 @@ export function DigestDialog({ open, setOpen, prefs, update }: { open: boolean; 
   );
 }
 
-/** Shared by the Feed Digest hook and the Options › Feed card. */
+/** Shared by the Feed Digest hook and the Options › Feed card. FM OptionsSwitchRow look. */
 export function DigestFields({ prefs, update }: { prefs: FeedPrefs; update: Update }) {
   return (
-    <div className="space-y-3">
-      <label className="flex min-h-11 items-center justify-between gap-3 text-sm">
-        <span>Daily digest hero</span>
-        <Switch checked={prefs.digestOn} onCheckedChange={(v) => update((p) => ({ ...p, digestOn: v }))} />
-      </label>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label htmlFor="digest-time">Time</Label>
-          <Input
-            id="digest-time"
-            type="time"
-            value={prefs.digestTime}
-            onChange={(e) => update((p) => ({ ...p, digestTime: e.target.value }))}
-            className="h-11"
-            disabled={!prefs.digestOn}
-          />
+    <div className="space-y-1">
+      <OptionsSwitchRow
+        title="Daily digest hero"
+        hint='Top block on Feed with lines from your interests, then the top of the feed. Off shows "Digest is off".'
+      >
+        <Switch
+          checked={prefs.digestOn}
+          onCheckedChange={(v) => update((p) => ({ ...p, digestOn: v }))}
+          aria-label="Daily digest hero"
+        />
+      </OptionsSwitchRow>
+      {prefs.digestOn ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="digest-time">Digest time</Label>
+            <Input
+              id="digest-time"
+              type="time"
+              value={prefs.digestTime}
+              onChange={(e) => update((p) => ({ ...p, digestTime: e.target.value }))}
+              className="h-11"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="digest-freq">Frequency</Label>
+            <select
+              id="digest-freq"
+              className={FIELD_SELECT}
+              value={prefs.digestFreq}
+              onChange={(e) => update((p) => ({ ...p, digestFreq: e.target.value as DigestFreq }))}
+              aria-label="Frequency"
+            >
+              {DIGEST_FREQS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="digest-freq">Frequency</Label>
-          <select
-            id="digest-freq"
-            className={FIELD_SELECT}
-            value={prefs.digestFreq}
-            onChange={(e) => update((p) => ({ ...p, digestFreq: e.target.value as DigestFreq }))}
-            disabled={!prefs.digestOn}
-          >
-            {DIGEST_FREQS.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground">Lines come from your interests, in order, then the top of the feed.</p>
+      ) : null}
     </div>
   );
 }

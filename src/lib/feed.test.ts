@@ -39,6 +39,24 @@ test("defaults carry no hardcoded interests", () => {
   assert.equal(p.digestTime, "07:00");
   assert.equal(p.digestFreq, "daily");
   assert.equal(digestLabel(p), "07:00 · daily");
+  assert.equal(p.showSourcesStrip, true);
+  assert.equal(p.showSummary, true);
+  assert.equal(p.showHub, true);
+  assert.equal(p.comfortableDensity, true);
+  assert.equal(p.digestOn, true);
+});
+
+test("layout prefs default on and honor explicit false", () => {
+  const off = normalizeFeedPrefs({
+    showSourcesStrip: false,
+    showSummary: false,
+    showHub: false,
+    comfortableDensity: false,
+  });
+  assert.equal(off.showSourcesStrip, false);
+  assert.equal(off.showSummary, false);
+  assert.equal(off.showHub, false);
+  assert.equal(off.comfortableDensity, false);
 });
 
 test("normalize rejects junk, dedupes, and resets a stale active interest", () => {
