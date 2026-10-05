@@ -144,6 +144,7 @@ export function DashboardView({
 
   return (
     <div>
+      <h2 className="sr-only">Dashboard</h2>
       <div className="mb-2 flex items-center justify-end gap-0.5">
         <Tooltip>
           <TooltipTrigger asChild>
