@@ -10,6 +10,10 @@ import {
   withClockZone,
   withoutClockZone,
   zoneLabel,
+  formatOffsetVsLocal,
+  formatLocalOffsetLabel,
+  differentCivilDay,
+  reorderClockZones,
 } from "./clock.ts";
 
 test("normalizeClockPrefs dedupes and keeps hour24 default on", () => {
@@ -47,4 +51,26 @@ test("cityFromTz / zoneLabel / formatZoneTime hour cycle", () => {
   const h12 = formatZoneTime(d, "UTC", { hour24: false });
   assert.match(h23, /0?4:00/);
   assert.notEqual(h23, h12);
+});
+
+test("offset vs local and civil day for Manila desk", () => {
+  const d = new Date("2026-10-06T04:05:00Z");
+  const local = "Asia/Manila";
+  assert.equal(formatOffsetVsLocal(d, "Europe/London", local), "−7h");
+  assert.equal(formatOffsetVsLocal(d, "America/New_York", local), "−12h");
+  assert.equal(formatOffsetVsLocal(d, "Asia/Tokyo", local), "+1h");
+  assert.equal(formatOffsetVsLocal(d, "Australia/Sydney", local), "+3h");
+  assert.equal(formatLocalOffsetLabel(d, local), "UTC+8");
+  assert.equal(differentCivilDay(d, "America/New_York", local), false);
+  assert.equal(differentCivilDay(d, "America/Los_Angeles", local), true);
+});
+
+test("reorderClockZones moves ids", () => {
+  const p = { zones: ["Europe/London", "America/New_York", "Asia/Tokyo"], hour24: true };
+  assert.deepEqual(reorderClockZones(p, "Asia/Tokyo", "Europe/London").zones, [
+    "Asia/Tokyo",
+    "Europe/London",
+    "America/New_York",
+  ]);
+  assert.equal(reorderClockZones(p, "Europe/London", "Europe/London"), p);
 });

@@ -22,6 +22,7 @@ const VIEWS: { id: ViewId; keys: string[]; hint: string; label?: string }[] = [
   { id: "dashboard", keys: ["dashboard", "home", "desk", "today"], hint: "Go" },
   { id: "calendar", keys: ["calendar", "cal", "agenda", "events", "event"], hint: "Go" },
   { id: "weather", keys: ["weather", "forecast", "zip", "zipcode"], hint: "Go" },
+  { id: "clock", keys: ["clock", "clocks", "timezone", "timezones", "world clock"], hint: "Go" },
   { id: "notes", keys: ["notes", "note", "sticky", "stickies"], hint: "Go" },
   { id: "finance", keys: ["finance", "markets", "market", "stocks", "stock", "watcher", "books", "wallet"], hint: "Go" },
   { id: "quotes", keys: ["quotes", "quote"], hint: "Go" },

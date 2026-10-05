@@ -81,10 +81,10 @@ test("registry: removed cards drop out of saved orders", () => {
 test("dashVisible follows module toggles", async () => {
   const { dashVisible } = await import("./dash.ts");
   const all = normalizeDash(undefined);
-  assert.deepEqual(dashVisible(all, { finance: false, notes: false, news: false, quotes: false, weather: false }), [
+  assert.deepEqual(dashVisible(all, { finance: false, notes: false, news: false, quotes: false, weather: false, clock: false }), [
     "agenda",
     "calendar",
-    "clock",
   ]);
+  assert.ok(dashVisible(all, { finance: false, notes: false, news: false, quotes: false, weather: false }).includes("clock"));
   assert.deepEqual(dashVisible(all, { finance: true, notes: true, news: true }), all);
 });

@@ -82,7 +82,7 @@ export function DeskMenu() {
   const items: { kind: WidgetKind; label: string }[] = [
     ...(modules.weather !== false ? [{ kind: "weather" as const, label: WIDGET_LABEL.weather }] : []),
     { kind: "calendar", label: WIDGET_LABEL.calendar },
-    { kind: "clock", label: WIDGET_LABEL.clock },
+    ...(modules.clock !== false ? [{ kind: "clock" as const, label: WIDGET_LABEL.clock }] : []),
   ];
   const afterNotes: { kind: WidgetKind; label: string }[] = [
     ...(modules.quotes !== false ? [{ kind: "quote" as const, label: WIDGET_LABEL.quote }] : []),

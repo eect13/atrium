@@ -1,6 +1,6 @@
 import type { ScreenCap, ScreenPe, ScreenVol, ScreenYld, ScreenerId } from "./screener";
 
-export type ModuleId = "calendar" | "weather" | "notes" | "finance" | "news" | "quotes";
+export type ModuleId = "calendar" | "weather" | "clock" | "notes" | "finance" | "news" | "quotes";
 export type ViewId = "dashboard" | ModuleId | "options";
 export type CalMode = "month" | "week" | "day" | "agenda";
 /** Category id — defaults plus user-managed (see event-cats). */

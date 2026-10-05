@@ -124,3 +124,70 @@ export function formatZoneWeekday(date: Date, tz: string, locale?: string): stri
     weekday: "long",
   });
 }
+
+/** Offset of `tz` from UTC in minutes at `date` (positive = east of UTC). */
+export function zoneOffsetMinutes(date: Date, tz: string): number {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "longOffset",
+  });
+  const part = fmt.formatToParts(date).find((x) => x.type === "timeZoneName")?.value ?? "GMT";
+  const m = part.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+  if (!m) return 0;
+  const sign = m[1] === "-" ? -1 : 1;
+  const h = Number(m[2] || 0);
+  const min = Number(m[3] || 0);
+  return sign * (h * 60 + min);
+}
+
+/** Offset label of `tz` vs `localTz` (e.g. −7h, +1h, +5h 30m). */
+export function formatOffsetVsLocal(date: Date, tz: string, localTz: string): string {
+  const delta = zoneOffsetMinutes(date, tz) - zoneOffsetMinutes(date, localTz);
+  if (delta === 0) return "±0h";
+  const sign = delta > 0 ? "+" : "−";
+  const abs = Math.abs(delta);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h ${m}m`;
+}
+
+/** YYYY-MM-DD civil date in `tz`. */
+export function civilDateKey(date: Date, tz: string): string {
+  return date.toLocaleDateString("en-CA", { timeZone: tz });
+}
+
+export function differentCivilDay(date: Date, tz: string, localTz: string): boolean {
+  return civilDateKey(date, tz) !== civilDateKey(date, localTz);
+}
+
+export function formatZoneDate(date: Date, tz: string, locale?: string): string {
+  return date.toLocaleDateString(locale || "en-GB", {
+    timeZone: tz,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+export function formatLocalOffsetLabel(date: Date, tz: string): string {
+  const mins = zoneOffsetMinutes(date, tz);
+  const sign = mins >= 0 ? "+" : "−";
+  const abs = Math.abs(mins);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  if (m === 0) return `UTC${sign}${h}`;
+  return `UTC${sign}${h}:${String(m).padStart(2, "0")}`;
+}
+
+export function reorderClockZones(p: ClockPrefs, fromId: string, toId: string): ClockPrefs {
+  if (fromId === toId) return p;
+  const zones = [...p.zones];
+  const from = zones.indexOf(fromId);
+  const to = zones.indexOf(toId);
+  if (from < 0 || to < 0) return p;
+  zones.splice(from, 1);
+  zones.splice(to, 0, fromId);
+  return { ...p, zones };
+}
+

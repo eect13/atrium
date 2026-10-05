@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
+  Clock,
   CloudSun,
   LayoutGrid,
   Menu,
@@ -50,6 +51,9 @@ const QuotesView = lazy(() =>
 );
 const WeatherView = lazy(() =>
   import("@/components/views/weather-view").then((m) => ({ default: m.WeatherView })),
+);
+const ClockView = lazy(() =>
+  import("@/components/views/clock-view").then((m) => ({ default: m.ClockView })),
 );
 const WarmQueries = lazy(() =>
   import("@/components/warm-queries").then((m) => ({ default: m.WarmQueries })),
@@ -127,6 +131,7 @@ const NAV: {
   { id: "dashboard", label: "Dashboard", icon: LayoutGrid },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "weather", label: "Weather", icon: CloudSun, module: "weather" },
+  { id: "clock", label: "Clock", icon: Clock, module: "clock" },
   { id: "notes", label: "Notes", icon: NotebookPen, module: "notes" },
   { id: "finance", label: "Finance", icon: Wallet, module: "finance" },
   { id: "quotes", label: "Quotes", icon: Quote, module: "quotes" },
@@ -763,6 +768,11 @@ export function AtriumApp() {
           {view === "weather" && modules.weather !== false && (
             <Suspense fallback={<ViewFallback />}>
               <WeatherView />
+            </Suspense>
+          )}
+          {view === "clock" && modules.clock !== false && (
+            <Suspense fallback={<ViewFallback />}>
+              <ClockView />
             </Suspense>
           )}
           {view === "notes" && modules.notes && (

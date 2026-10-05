@@ -383,7 +383,7 @@ function blankDesk(): Data {
     profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION, tz: regionOf(DEFAULT_REGION).tz, locale: regionOf(DEFAULT_REGION).locale, markets: [DEFAULT_REGION] },
     theme: "dark",
     view: "dashboard",
-    modules: { calendar: true, weather: true, notes: true, finance: true, news: true, quotes: true },
+    modules: { calendar: true, weather: true, clock: true, notes: true, finance: true, news: true, quotes: true },
     events: [],
     eventCats: DEFAULT_EVENT_CATS.map((c) => ({ ...c })),
     notes: [],
@@ -486,6 +486,9 @@ export const useAtrium = create<State>()(
           }
           if (id === "weather" && !next.weather) {
             windows = windows.filter((w) => w.kind !== "weather");
+          }
+          if (id === "clock" && !next.clock) {
+            windows = windows.filter((w) => w.kind !== "clock");
           }
           return { modules: next, view, windows };
         }),
@@ -976,7 +979,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 33,
+      version: 34,
       storage: createJSONStorage(() => ({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
@@ -1146,6 +1149,7 @@ export const useAtrium = create<State>()(
             modules: {
               calendar: true,
               weather: true,
+              clock: true,
               notes: true,
               finance: true,
               news: true,
@@ -1228,6 +1232,22 @@ export const useAtrium = create<State>()(
         }
         if (version < 33) {
           p = { ...p, eventCats: normalizeEventCats((p as { eventCats?: unknown }).eventCats) };
+        }
+        
+        if (version < 34) {
+          p = {
+            ...p,
+            modules: {
+              calendar: true,
+              weather: true,
+              clock: true,
+              notes: true,
+              finance: true,
+              news: true,
+              quotes: true,
+              ...(p.modules ?? {}),
+            },
+          };
         }
         return p as Data;
       },
@@ -1345,6 +1365,7 @@ export const useAtrium = create<State>()(
           modules: {
             calendar: true,
             weather: (p.modules as { weather?: boolean } | undefined)?.weather !== false,
+            clock: (p.modules as { clock?: boolean } | undefined)?.clock !== false,
             notes: (p.modules?.notes ?? current.modules.notes) !== false,
             finance: (p.modules?.finance ?? current.modules.finance) !== false,
             news: (p.modules?.news ?? current.modules.news) !== false,

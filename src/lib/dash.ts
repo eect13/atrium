@@ -1,7 +1,7 @@
 import { WIDGET_LABEL, type WidgetKind } from "./types.ts";
 
 /** Module switch a dashboard card depends on (absent = always on). */
-export type DashNeed = "weather" | "quotes" | "finance" | "notes" | "news";
+export type DashNeed = "weather" | "clock" | "quotes" | "finance" | "notes" | "news";
 
 /**
  * Dashboard widget registry — the single place a card is declared.
@@ -29,7 +29,7 @@ export const DASH_REGISTRY = [
   { id: "notes", span: 4, need: "notes", title: "Notes" },
   { id: "news", span: 4, float: "news", need: "news" },
   { id: "calendar", span: 8, float: "calendar" },
-  { id: "clock", span: 4, float: "clock" },
+  { id: "clock", span: 4, float: "clock", need: "clock" },
 ] as const satisfies readonly DashEntry[];
 
 export type DashCard = (typeof DASH_REGISTRY)[number]["id"];
@@ -77,7 +77,7 @@ export function dashVisible(order: readonly DashCard[], modules: Partial<Record<
     const need = ENTRY[id]?.need;
     if (!need) return true;
     // Weather / quotes default on; finance / notes / news follow their toggle.
-    if (need === "weather" || need === "quotes") return modules[need] !== false;
+    if (need === "weather" || need === "clock" || need === "quotes") return modules[need] !== false;
     return Boolean(modules[need]);
   });
 }
