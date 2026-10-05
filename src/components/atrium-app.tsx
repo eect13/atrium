@@ -547,7 +547,6 @@ export function AtriumApp() {
 
   return (
     <div className="flex h-dvh max-h-dvh overflow-hidden bg-background text-foreground">
-      <h1 className="sr-only">Atrium dashboard</h1>
       <ThemeSync />
       <Suspense fallback={null}>
         <WarmQueries />
@@ -618,6 +617,7 @@ export function AtriumApp() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         <header className="relative z-50 shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top)]">
+          <h1 className="sr-only">Atrium dashboard</h1>
           <div className="flex h-14 items-center gap-2 px-3 md:gap-3 md:px-4">
             <Tooltip>
               <TooltipTrigger asChild>
