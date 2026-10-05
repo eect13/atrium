@@ -17,12 +17,12 @@ export type DashEntry = {
   float?: WidgetKind;
   /** Module toggle that hides the card when off. */
   need?: DashNeed;
-  /** Card title when it differs from `WIDGET_LABEL[id]` (or id is not a widget kind). */
+  /** Card title only when id is not a widget kind (e.g. notes); widget cards use `WIDGET_LABEL[id]`. */
   title?: string;
 };
 
 export const DASH_REGISTRY = [
-  { id: "weather", span: 5, float: "weather", need: "weather", title: "Today" },
+  { id: "weather", span: 5, float: "weather", need: "weather" },
   { id: "agenda", span: 4, float: "calendar" },
   { id: "quote", span: 3, float: "quote", need: "quotes" },
   { id: "finance", span: 4, float: "finance", need: "finance" },

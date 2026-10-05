@@ -39,7 +39,7 @@ import { ClockBody } from "@/components/widgets";
 import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
-  { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Today card, and city or ZIP pin." },
+  { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Weather card, and city or ZIP pin." },
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
   { id: "finance" as const, label: "Finance", blurb: "Watcher, tape, cash books, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },

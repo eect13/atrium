@@ -69,7 +69,7 @@ test("registry: clock + calendar join the existing grid, appended after saved or
   assert.equal(DASH_LABEL.clock, WIDGET_LABEL.clock);
   assert.equal(DASH_LABEL.calendar, WIDGET_LABEL.calendar);
   assert.equal(DASH_LABEL.agenda, WIDGET_LABEL.agenda);
-  assert.equal(DASH_LABEL.weather, "Today");
+  assert.equal(DASH_LABEL.weather, WIDGET_LABEL.weather);
   assert.equal(DASH_SPAN_N.weather, 5);
   assert.equal(DASH_SPAN_N.calendar + DASH_SPAN_N.clock, 12);
 });
