@@ -403,7 +403,7 @@ export function CalendarView() {
             return (
               <div
                 key={isoDate(c.date) + (c.out ? "-out" : "")}
-                className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "opacity-40" : "bg-card"} ${isToday ? "border-ring" : "border-border"}`}
+                className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "border-dashed" : "bg-card"} ${isToday ? "border-ring" : "border-border"}`}
               >
                 <button
                   type="button"
