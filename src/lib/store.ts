@@ -48,7 +48,7 @@ import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
-import { DEFAULT_EVENT_CATS, normalizeEventCats, type EventCategory } from "./event-cats";
+import { DEFAULT_EVENT_CATS, normalizeEventCats, remapCatId, type EventCategory } from "./event-cats";
 
 export const STARTER_FEED_IDS = starterFeedIds("PH");
 
@@ -510,9 +510,7 @@ export const useAtrium = create<State>()(
       removeEventCat: (id, remapTo) =>
         set((s) => {
           if (s.eventCats.length <= 1) return s;
-          const fallback = remapTo && s.eventCats.some((c) => c.id === remapTo)
-            ? remapTo
-            : s.eventCats.find((c) => c.id !== id)?.id ?? "other";
+          const fallback = remapCatId(s.eventCats, id, remapTo);
           return {
             eventCats: s.eventCats.filter((c) => c.id !== id),
             events: s.events.map((e) => (e.cat === id ? { ...e, cat: fallback } : e)),

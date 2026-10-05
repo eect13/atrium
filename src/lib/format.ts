@@ -415,12 +415,13 @@ export function uid() {
   return crypto.randomUUID();
 }
 
+/** Starter category fills — dedicated `--cat-*` theme tokens (Card 109 B), not chrome. */
 export const CAT_COLORS: Record<string, string> = {
-  work: "var(--color-ring)",
-  personal: "var(--color-foreground)",
-  family: "var(--color-destructive)",
-  health: "var(--color-ok)",
-  other: "var(--color-muted-foreground)",
+  work: "var(--cat-work)",
+  personal: "var(--cat-personal)",
+  family: "var(--cat-family)",
+  health: "var(--cat-health)",
+  other: "var(--cat-other)",
 };
 
 /** Visible labels for event categories (FORM-WCAG #15 / O7 — not colour-only). */
@@ -441,8 +442,12 @@ export const CAT_MARK: Record<string, string> = {
   other: "O",
 };
 
+/** Visible category name; unknown ids are humanised ("my-club" → "My club"), never shown raw. */
 export function catLabel(cat: string) {
-  return CAT_LABELS[cat] ?? cat;
+  const known = CAT_LABELS[cat];
+  if (known) return known;
+  const words = cat.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Uncategorised";
 }
 
 export function catMark(cat: string) {

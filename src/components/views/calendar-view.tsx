@@ -39,7 +39,7 @@ import { gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents,
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { expandEvents } from "@/lib/repeat";
-import { catsWithOrphans, eventCatColor, eventCatLabel, eventCatMark } from "@/lib/event-cats";
+import { catsWithOrphans, eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent } from "@/lib/types";
 
@@ -152,6 +152,7 @@ export function CalendarView() {
     () => catsWithOrphans(eventCats, events.map((e) => e.cat).concat(cat)),
     [eventCats, events, cat],
   );
+  const legendCats = useMemo(() => catsWithOrphans(eventCats, events.map((e) => e.cat)), [eventCats, events]);
 
   function showDay(date: string) {
     setCursor(manilaAt(date, 12));
@@ -422,7 +423,7 @@ export function CalendarView() {
               <div
                 key={isoDate(c.date) + (c.out ? "-out" : "")}
                 role="gridcell"
-                className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "border-dashed" : "bg-card"} ${isToday ? "border-ring" : "border-border"}`}
+                className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "border-dashed" : "bg-card"} ${isToday ? "border-[var(--today-accent)] ring-1 ring-[var(--today-accent)]" : "border-border"}`}
               >
                 <button
                   type="button"
@@ -437,36 +438,34 @@ export function CalendarView() {
                   <button
                     key={e.id}
                     type="button"
-                    className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight min-h-6 text-foreground sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
-                    style={{ boxShadow: `inset 2px 0 0 ${e.color || eventCatColor(eventCats, e.cat)}` }}
+                    className={`mt-0.5 min-h-6 w-full items-center rounded-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8 ${i > 0 ? "hidden sm:flex" : "flex"}`}
                     aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
-                    title={eventCatLabel(eventCats, e.cat)}
+                    title={`${e.title} · ${eventCatLabel(eventCats, e.cat)}`}
                     onClick={() => openEvent(e)}
                   >
-                    <span className="mr-0.5 font-medium text-muted-foreground" aria-hidden="true">
-                      {eventCatMark(eventCats, e.cat)}
+                    <span className="cat-tag w-full" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
+                      <span>{e.title}</span>
                     </span>
-                    {e.title}
                   </button>
                 ))}
                 {evs.length > 1 ? (
                   <button
                     type="button"
-                    className="mt-0.5 block min-h-11 w-full shrink-0 text-left text-xs text-muted-foreground sm:hidden"
+                    className="mt-0.5 flex min-h-11 w-full shrink-0 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
                     aria-label={`${evs.length - 1} more`}
                     onClick={() => showDay(isoDate(c.date))}
                   >
-                    +{evs.length - 1}
+                    <span className="cat-tag cat-tag-more w-full">+{evs.length - 1}</span>
                   </button>
                 ) : null}
                 {evs.length > 3 ? (
                   <button
                     type="button"
-                    className="mt-0.5 hidden min-h-8 w-full shrink-0 text-left text-xs text-muted-foreground sm:block"
+                    className="mt-0.5 hidden min-h-8 w-full shrink-0 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex"
                     aria-label={`${evs.length - 3} more`}
                     onClick={() => showDay(isoDate(c.date))}
                   >
-                    +{evs.length - 3}
+                    <span className="cat-tag cat-tag-more w-full">+{evs.length - 3} more</span>
                   </button>
                 ) : null}
               </div>
@@ -474,6 +473,20 @@ export function CalendarView() {
           })}
           </div>
           ))}
+        </div>
+      )}
+
+      {mode === "month" && (
+        <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="Categories">
+          <p className="w-full text-xs uppercase tracking-widest text-muted-foreground">Categories</p>
+          {legendCats.map((c) => (
+            <span key={c.id} className="cat-tag cat-tag-lg" style={eventCatTagStyle(eventCats, c.id)}>
+              <span>{eventCatLabel(eventCats, c.id)}</span>
+            </span>
+          ))}
+          <Button type="button" variant="ghost" className="h-11" onClick={() => setCatsOpen(true)}>
+            Manage
+          </Button>
         </div>
       )}
 
@@ -496,7 +509,7 @@ export function CalendarView() {
             return (
               <div
                 key={d}
-                className={`min-h-48 rounded-lg border bg-card p-3 ${sameDay(startW, new Date()) ? "border-ring" : "border-border"}`}
+                className={`min-h-48 rounded-lg border bg-card p-3 ${sameDay(startW, new Date()) ? "border-[var(--today-accent)]" : "border-border"}`}
               >
                 <button
                   type="button"
@@ -532,17 +545,11 @@ export function CalendarView() {
                 </h4>
                 {list!.map((e) => (
                   <div key={e.id} className="flex items-center gap-3 border-b border-border py-2">
-                    <span
-                      className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-[0.625rem] font-semibold text-foreground"
-                      style={{ boxShadow: `inset 0 0 0 1.5px ${e.color || eventCatColor(eventCats, e.cat)}` }}
-                      title={eventCatLabel(eventCats, e.cat)}
-                      aria-hidden="true"
-                    >
-                      {eventCatMark(eventCats, e.cat)}
-                    </span>
-                    <button type="button" className="grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}>
-                      <div className="text-sm">{e.title}</div>
-                      <div className="text-xs text-muted-foreground tabular-nums">
+                    <button type="button" className="min-w-0 grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}>
+                      <span className="cat-tag cat-tag-lg" style={eventCatTagStyle(eventCats, e.cat, e.color)} title={eventCatLabel(eventCats, e.cat)}>
+                        <span>{e.title}</span>
+                      </span>
+                      <div className="mt-1 text-xs text-muted-foreground tabular-nums">
                         {fmtWhen(e)}
                         {e.reminder ? ` · ${e.reminder}m before` : ""} · {eventCatLabel(eventCats, e.cat)} · {sourceLine(e)}
                       </div>

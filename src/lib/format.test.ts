@@ -96,6 +96,8 @@ test("dayLabel names a grid day with weekday, date, month and event count (FORM-
 test("catLabel and catMark give non-colour category cues (FORM-WCAG #15 / O7)", () => {
   assert.equal(catLabel("work"), "Work");
   assert.equal(catMark("health"), "H");
-  assert.equal(catLabel("mystery"), "mystery");
+  assert.equal(catLabel("mystery"), "Mystery");
+  assert.equal(catLabel("my-club"), "My club");
+  assert.equal(catLabel(""), "Uncategorised");
   assert.equal(catMark("mystery"), "?");
 });
