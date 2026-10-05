@@ -58,6 +58,7 @@ html.light {
   --color-ring: #3a3a38;
   --color-destructive: #9a3626;
   --color-destructive-foreground: #faf8f3;
+  --color-ok: #41604a;
   --color-sidebar: #ece6d8;
   --color-ink: #161513;
   --shadow-border: 0 0 0 1px rgb(22 21 19 / 0.08), 0 1px 2px rgb(22 21 19 / 0.04);
