@@ -624,3 +624,13 @@ test("research PDF paginates and keeps a byte-accurate xref", () => {
   const at = Number(latin.match(/startxref\n(\d+)/)?.[1]);
   assert.equal(latin.slice(at, at + 4), "xref");
 });
+
+test("stock-scoped: a desc-only name hit (RSS cluster) is not a story about the stock", () => {
+  const item = { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" };
+  assert.equal(
+    isRelatedStory({ title: "Peso slips as oil climbs", desc: "BDO Unibank shares and other names in the cluster", src: "Wire" }, item),
+    false,
+  );
+  const psei = { label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" };
+  assert.equal(isRelatedStory({ title: "Lopez Holdings sets meeting", desc: "PSE index edges up", src: "mb.com.ph" }, psei), false);
+});

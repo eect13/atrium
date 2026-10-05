@@ -3,86 +3,41 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { uid } from "@/lib/format";
-import { onExternalAnchorClick } from "@/lib/http";
 import { FEED_PRESETS, compareRegion, packIsOn, probeFeed, sortedFeedPacks, sourceRegion } from "@/lib/feeds";
-import { NEWS_TAGS, asNewsTag, keepNewsChip, newsTagList, storyAge, storyDesk, tagStory } from "@/lib/headline";
+import { NEWS_TAGS, asNewsTag } from "@/lib/headline";
 import { DEFAULT_FEEDS, useAtrium } from "@/lib/store";
-import type { NewsItem } from "@/lib/types";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 
-function storyKey(n: NewsItem, i: number) {
-  return `${n.src}|${n.link}|${n.title}|${i}`;
-}
-
-function StoryTag({ tag }: { tag: string }) {
-  return <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{tag}</span>;
-}
-
-function SourceLine({ n, className }: { n: NewsItem; className?: string }) {
-  const age = storyAge(n.date);
-  const desk = storyDesk(n);
-  return (
-    <p className={className ?? "mt-2 text-xs text-muted-foreground"}>
-      {n.src}
-      {desk ? ` · ${desk}` : ""}
-      {age ? ` · ${age}` : ""}
-    </p>
-  );
-}
-
-export function NewsView({
-  items,
+/** Feed › Sources — evolved from the old Feeds dialog (packs, URL probe, catalog). Tags are story metadata only. */
+export function FeedSources({
+  open,
+  setOpen,
   onRefresh,
-  loading,
-  error = false,
-  errorMessage,
-  missed = [],
 }: {
-  items: NewsItem[];
+  open: boolean;
+  setOpen: (v: boolean) => void;
   onRefresh: () => void;
-  loading: boolean;
-  error?: boolean;
-  errorMessage?: string;
-  missed?: string[];
 }) {
-  const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack, enableStarterFeeds, newsQuery, newsTag, setNewsQuery, setNewsTag } = useAtrium(
+  const { feeds, toggleFeed, addFeed, removeFeed, setFeedPack } = useAtrium(
     useShallow((s) => ({
       feeds: s.feeds,
       toggleFeed: s.toggleFeed,
       addFeed: s.addFeed,
       removeFeed: s.removeFeed,
       setFeedPack: s.setFeedPack,
-      enableStarterFeeds: s.enableStarterFeeds,
-      newsQuery: s.newsQuery,
-      newsTag: s.newsTag,
-      setNewsQuery: s.setNewsQuery,
-      setNewsTag: s.setNewsTag,
     })),
   );
-  const filter = keepNewsChip(newsTag);
-  const chips = useMemo(() => newsTagList(items), [items]);
-  const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [cat, setCat] = useState<string>("World");
   const [probing, setProbing] = useState(false);
   const [catalogQ, setCatalogQ] = useState("");
-  const q = newsQuery.trim().toLowerCase();
   const onCount = feeds.filter((f) => f.enabled).length;
-  const shown = items.filter((i) => {
-    if (filter !== "All" && tagStory(i) !== filter) return false;
-    if (!q) return true;
-    return `${i.title} ${i.desc} ${i.src}`.toLowerCase().includes(q);
-  });
-  const hero = shown[0];
-  const rest = shown.slice(1);
   const catalog = useMemo(() => {
     const groups = new Map<string, typeof FEED_PRESETS>();
     for (const p of FEED_PRESETS) {
@@ -152,167 +107,11 @@ export function NewsView({
     onRefresh();
   }
 
-  const emptyCopy = !onCount
-    ? null
-    : error
-      ? errorMessage || "Couldn’t reach those feeds."
-      : q
-        ? `No stories matching “${newsQuery.trim()}”.`
-        : filter !== "All"
-          ? "No stories in this tag. Pick All or another source."
-          : "No stories from the sources on. Try another feed or Refresh.";
-
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <h2 className="font-display text-2xl font-medium tracking-tight">Briefing</h2>
-        <div className="grow" />
-        <Button variant="outline" onClick={onRefresh} disabled={loading || !onCount}>
-          {loading && onCount ? "Refreshing…" : "Refresh"}
-        </Button>
-        <Button variant="outline" onClick={() => setOpen(true)}>
-          {onCount ? `Feeds · ${onCount}` : "Feeds"}
-        </Button>
-      </div>
-      {missed.length && !error ? (
-        <p className="mb-3 text-sm text-muted-foreground">
-          {missed.length === 1
-            ? `${missed[0]} didn’t answer. The rest of the briefing is still here.`
-            : `${missed.length} sources didn’t answer (${missed.slice(0, 4).join(", ")}${missed.length > 4 ? "…" : ""}). The rest of the briefing is still here.`}
-        </p>
-      ) : null}
-      {onCount || items.length ? (
-        <>
-          <form
-            className="relative mb-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-            }}
-          >
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={newsQuery}
-              onChange={(e) => setNewsQuery(e.target.value)}
-              placeholder="Search this briefing"
-              className="h-11 pl-9"
-              aria-label="Search briefing"
-              autoComplete="off"
-            />
-          </form>
-          <div className="scroll-auto mb-4 flex flex-nowrap gap-2 overflow-x-auto pb-1">
-            <Chip active={filter === "All"} onClick={() => setNewsTag("All")}>
-              All
-            </Chip>
-            {chips.map((c) => (
-              <Chip key={c} active={filter === c} onClick={() => setNewsTag(c)}>
-                {c}
-              </Chip>
-            ))}
-          </div>
-        </>
-      ) : null}
-      {hero ? (
-        <div className="mb-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <a
-            href={hero.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={onExternalAnchorClick}
-            className="flex min-h-52 flex-col justify-end rounded-xl bg-card p-5 shadow-[var(--shadow-border)]"
-          >
-            <StoryTag tag={tagStory(hero)} />
-            <h3 className="font-display mt-2 text-2xl font-medium leading-snug tracking-tight">{hero.title}</h3>
-            {hero.desc ? <p className="mt-2 text-sm text-muted-foreground">{hero.desc}</p> : null}
-            <SourceLine n={hero} className="mt-3 text-xs text-muted-foreground" />
-          </a>
-          <div className="space-y-3">
-            {rest.slice(0, 4).map((n, i) => (
-              <a
-                key={storyKey(n, i)}
-                href={n.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={onExternalAnchorClick}
-                className="block border-b border-border pb-3"
-              >
-                <StoryTag tag={tagStory(n)} />
-                <span className="mt-1 block text-sm leading-snug">{n.title}</span>
-                <SourceLine n={n} className="mt-1 text-xs text-muted-foreground" />
-              </a>
-            ))}
-          </div>
-        </div>
-      ) : loading && onCount ? (
-        <div className="mb-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]" aria-busy>
-          <div className="flex min-h-52 flex-col justify-end rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
-            <Skeleton className="h-3 w-14" />
-            <Skeleton className="mt-3 h-8 w-5/6" />
-            <Skeleton className="mt-2 h-4 w-3/4" />
-            <Skeleton className="mt-4 h-3 w-20" />
-          </div>
-          <div className="space-y-3">
-            {Array.from({ length: 4 }, (_, i) => (
-              <div key={i} className="border-b border-border pb-3">
-                <Skeleton className="h-3 w-12" />
-                <Skeleton className="mt-2 h-4 w-full" />
-                <Skeleton className="mt-1 h-3 w-16" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : !onCount ? (
-        <div className="mb-4 rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
-          <p className="font-display text-xl font-medium tracking-tight">No sources on</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Feeds stay off until you pick them. One tap turns on BBC and the pack for the first open book.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              onClick={() => {
-                enableStarterFeeds();
-                toast("Starter feeds on");
-                onRefresh();
-              }}
-            >
-              Use starter feeds
-            </Button>
-            <Button variant="outline" onClick={() => setOpen(true)}>
-              Open Feeds
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="mb-4">
-          <p className="text-sm text-muted-foreground">{emptyCopy}</p>
-          {error ? (
-            <Button className="mt-3" variant="outline" onClick={onRefresh}>
-              Retry
-            </Button>
-          ) : null}
-        </div>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {rest.slice(4).map((n, i) => (
-          <a
-            key={storyKey(n, i + 4)}
-            href={n.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={onExternalAnchorClick}
-            className="flex min-h-36 flex-col rounded-lg bg-card p-4 shadow-[var(--shadow-border)]"
-          >
-            <StoryTag tag={tagStory(n)} />
-            <h4 className="mt-2 text-sm font-medium leading-snug">{n.title}</h4>
-            <p className="mt-2 grow text-xs text-muted-foreground">{n.desc}</p>
-            <SourceLine n={n} />
-          </a>
-        ))}
-      </div>
-
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>RSS feeds</DialogTitle>
+            <DialogTitle>Sources</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
@@ -358,7 +157,7 @@ export function NewsView({
                   className={FIELD_SELECT}
                   value={cat}
                   onChange={(e) => setCat(e.target.value)}
-                  aria-label="Tag"
+                  aria-label="Story tag"
                 >
                   {NEWS_TAGS.map((t) => (
                     <option key={t}>{t}</option>
@@ -401,7 +200,7 @@ export function NewsView({
               <Input
                 value={catalogQ}
                 onChange={(e) => setCatalogQ(e.target.value)}
-                placeholder="Search the catalog"
+                placeholder="Search sources"
                 className="h-11"
                 aria-label="Search the catalog"
               />
@@ -457,6 +256,5 @@ export function NewsView({
           </div>
         </DialogContent>
       </Dialog>
-    </div>
   );
 }

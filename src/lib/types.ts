@@ -83,7 +83,7 @@ export const WIDGET_LABEL: Record<WidgetKind, string> = {
   calendar: "Calendar",
   quote: "Quotes",
   finance: "Finance",
-  news: "News",
+  news: "Feed",
 };
 
 export type CalendarEvent = {

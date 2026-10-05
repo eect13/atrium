@@ -43,6 +43,7 @@ import { isQuotaError, reportStorageQuota } from "./quota";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { asNewsTag, keepNewsChip } from "./headline";
+import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
@@ -171,7 +172,9 @@ type Data = {
   dashSpan: Partial<Record<DashCard, number>>;
   calPeek: "auto" | "month" | "week";
   newsQuery: string;
+  /** Legacy tag chip (pre-Feed). Kept for back-compat; Feed uses feedPrefs.interest. */
   newsTag: string;
+  feedPrefs: FeedPrefs;
   railCollapsed: boolean;
   boardQuery: string;
   boardFocus: string | null;
@@ -238,6 +241,7 @@ type State = Data & {
   setCalPeek: (v: "auto" | "month" | "week") => void;
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
+  updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
   enableStarterFeeds: () => void;
@@ -393,6 +397,7 @@ function blankDesk(): Data {
     calPeek: "auto",
     newsQuery: "",
     newsTag: "All",
+    feedPrefs: { ...DEFAULT_FEED_PREFS },
     railCollapsed: false,
     boardQuery: "",
     boardFocus: null,
@@ -910,6 +915,7 @@ export const useAtrium = create<State>()(
       setCalPeek: (calPeek) => set({ calPeek }),
       setNewsQuery: (newsQuery) => set({ newsQuery }),
       setNewsTag: (newsTag) => set({ newsTag }),
+      updateFeed: (fn) => set((s) => ({ feedPrefs: normalizeFeedPrefs(fn(s.feedPrefs)) })),
       toggleFeed: (id) =>
         set((s) => ({
           feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
@@ -1241,6 +1247,7 @@ export const useAtrium = create<State>()(
         calPeek: s.calPeek,
         newsQuery: s.newsQuery,
         newsTag: s.newsTag,
+        feedPrefs: s.feedPrefs,
         railCollapsed: s.railCollapsed,
         boardQuery: s.boardQuery,
         boardFocus: s.boardFocus,
@@ -1319,6 +1326,7 @@ export const useAtrium = create<State>()(
           calPeek: ((p.calPeek ?? current.calPeek) === "month" || (p.calPeek ?? current.calPeek) === "week" || (p.calPeek ?? current.calPeek) === "auto") ? (p.calPeek ?? current.calPeek) as "auto" | "month" | "week" : "auto",
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
           newsTag: keepNewsChip(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
+          feedPrefs: normalizeFeedPrefs((p as { feedPrefs?: unknown }).feedPrefs ?? (current as Data).feedPrefs),
           modules: {
             calendar: true,
             weather: (p.modules as { weather?: boolean } | undefined)?.weather !== false,

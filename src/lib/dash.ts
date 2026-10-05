@@ -58,7 +58,7 @@ export const DASH_LABEL: Record<DashCard, string> = {
   quote: "Quotes",
   finance: "Finance",
   notes: "Notes",
-  news: "News",
+  news: "Feed",
 };
 
 export function normalizeDash(raw?: unknown): DashCard[] {

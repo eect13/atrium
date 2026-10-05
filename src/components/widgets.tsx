@@ -817,25 +817,25 @@ export function NewsPeek({
       );
     }
     if (error) {
-      return <p className="text-sm text-muted-foreground">Headlines unavailable.</p>;
+      return <p className="text-sm text-muted-foreground">Feed unavailable.</p>;
     }
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">{feedOn ? "No headlines yet." : "No sources on."}</p>
+        <p className="text-sm text-muted-foreground">{feedOn ? "No stories yet." : "No sources on."}</p>
         {!feedOn ? (
           <button
             type="button"
             className="text-sm text-foreground underline-offset-2 hover:underline"
             onClick={() => {
               enableStarterFeeds();
-              toast("Starter feeds on");
+              toast("Starter sources on");
             }}
           >
-            Use starter feeds
+            Use starter sources
           </button>
         ) : (
           <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setView("news")}>
-            Open News
+            Open Feed
           </button>
         )}
       </div>

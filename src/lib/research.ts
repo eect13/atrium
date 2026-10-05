@@ -666,6 +666,7 @@ export {
   storyAgeDays,
   storyFingerprint,
   storyLane,
+  stockNewsKey,
 } from "./news.ts";
 export type { NewsWindow, RelatedStory, StoryLane } from "./news.ts";
 export { fetchRelatedStories, harvestRelatedStories } from "./news-harvest.ts";

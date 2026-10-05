@@ -14,7 +14,7 @@ import { displayLast, positionPnl, positionValue, type BoardRow } from "@/lib/ma
 import type { MarketQuote } from "@/lib/prices";
 import { applyPublicStats, fetchPseStats } from "@/lib/pse-fundamentals";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
-import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, newsDeskId, researchPdf, tapeBox, type RelatedStory } from "@/lib/research";
+import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, stockNewsKey, tapeBox, type RelatedStory } from "@/lib/research";
 import { capLabel, peLabel, yldLabel } from "@/lib/screener";
 import { SPARK_RANGES, normalizeSparkRange } from "@/lib/sparks";
 import { vsIndex } from "@/lib/desk-stats";
@@ -27,7 +27,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v13"],
+    queryKey: stockNewsKey(item),
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,

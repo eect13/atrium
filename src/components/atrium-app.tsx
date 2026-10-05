@@ -42,8 +42,8 @@ const OptionsView = lazy(() =>
 const FinanceView = lazy(() =>
   import("@/components/views/finance-view").then((m) => ({ default: m.FinanceView })),
 );
-const NewsView = lazy(() =>
-  import("@/components/views/news-view").then((m) => ({ default: m.NewsView })),
+const FeedView = lazy(() =>
+  import("@/components/views/feed-view").then((m) => ({ default: m.FeedView })),
 );
 const QuotesView = lazy(() =>
   import("@/components/views/quotes-view").then((m) => ({ default: m.QuotesView })),
@@ -130,7 +130,7 @@ const NAV: {
   { id: "notes", label: "Notes", icon: NotebookPen, module: "notes" },
   { id: "finance", label: "Finance", icon: Wallet, module: "finance" },
   { id: "quotes", label: "Quotes", icon: Quote, module: "quotes" },
-  { id: "news", label: "News", icon: Newspaper, module: "news" },
+  { id: "news", label: "Feed", icon: Newspaper, module: "news" },
 ];
 
 type Briefing = { items: NewsItem[]; missed: string[] };
@@ -782,7 +782,7 @@ export function AtriumApp() {
           )}
           {view === "news" && modules.news && (
             <Suspense fallback={<ViewFallback />}>
-              <NewsView
+              <FeedView
               items={headlines}
               loading={news.isFetching}
               error={news.isError}

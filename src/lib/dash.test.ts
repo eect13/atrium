@@ -49,3 +49,11 @@ test("dashSpanClass uses override then default", () => {
   assert.equal(dashSpanClass("quote", 8), "lg:col-span-8");
   assert.equal(dashSpanClass("quote", 99), "lg:col-span-3");
 });
+
+test("Feed rename: dash + float labels say Feed, Quotes plural", async () => {
+  const { DASH_LABEL } = await import("./dash.ts");
+  const { WIDGET_LABEL } = await import("./types.ts");
+  assert.equal(DASH_LABEL.news, "Feed");
+  assert.equal(WIDGET_LABEL.news, "Feed");
+  assert.equal(WIDGET_LABEL.quote, "Quotes");
+});

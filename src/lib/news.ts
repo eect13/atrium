@@ -162,6 +162,11 @@ export function issuerNews(item: { label: string; symbol: string; name?: string;
   return { names: uniqNames(seeded), minus: [], reject: /$^/ };
 }
 
+/** Shared react-query key for one stock's harvested news — quote sheet and Feed share the cache. */
+export function stockNewsKey(item: { id?: string; label: string; symbol: string; name?: string; kind?: string }) {
+  return ["stock-news", item.id ?? item.symbol, item.symbol, item.name, issuerDisplay(item).legal, newsDeskId(item), "v13"] as const;
+}
+
 /** Legal / trade names the CFA desk and harvest use for this ticker. */
 export function issuerDisplay(item: { label: string; symbol: string; name?: string; kind?: string }) {
   if (isPseiItem(item)) {
@@ -238,16 +243,18 @@ export function isRelatedStory(
 ) {
   const titleHay = `${story.title} ${story.src ?? ""}`.toLowerCase();
   const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`.toLowerCase();
+  // Stock-scoped: the name or ticker must be in the TITLE (or outlet). RSS descriptions — Google News
+  // clusters especially — list other outlets' headlines, so a desc-only hit is an unrelated story.
   if (isPseiItem(item)) {
-    return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(hay);
+    return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(titleHay);
   }
   const spec = issuerNews(item);
   if (spec?.reject.test(hay)) return false;
   for (const n of spec?.names ?? []) {
-    if (n.length >= 4 && hay.includes(n.toLowerCase())) return true;
+    if (n.length >= 4 && titleHay.includes(n.toLowerCase())) return true;
   }
   for (const n of relatedNeedles(item)) {
-    if (n.length >= 4 && hay.includes(n)) return true;
+    if (n.length >= 4 && titleHay.includes(n)) return true;
   }
   const ticker = newsTicker(item);
   // Short tickers must hit the TITLE — RSS descriptions often dump other headlines.

@@ -18,14 +18,14 @@ export type CommandHit = {
   fill: string;
 };
 
-const VIEWS: { id: ViewId; keys: string[]; hint: string }[] = [
+const VIEWS: { id: ViewId; keys: string[]; hint: string; label?: string }[] = [
   { id: "dashboard", keys: ["dashboard", "home", "desk", "today"], hint: "Go" },
   { id: "calendar", keys: ["calendar", "cal", "agenda", "events", "event"], hint: "Go" },
   { id: "weather", keys: ["weather", "forecast", "zip", "zipcode"], hint: "Go" },
   { id: "notes", keys: ["notes", "note", "sticky", "stickies"], hint: "Go" },
   { id: "finance", keys: ["finance", "markets", "market", "stocks", "stock", "watcher", "books", "wallet"], hint: "Go" },
   { id: "quotes", keys: ["quotes", "quote"], hint: "Go" },
-  { id: "news", keys: ["news", "briefing", "rss", "headlines"], hint: "Go" },
+  { id: "news", label: "Feed", keys: ["feed", "news", "briefing", "rss", "headlines", "digest"], hint: "Go" },
   { id: "options", keys: ["options", "settings", "prefs", "preferences"], hint: "Go" },
 ];
 
@@ -36,6 +36,8 @@ function viewOf(word: string): ViewId | undefined {
 }
 
 function viewLabel(id: ViewId) {
+  const named = VIEWS.find((v) => v.id === id)?.label;
+  if (named) return named;
   return id[0]!.toUpperCase() + id.slice(1);
 }
 

@@ -26,6 +26,7 @@ import { PlaceField } from "@/components/place-field";
 import { DeskStorage } from "./finance-options";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 import { packIsOn, sortedFeedPacks } from "@/lib/feeds";
+import { DigestFields } from "./feed-panels";
 import { DESK_REGIONS, clockZones, normalizeMarkets, regionOf, toggleMarket } from "@/lib/region";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,7 @@ const OPTIONAL = [
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
   { id: "finance" as const, label: "Finance", blurb: "Watcher, tape, cash books, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
-  { id: "news" as const, label: "News briefing", blurb: "RSS mosaic in the MSN style." },
+  { id: "news" as const, label: "Feed", blurb: "Your interests, daily digest, summary, stories, and a resource hub." },
 ];
 
 const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" | "weather" }[] = [
@@ -51,7 +52,7 @@ const JUMP = [
   { id: "opt-dash", label: "Dashboard" },
   { id: "opt-modules", label: "Modules" },
   { id: "opt-markets", label: "Markets" },
-  { id: "opt-news", label: "News" },
+  { id: "opt-news", label: "Feed" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
   { id: "opt-storage", label: "Storage" },
@@ -308,6 +309,8 @@ export function OptionsView() {
     notes,
     feeds,
     setFeedPack,
+    feedPrefs,
+    updateFeed,
     dashOrder,
     setDashOrder,
     resetDash,
@@ -329,6 +332,8 @@ export function OptionsView() {
       notes: s.notes,
       feeds: s.feeds,
       setFeedPack: s.setFeedPack,
+      feedPrefs: s.feedPrefs,
+      updateFeed: s.updateFeed,
       dashOrder: s.dashOrder,
       setDashOrder: s.setDashOrder,
       resetDash: s.resetDash,
@@ -405,7 +410,7 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Pop widgets out like sticky notes — calendar, weather, markets, headlines. Nothing floats until you pin a note or open one from this list or the desk menu. Drag the bar at the top, resize any corner, Esc to dock.
+            Pop widgets out like sticky notes — calendar, weather, markets, feed. Nothing floats until you pin a note or open one from this list or the desk menu. Drag the bar at the top, resize any corner, Esc to dock.
           </p>
           {DESK.filter((d) => !d.need || modules[d.need]).map((d) => {
             const win = windows.find((w) => w.kind === d.kind);
@@ -538,27 +543,53 @@ export function OptionsView() {
       {modules.news ? (
         <Card id="opt-news" className="scroll-mt-4">
           <CardHeader>
-            <CardTitle>News packs</CardTitle>
+            <CardTitle>Feed</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Sources stay off until you pick them. A pack turns a slice on — not the whole catalog.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {sortedFeedPacks().map((p) => {
-                const on = packIsOn(feeds, p.id);
-                return (
-                  <Chip key={p.id} active={on} onClick={() => setFeedPack(p.id, !on)}>
-                    {p.label}
-                  </Chip>
-                );
-              })}
+          <CardContent className="space-y-5">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Sources</p>
+              <p className="text-sm text-muted-foreground">
+                Sources stay off until you pick them. A pack turns a slice on — not the whole catalog.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {sortedFeedPacks().map((p) => {
+                  const on = packIsOn(feeds, p.id);
+                  return (
+                    <Chip key={p.id} active={on} onClick={() => setFeedPack(p.id, !on)}>
+                      {p.label}
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {sortedFeedPacks().map((p) => `${p.label}: ${p.hint}`).join(" · ")}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {sortedFeedPacks().map((p) => `${p.label}: ${p.hint}`).join(" · ")}
-            </p>
-            <Button variant="outline" onClick={() => setView("news")}>
-              Open briefing
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Digest</p>
+              <DigestFields prefs={feedPrefs} update={updateFeed} />
+            </div>
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Curate</p>
+              <p className="text-sm text-muted-foreground">
+                {feedPrefs.interests.length} interests · {feedPrefs.hub.length} in hub · {feedPrefs.pinned.length} pinned ·{" "}
+                {feedPrefs.hidden.length} hidden · {feedPrefs.muted.length} muted
+              </p>
+              {feedPrefs.hidden.length || feedPrefs.pinned.length || feedPrefs.muted.length ? (
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => {
+                    updateFeed((p) => ({ ...p, hidden: [], pinned: [], muted: [] }));
+                    toast("Curate reset");
+                  }}
+                >
+                  Reset pins, hidden, and muted
+                </Button>
+              ) : null}
+            </div>
+            <Button variant="outline" className="min-h-11" onClick={() => setView("news")}>
+              Open Feed
             </Button>
           </CardContent>
         </Card>
