@@ -426,7 +426,7 @@ export function CalendarView() {
                   <button
                     key={e.id}
                     type="button"
-                    className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
+                    className={`mt-0.5 block w-full truncate rounded-sm px-0.5 text-left text-xs leading-tight min-h-6 sm:min-h-8 sm:px-1 ${i > 0 ? "hidden sm:block" : ""}`}
                     style={{ color: e.color || CAT_COLORS[e.cat] }}
                     onClick={() => openEvent(e)}
                   >
