@@ -1,5 +1,5 @@
 import type { CalendarEvent } from "./types.ts";
-import { fromManila, isAllDayEvent, manilaParts, uid } from "./format.ts";
+import { exclusiveAllDayEnd, fromManila, inclusiveAllDayEnd, isAllDayEvent, manilaAt, manilaParts, uid, ymdStamp } from "./format.ts";
 import { parseRrule, rruleOf } from "./repeat.ts";
 
 function icsEscape(s: string) {
@@ -28,11 +28,6 @@ function toICSDay(iso: string) {
   return `${p.year}${pad(p.month)}${pad(p.day)}`;
 }
 
-function nextManilaDay(iso: string) {
-  const p = manilaParts(new Date(iso));
-  return fromManila(p.year, p.month, p.day + 1, 12).toISOString();
-}
-
 export function eventsToICS(events: CalendarEvent[]) {
   const lines = [
     "BEGIN:VCALENDAR",
@@ -47,7 +42,7 @@ export function eventsToICS(events: CalendarEvent[]) {
     lines.push("DTSTAMP:" + toICSDate(new Date().toISOString()));
     if (isAllDayEvent(ev)) {
       lines.push("DTSTART;VALUE=DATE:" + toICSDay(ev.start));
-      lines.push("DTEND;VALUE=DATE:" + toICSDay(nextManilaDay(ev.start)));
+      lines.push("DTEND;VALUE=DATE:" + exclusiveAllDayEnd(ev).replaceAll("-", ""));
     } else {
       lines.push("DTSTART:" + toICSDate(ev.start));
       lines.push("DTEND:" + toICSDate(ev.end));
@@ -144,13 +139,19 @@ export function parseICS(text: string): CalendarEvent[] {
     const rawS = get("DTSTART");
     if (!rawS) continue;
     const allDay = /^\d{8}$/.test(compactStamp(rawS));
-    const start = parseDt(rawS, 9, tzOf("DTSTART"));
     const rawE = get("DTEND");
-    const end = rawE
-      ? parseDt(rawE, allDay ? 0 : 9, tzOf("DTEND") || tzOf("DTSTART"))
-      : allDay
-        ? parseDt(rawS, 23)
+    let start: string;
+    let end: string;
+    if (allDay) {
+      const startYmd = ymdStamp(rawS);
+      start = manilaAt(startYmd, 0).toISOString();
+      end = inclusiveAllDayEnd(startYmd, rawE ? ymdStamp(rawE) : null).toISOString();
+    } else {
+      start = parseDt(rawS, 9, tzOf("DTSTART"));
+      end = rawE
+        ? parseDt(rawE, 9, tzOf("DTEND") || tzOf("DTSTART"))
         : parseDt(rawS, 9, tzOf("DTSTART"));
+    }
     const catRaw = ((get("CATEGORIES") || "other").toLowerCase().split(",")[0] ?? "other").trim();
     const cat =
       catRaw

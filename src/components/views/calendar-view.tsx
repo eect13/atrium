@@ -14,6 +14,8 @@ import { EventCatManager } from "@/components/event-cat-manager";
 import { redirectToLoginIfRequired } from "@/lib/app-data";
 import {
   addDays,
+  eventCoverDays,
+  eventCoversDay,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -297,14 +299,18 @@ export function CalendarView() {
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const grid = useMemo(() => monthCells(cursor), [cursor]);
   const onDate = (d: Date) =>
-    shown.filter((e) => sameDay(e.start, d)).toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
+    shown.filter((e) => eventCoversDay(e, d)).toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
 
   const agendaMonth = isoMonth(cursor);
   const agenda = Object.groupBy(
     shown
-      .filter((e) => isoDate(new Date(e.start)).startsWith(agendaMonth))
-      .toSorted((a, b) => a.start.localeCompare(b.start)),
-    (e) => isoDate(new Date(e.start)),
+      .flatMap((e) =>
+        eventCoverDays(e)
+          .filter((day) => day.startsWith(agendaMonth))
+          .map((day) => ({ day, e })),
+      )
+      .toSorted((a, b) => a.day.localeCompare(b.day) || a.e.start.localeCompare(b.e.start)),
+    (row) => row.day,
   );
   const agendaDays = Object.entries(agenda).slice(0, 20);
   const weekOrigin = manilaParts(cursor);
@@ -541,10 +547,10 @@ export function CalendarView() {
             agendaDays.map(([k, list]) => (
               <div key={k}>
                 <h4 className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">
-                  {fmtDate(list![0].start)}
+                  {fmtDate(manilaAt(k, 12).toISOString())}
                 </h4>
-                {list!.map((e) => (
-                  <div key={e.id} className="flex items-center gap-3 border-b border-border py-2">
+                {list!.map(({ e }) => (
+                  <div key={`${k}-${e.id}`} className="flex items-center gap-3 border-b border-border py-2">
                     <button type="button" className="min-w-0 grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}>
                       <span className="cat-tag cat-tag-lg" style={eventCatTagStyle(eventCats, e.cat, e.color)} title={eventCatLabel(eventCats, e.cat)}>
                         <span>{e.title}</span>

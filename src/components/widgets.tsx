@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
   addDays,
+  eventCoverDays,
+  eventCoversDay,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -66,7 +68,7 @@ export function AgendaBody() {
   const todayStart = manilaAt(isoDate(new Date()), 0);
   const events = expandEvents(stored, todayStart, addDays(todayStart, 1));
   const today = events
-    .filter((e) => sameDay(e.start, new Date()))
+    .filter((e) => eventCoversDay(e, new Date()))
     .toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
   if (!today.length) {
     return (
@@ -184,10 +186,15 @@ export function CalendarPeek({
     return expandEvents(stored, from, to);
   }, [stored, days]);
 
-  const byDay = useMemo(
-    () => Object.groupBy(painted, (e) => isoDate(new Date(e.start))),
-    [painted],
-  );
+  const byDay = useMemo(() => {
+    const map: Record<string, CalendarEvent[]> = {};
+    for (const e of painted) {
+      for (const day of eventCoverDays(e)) {
+        (map[day] ??= []).push(e);
+      }
+    }
+    return map;
+  }, [painted]);
   const list = useMemo(
     () => (byDay[day] ?? []).toSorted((a, b) => a.start.localeCompare(b.start)),
     [byDay, day],

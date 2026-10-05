@@ -201,6 +201,60 @@ export function isAllDayEvent(e: { start: string; end: string; allDay?: boolean 
   return Number.isFinite(ms) && ms >= 12 * 3_600_000;
 }
 
+/** Normalize Google `YYYY-MM-DD` or ICS `YYYYMMDD` to desk `YYYY-MM-DD`. */
+export function ymdStamp(raw: string) {
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (digits.length >= 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return isoDate(new Date(raw));
+}
+
+/**
+ * Google/ICS date-only ends are exclusive (day after last inclusive day).
+ * Desk all-day ends are inclusive at 23:59 on the last covered day.
+ */
+export function inclusiveAllDayEnd(startYmd: string, exclusiveEndYmd?: string | null) {
+  const startDay = ymdStamp(startYmd);
+  if (!exclusiveEndYmd) return manilaAt(startDay, 23, 59);
+  const excl = ymdStamp(exclusiveEndYmd);
+  const last = addDays(manilaAt(excl, 12), -1);
+  let lastDay = isoDate(last);
+  if (lastDay < startDay) lastDay = startDay;
+  return manilaAt(lastDay, 23, 59);
+}
+
+/** Exclusive DATE (`YYYY-MM-DD`) for Google/ICS export of a desk all-day span. */
+export function exclusiveAllDayEnd(ev: { start: string; end: string }) {
+  const lastInclusive = isoDate(new Date(ev.end));
+  return isoDate(addDays(manilaAt(lastInclusive, 12), 1));
+}
+
+/** True when the event should paint on this desk calendar day (inclusive start..end). */
+export function eventCoversDay(e: { start: string; end: string }, day: Date | string) {
+  const d = typeof day === "string" && /^\d{4}-\d{2}-\d{2}/.test(day) ? day.slice(0, 10) : isoDate(new Date(day));
+  const s = isoDate(new Date(e.start));
+  const en = isoDate(new Date(e.end));
+  return d >= s && d <= en;
+}
+
+/** Inclusive desk days this event covers, capped so a bad span cannot loop forever. */
+export function eventCoverDays(e: { start: string; end: string }, cap = 366) {
+  const first = isoDate(new Date(e.start));
+  const last = isoDate(new Date(e.end));
+  if (last < first) return [first];
+  const out: string[] = [];
+  let cur = manilaAt(first, 12);
+  for (let i = 0; i < cap; i += 1) {
+    const key = isoDate(cur);
+    out.push(key);
+    if (key >= last) break;
+    cur = addDays(cur, 1);
+  }
+  return out;
+}
+
 export function fmtWhen(e: { start: string; end: string; allDay?: boolean }) {
   if (isAllDayEvent(e)) return "All day";
   return `${fmtTime(e.start)} – ${fmtTime(e.end)}`;

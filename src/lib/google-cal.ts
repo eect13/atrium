@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { fromManila, manilaAt, manilaParts } from "./format.ts";
+import { fromManila, inclusiveAllDayEnd, manilaAt, manilaParts } from "./format.ts";
 import { parseRrule } from "./repeat.ts";
 import type { CalendarEvent, GCalDesk } from "./types.ts";
 
@@ -168,7 +168,7 @@ function googleId(calendarId: string | undefined, id: string) {
   return "g-" + (calendarId ? calendarId + "-" : "") + id;
 }
 
-/** One master per rule. An all-day Google end is the next day; keep it on the start date. */
+/** One master per rule. Date-only Google ends are exclusive; map to an inclusive desk end. */
 export function mapGoogleEvents(events: GCalEvent[], calendarId?: string): CalendarEvent[] {
   const skips = new Map<string, string[]>();
   const masters: CalendarEvent[] = [];
@@ -190,7 +190,7 @@ export function mapGoogleEvents(events: GCalEvent[], calendarId?: string): Calen
     const startAt = g.start?.dateTime ? new Date(g.start.dateTime) : manilaAt(g.start!.date!, 0);
     if (Number.isNaN(startAt.getTime())) continue;
     const endAt = dateOnly
-      ? manilaAt(g.start!.date!, 23, 59)
+      ? inclusiveAllDayEnd(g.start!.date!, g.end?.date)
       : new Date(g.end?.dateTime || g.end?.date || startRaw);
     const ruleLine = g.recurrence?.find((r) => /FREQ=/i.test(r));
     const rule = ruleLine ? parseRrule(ruleLine) : null;
