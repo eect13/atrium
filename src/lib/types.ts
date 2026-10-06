@@ -1,7 +1,15 @@
 import type { ScreenCap, ScreenPe, ScreenVol, ScreenYld, ScreenerId } from "./screener";
 
-export type ModuleId = "calendar" | "weather" | "clock" | "notes" | "finance" | "news" | "quotes";
-export type ViewId = "dashboard" | ModuleId | "options";
+export const MODULE_IDS = ["calendar", "weather", "clock", "notes", "finance", "news", "quotes"] as const;
+export type ModuleId = (typeof MODULE_IDS)[number];
+/** Every routable view; the persisted view is checked against this (no hand list). */
+export const VIEW_IDS = ["dashboard", ...MODULE_IDS, "options"] as const;
+export type ViewId = (typeof VIEW_IDS)[number];
+/** Saved view → current id (legacy aliases, unknown → fallback). */
+export function toViewId(raw: unknown, fallback: ViewId): ViewId {
+  const v = raw === "modules" ? "options" : raw;
+  return (VIEW_IDS as readonly unknown[]).includes(v) ? (v as ViewId) : fallback;
+}
 export type CalMode = "month" | "week" | "day" | "agenda";
 /** Category id — defaults plus user-managed (see event-cats). */
 export type EventCat = string;

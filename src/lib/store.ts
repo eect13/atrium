@@ -47,7 +47,7 @@ import { asNewsTag, keepNewsChip } from "./headline";
 import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
-import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
+import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
 import { DEFAULT_EVENT_CATS, normalizeEventCats, remapCatId, type EventCategory } from "./event-cats";
@@ -1292,21 +1292,7 @@ export const useAtrium = create<State>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
-        const rawView = (persisted as { view?: unknown } | null)?.view;
-        const persistedView = typeof rawView === "string" ? rawView : "";
-        const view: ViewId =
-          persistedView === "modules"
-            ? "options"
-            : persistedView === "dashboard" ||
-                persistedView === "calendar" ||
-                persistedView === "weather" ||
-                persistedView === "notes" ||
-                persistedView === "finance" ||
-                persistedView === "quotes" ||
-                persistedView === "news" ||
-                persistedView === "options"
-              ? persistedView
-              : current.view;
+        const view = toViewId((persisted as { view?: unknown } | null)?.view, current.view);
         const demo = demoBooks(p.profile?.name ?? current.profile.name);
         const accounts = (p.accounts ?? current.accounts)
           .map((a, i) => normalizeAccount(a, i))
