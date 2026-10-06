@@ -843,7 +843,7 @@ export function CalendarView() {
               </div>
               <div className="space-y-1">
                 <Label>Color</Label>
-                <div className="flex h-11 flex-wrap items-center">
+                <div className="flex min-h-11 flex-wrap items-center">
                   {["#7986cb", "#33b679", "#f6bf26", "#e67c73", "#8e24aa"].map((c) => (
                     <button
                       key={c}
