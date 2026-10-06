@@ -3,12 +3,16 @@
 use tauri::Manager;
 
 #[tauri::command]
-async fn fetch_text(url: String) -> Result<String, String> {
+async fn fetch_text(url: String, ua: Option<String>) -> Result<String, String> {
     if blocked_url(&url) {
         return Err("That address is not allowed".into());
     }
+    // Callers may name themselves (Wikimedia User-Agent policy); otherwise the browser UA.
+    let agent = ua
+        .filter(|s| !s.is_empty() && s.len() <= 200 && s.chars().all(|c| c.is_ascii_graphic() || c == ' '))
+        .unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36".to_string());
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+        .user_agent(agent)
         .timeout(std::time::Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::limited(6))
         .build()

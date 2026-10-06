@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Quote, RefreshCw, Shuffle, Star } from "lucide-react";
 import { toast } from "sonner";
@@ -10,48 +10,58 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  LOCAL_QUOTES,
   authorChipsFromQuotes,
-  fetchQuotes,
+  loadDeskQuotes,
   nextQuoteSeed,
   quoteTopicChips,
   readQuoteSeed,
   suggestAuthors,
   writeQuoteSession,
   type DeskQuote,
+  type QuoteMode,
 } from "@/lib/quotes";
+import { WQ_LICENSE, WQ_SITE } from "@/lib/wikiquote";
+import { onExternalAnchorClick } from "@/lib/http";
 import { cn } from "@/lib/utils";
 
 export function useDeskQuotes(
-  mode: "random" | "popular" | "author",
+  mode: QuoteMode,
   author = "",
   seed = "desk",
   topic = "all",
   q = "",
   exact = false,
-  bust = 0,
 ) {
-  return useQuery({
-    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic, q.trim().toLowerCase(), exact, bust],
-    queryFn: () =>
-      fetchQuotes({
-        data: {
-          mode,
-          author: author.trim() || undefined,
-          topic: topic === "all" ? undefined : topic,
-          q: q.trim() || undefined,
-          exact: exact || undefined,
-          limit: mode === "author" ? 24 : 16,
-          seed,
-          bust: bust > 0 || undefined,
-        },
-      }).catch(() => ({ quotes: LOCAL_QUOTES, from: "local" as const })),
-    // Live refresh without requiring an app reset (was Infinity for random).
-    staleTime: mode === "random" ? 0 : 5 * 60_000,
+  // Refresh rechecks the current view's cache key only (no global bust, not in the query key).
+  const force = useRef(false);
+  const query = useQuery({
+    queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic, q.trim().toLowerCase(), exact],
+    queryFn: async () => {
+      const again = force.current;
+      force.current = false;
+      return loadDeskQuotes({
+        mode,
+        author: author.trim() || undefined,
+        topic,
+        q: q.trim() || undefined,
+        exact,
+        limit: mode === "author" ? 24 : 16,
+        seed,
+        force: again,
+      });
+    },
+    staleTime: 5 * 60_000,
     gcTime: 6 * 60 * 60_000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
+  const recheck = () => {
+    force.current = true;
+    return query.refetch();
+  };
+  return Object.assign(query, { recheck });
 }
+
+const LINK = "underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm";
 
 function QuoteCard({
   q,
@@ -71,7 +81,17 @@ function QuoteCard({
     >
       <Quote className="mb-3 size-4 text-muted-foreground" aria-hidden />
       <p className={cn("font-display leading-snug", featured ? "text-2xl md:text-4xl" : "text-lg")}>{q.text}</p>
-      <p className="mt-4 text-sm text-muted-foreground">— {q.author}</p>
+      <p className="mt-4 text-sm text-muted-foreground">
+        — {q.author}
+        <span aria-hidden> · </span>
+        {q.source === "wikiquote" ? (
+          <a href={q.href} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
+            Wikiquote
+          </a>
+        ) : (
+          <span>Built-in</span>
+        )}
+      </p>
       {onPick ? (
         <div className="mt-4">
           <Button
@@ -99,7 +119,6 @@ export function QuotesView() {
   const [topic, setTopic] = useState("all");
   const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
-  const [bust, setBust] = useState(0);
   const [filterFallback, setFilterFallback] = useState<string | null>(null);
   const filterQ = mode === "author" ? "" : person;
   const quotes = useDeskQuotes(
@@ -109,13 +128,12 @@ export function QuotesView() {
     topic,
     filterQ,
     exact,
-    bust,
   );
   const list = useMemo(() => quotes.data?.quotes ?? [], [quotes.data?.quotes]);
   const hero = list[0];
   const rest = list.slice(1);
   // Chips from desk corpus + current result set (not a hardcoded dump).
-  const topicChips = useMemo(() => quoteTopicChips([...LOCAL_QUOTES, ...list]), [list]);
+  const topicChips = useMemo(() => quoteTopicChips(), []);
   const authorChips = useMemo(() => authorChipsFromQuotes(list), [list]);
 
   function pin(q: DeskQuote) {
@@ -125,22 +143,19 @@ export function QuotesView() {
 
   function goRandom() {
     setSeed(nextQuoteSeed());
-    setBust((n) => n + 1);
     setMode("random");
     setSearch("");
-    void queryClient.invalidateQueries({ queryKey: ["quotes"] });
   }
 
   function goPopular() {
     setMode("popular");
     setSearch("");
-    void queryClient.invalidateQueries({ queryKey: ["quotes"] });
   }
 
+  /** Recheck Wikiquote for the view on screen only; Random also reshuffles. */
   function refresh() {
     if (mode === "random") setSeed(nextQuoteSeed());
-    setBust((n) => n + 1);
-    void queryClient.invalidateQueries({ queryKey: ["quotes"] });
+    void quotes.recheck();
   }
 
   function goAuthor(name: string) {
@@ -332,13 +347,32 @@ export function QuotesView() {
           ) : null}
         </div>
       )}
-      {quotes.data?.from === "local" ? (
-        <p className="mt-4 text-xs text-muted-foreground">
-          Public feed was quiet — showing the desk copy. Try Refresh again in a moment.
-        </p>
-      ) : (
-        <p className="mt-4 text-xs text-muted-foreground">Source: public quote feed.</p>
-      )}
+      <QuoteSourceNote data={quotes.data} />
     </div>
+  );
+}
+
+/** Attribution + state line. CC BY-SA needs a visible link to the page and the license. */
+function QuoteSourceNote({ data }: { data?: { from: string; state: string; page?: { title: string; href: string } } }) {
+  if (!data) return null;
+  const offline = data.from === "local";
+  return (
+    <p className="mt-4 text-xs text-muted-foreground" data-quote-source={data.from} data-quote-state={data.state}>
+      {offline ? (
+        <>Wikiquote didn’t answer — showing the built-in set. Refresh to try again. </>
+      ) : (
+        <>
+          Quotes from{" "}
+          <a href={data.page?.href ?? WQ_SITE} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
+            {data.page ? `Wikiquote · ${data.page.title}` : "Wikiquote"}
+          </a>
+          , text under{" "}
+          <a href={WQ_LICENSE.href} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
+            {WQ_LICENSE.label}
+          </a>
+          {data.state === "stale" ? " · saved copy (Wikiquote didn’t answer)" : ""}. Built-in quotes fill in after.
+        </>
+      )}
+    </p>
   );
 }

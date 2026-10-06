@@ -56,7 +56,7 @@ import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
 import { useMarkets } from "@/components/use-markets";
-import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
+import { LOCAL_QUOTES, loadDeskQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -476,7 +476,7 @@ export function QuoteBody() {
     queryFn: async () => {
       const hit = readQuoteSession();
       if (hit) return hit;
-      const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: readQuoteSeed() } }).catch(() => ({ quotes: [] as typeof LOCAL_QUOTES }));
+      const data = await loadDeskQuotes({ mode: "random", limit: 8, seed: readQuoteSeed() }).catch(() => ({ quotes: LOCAL_QUOTES }));
       const first = data.quotes[0] ?? LOCAL_QUOTES[0];
       if (first) writeQuoteSession(first);
       return first ?? null;
@@ -489,7 +489,7 @@ export function QuoteBody() {
 
   async function shuffle() {
     const current = queryClient.getQueryData<{ text?: string }>(["quotes", "session"])?.text ?? text;
-    const data = await fetchQuotes({ data: { mode: "random", limit: 8, seed: `${Date.now()}` } }).catch(() => ({ quotes: LOCAL_QUOTES }));
+    const data = await loadDeskQuotes({ mode: "random", limit: 8, seed: `${Date.now()}` }).catch(() => ({ quotes: LOCAL_QUOTES }));
     const next = data.quotes.find((row) => row.text !== current) ?? data.quotes[0] ?? LOCAL_QUOTES[0];
     if (!next) return;
     writeQuoteSession(next);

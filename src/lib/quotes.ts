@@ -1,12 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
-import { httpText } from "./http.ts";
 import { z } from "zod";
+import { manilaParts } from "./format.ts";
+import { httpText } from "./http.ts";
+import { browserKV, loadView, quoteCacheKey, type KV, type ViewState } from "./quote-cache.ts";
+import { WQ_TOPIC_PAGES, loadWikiquote, wqPageHref, type WqKind, type WqResult } from "./wikiquote.ts";
 
 export type DeskQuote = {
   text: string;
   author: string;
   href: string;
-  source: "brainyquote" | "local" | "live";
+  /** wikiquote = live (CC BY-SA, links to its page) · local = built-in offline set */
+  source: "wikiquote" | "local";
 };
 
 export const QUOTE_SESSION_KEY = "atrium.quote.session";
@@ -51,37 +55,6 @@ export function readQuoteSeed() {
   }
 }
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
-const FETCH_MS = 6_000;
-const CACHE_MS = 5 * 60_000;
-
-const NAMED: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-function decodeEntities(s: string) {
-  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (raw, token: string) => {
-    if (token[0] === "#") {
-      const code =
-        token[1] === "x" || token[1] === "X"
-          ? Number.parseInt(token.slice(2), 16)
-          : Number.parseInt(token.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : raw;
-    }
-    return NAMED[token.toLowerCase()] ?? raw;
-  });
-}
-
-function stripTags(s: string) {
-  return decodeEntities(s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-}
-
 export function authorSlug(name: string) {
   return name
     .trim()
@@ -91,62 +64,6 @@ export function authorSlug(name: string) {
     .replace(/^(dr|sir|saint|st)\.?\s+/i, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-export function parseBrainyHtml(html: string): DeskQuote[] {
-  const out: DeskQuote[] = [];
-  const seen = new Set<string>();
-  const re =
-    /<a href="(\/quotes\/[^"]+)" class="[^"]*\bb-qt\b[^"]*"[^>]*>([\s\S]*?)<\/a>\s*<a href="(\/authors\/[^"]+)" class="[^"]*\bbq-aut\b[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  for (const m of html.matchAll(re)) {
-    const text = stripTags(m[2] ?? "");
-    const author = stripTags(m[4] ?? "");
-    if (text.length < 12 || !author) continue;
-    const key = `${author}::${text}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      text,
-      author,
-      href: `https://www.brainyquote.com${m[1]}`,
-      source: "brainyquote",
-    });
-  }
-  return out;
-}
-
-/**
- * BrainyQuote RSS (current): <title>Author</title><description>"Quote."</description>
- * Older feeds used <title>Quote - Author</title>.
- */
-export function parseBrainyRss(xml: string): DeskQuote[] {
-  const chunks = xml.split(/<item[\s>]/i).slice(1);
-  const out: DeskQuote[] = [];
-  for (const raw of chunks) {
-    const block = raw.split(/<\/item>/i)[0] ?? "";
-    const title = stripTags((block.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] ?? "");
-    const link = stripTags((block.match(/<link[^>]*>([\s\S]*?)<\/link>/i) || [])[1] ?? "");
-    const desc = stripTags(
-      (block.match(/<description[^>]*>([\s\S]*?)<\/description>/i) || [])[1] ?? "",
-    );
-    const href = link.startsWith("http") ? link : "https://www.brainyquote.com/quote_of_the_day";
-    const dashed = title.match(/^([\s\S]+)\s+[-–—]\s+([^–—-]{2,80})$/);
-    let text = "";
-    let author = "";
-    if (desc.length >= 12 && title.length >= 2 && title.length <= 80 && !dashed) {
-      text = desc.replace(/^["“]+|["”]+$/g, "").trim();
-      author = title.trim();
-    } else if (dashed) {
-      text = dashed[1]!.replace(/^["“]+|["”]+$/g, "").trim();
-      author = dashed[2]!.trim();
-    } else if (desc.length >= 12) {
-      text = desc.replace(/^["“]+|["”]+$/g, "").trim();
-      author = title.trim();
-    }
-    if (text.length < 12 || !author) continue;
-    out.push({ text, author, href, source: "brainyquote" });
-  }
-  return out;
 }
 
 export const POPULAR_AUTHORS = [
@@ -193,11 +110,11 @@ export function suggestAuthors(q: string, limit = 8) {
   return out;
 }
 
-function local(author: string, slug: string, text: string): DeskQuote {
-  return { text, author, href: `https://www.brainyquote.com/authors/${slug}-quotes`, source: "local" };
+function local(author: string, _slug: string, text: string): DeskQuote {
+  return { text, author, href: wqPageHref(author), source: "local" };
 }
 
-/** Desk copies for when BrainyQuote HTML is Cloudflare-gated. RSS still wins. */
+/** Built-in offline set: always available, shown after live rows and alone when offline. */
 export const LOCAL_QUOTES: DeskQuote[] = [
   local("Albert Einstein", "albert-einstein", "Life is like riding a bicycle. To keep your balance, you must keep moving."),
   local("Albert Einstein", "albert-einstein", "Imagination is more important than knowledge."),
@@ -243,22 +160,16 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Simone Weil", "simone-weil", "The world is the closed door. It is a barrier. And at the same time it is the way through."),
 ];
 
-const BRAINY_RSS = [
-  "https://www.brainyquote.com/link/quotebr.rss",
-  "https://www.brainyquote.com/link/quotelo.rss",
-  "https://www.brainyquote.com/link/quotefu.rss",
-  "https://www.brainyquote.com/link/quotena.rss",
-];
-
+/** Topic chips: ids + labels; each maps to a Wikiquote theme page (WQ_TOPIC_PAGES). */
 export const QUOTE_TOPICS = [
   { id: "all", label: "All" },
-  { id: "life", label: "Life", rss: "https://www.brainyquote.com/link/quoteli.rss", path: "/topics/life-quotes" },
-  { id: "funny", label: "Funny", rss: "https://www.brainyquote.com/link/quotefu.rss", path: "/topics/funny-quotes" },
-  { id: "love", label: "Love", rss: "https://www.brainyquote.com/link/quotelo.rss", path: "/topics/love-quotes" },
-  { id: "wisdom", label: "Wisdom", rss: "https://www.brainyquote.com/link/quotewi.rss", path: "/topics/wisdom-quotes" },
-  { id: "success", label: "Success", rss: "https://www.brainyquote.com/link/quotesu.rss", path: "/topics/success-quotes" },
-  { id: "motivational", label: "Motivational", rss: "https://www.brainyquote.com/link/quotemo.rss", path: "/topics/motivational-quotes" },
-  { id: "nature", label: "Nature", rss: "https://www.brainyquote.com/link/quotena.rss", path: "/topics/nature-quotes" },
+  { id: "life", label: "Life" },
+  { id: "funny", label: "Funny" },
+  { id: "love", label: "Love" },
+  { id: "wisdom", label: "Wisdom" },
+  { id: "success", label: "Success" },
+  { id: "motivational", label: "Motivational" },
+  { id: "nature", label: "Nature" },
 ] as const;
 
 export type QuoteTopicId = (typeof QUOTE_TOPICS)[number]["id"];
@@ -290,92 +201,19 @@ function shuffle<T>(list: T[], seed: string) {
   return out;
 }
 
-const g = globalThis as typeof globalThis & {
-  __atriumQuotes?: Map<string, { exp: number; data: DeskQuote[] }>;
-};
-
-function cache() {
-  g.__atriumQuotes ??= new Map();
-  return g.__atriumQuotes;
-}
-
-async function pull(url: string): Promise<string | null> {
-  try {
-    return await Promise.race([
-      httpText(url),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
-    ]);
-  } catch {
-    return null;
-  }
-}
-
-async function fromDummy(): Promise<DeskQuote[]> {
-  try {
-    const raw = await pull("https://dummyjson.com/quotes?limit=50");
-    if (!raw) return [];
-    const data = JSON.parse(raw) as { quotes?: { quote?: string; author?: string }[] };
-    return (data.quotes ?? [])
-      .filter((q) => q.quote && q.author)
-      .map((q) => ({ text: q.quote!, author: q.author!, href: "https://dummyjson.com/quotes", source: "live" as const }));
-  } catch {
-    return [];
-  }
-}
-
-async function fromAuthor(slug: string): Promise<DeskQuote[]> {
-  const key = `author:${slug}`;
-  const hit = cache().get(key);
-  if (hit && hit.exp > Date.now()) return hit.data;
-  const html = await pull(`https://www.brainyquote.com/authors/${slug}-quotes`);
-  const data = html ? parseBrainyHtml(html) : [];
-  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
-  return data;
-}
-
-async function fromRss(): Promise<DeskQuote[]> {
-  const key = "rss:all";
-  const hit = cache().get(key);
-  if (hit && hit.exp > Date.now()) return hit.data;
-  const pages = await Promise.all(BRAINY_RSS.map((url) => pull(url)));
-  let data = unique(pages.flatMap((xml) => (xml ? parseBrainyRss(xml) : [])));
-  if (!data.length) data = await fromDummy();
-  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
-  return data;
-}
-
-async function fromTopic(id: QuoteTopicId): Promise<DeskQuote[]> {
-  if (id === "all") return fromRss();
-  const spec = QUOTE_TOPICS.find((t) => t.id === id);
-  if (!spec || !("rss" in spec) || !spec.rss) return fromRss();
-  const key = `topic:${id}`;
-  const hit = cache().get(key);
-  if (hit && hit.exp > Date.now()) return hit.data;
-  const xml = await pull(spec.rss);
-  let data = xml ? parseBrainyRss(xml) : [];
-  if (!data.length && spec.path) {
-    const html = await pull(`https://www.brainyquote.com${spec.path}`);
-    data = html ? parseBrainyHtml(html) : [];
-  }
-  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
-  return data;
-}
-
 function unique(list: DeskQuote[]) {
   const seen = new Set<string>();
   return list.filter((q) => {
-    const k = `${q.author}::${q.text}`;
+    const k = q.text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
 }
 
-/** Prefer the public feed. Desk copies only when the live set is empty. */
-export function liveQuotePool(daily: DeskQuote[], local: DeskQuote[]) {
-  const live = unique(daily.filter((q) => q.source !== "local" && q.text.length >= 12));
-  if (live.length) return live;
-  return unique(local);
+/** Live rows first, then built-ins, deduped by normalized text. Built-ins alone when offline. */
+export function mergeQuotePool(live: DeskQuote[], builtins: DeskQuote[]) {
+  return unique([...live.filter((q) => q.text.length >= 12), ...builtins]);
 }
 
 const TOPIC_WORDS: Record<string, string[]> = {
@@ -398,19 +236,9 @@ export function topicLocals(id: QuoteTopicId, local: DeskQuote[] = LOCAL_QUOTES)
   return hit.length ? hit : local;
 }
 
-/** Topic chips present in a quote pool (data-driven; skips empty topics). */
-export function quoteTopicChips(pool: DeskQuote[] = LOCAL_QUOTES): { id: QuoteTopicId; label: string }[] {
-  const out: { id: QuoteTopicId; label: string }[] = [{ id: "all", label: "All" }];
-  for (const t of QUOTE_TOPICS) {
-    if (t.id === "all") continue;
-    const words = TOPIC_WORDS[t.id] ?? [];
-    const hit = pool.some((q) => {
-      const blob = `${q.text} ${q.author}`.toLowerCase();
-      return words.some((w) => blob.includes(w));
-    });
-    if (hit) out.push({ id: t.id, label: t.label });
-  }
-  return out;
+/** Topic chips: every topic that has a live page (data table), plus All. */
+export function quoteTopicChips(): { id: QuoteTopicId; label: string }[] {
+  return QUOTE_TOPICS.filter((t) => t.id === "all" || t.id in WQ_TOPIC_PAGES).map((t) => ({ id: t.id, label: t.label }));
 }
 
 /** Author chips from the current result set (search/filter chrome, not a dump of every name). */
@@ -456,65 +284,98 @@ export function authorMatches(author: string, name: string) {
   );
 }
 
-function matchAuthor(q: DeskQuote, name: string, slug: string) {
-  return authorMatches(q.author, name) || authorMatches(q.author, slug);
+async function pull(url: string, headers: Record<string, string>): Promise<string | null> {
+  try {
+    return await Promise.race([
+      httpText(url, headers),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+    ]);
+  } catch {
+    return null;
+  }
 }
 
-export const fetchQuotes = createServerFn({ method: "POST" })
+/** One Wikiquote view (daily date, topic id, or author/search name). Server on web, webview on Tauri. */
+export const fetchWikiquote = createServerFn({ method: "POST" })
   .validator(
     z.object({
-      mode: z.enum(["random", "popular", "author"]),
-      author: z.string().trim().max(80).optional(),
-      topic: z.string().trim().max(24).optional(),
-      q: z.string().trim().max(80).optional(),
-      exact: z.boolean().optional(),
-      limit: z.number().int().min(1).max(40).optional(),
-      seed: z.string().max(40).optional(),
-      bust: z.boolean().optional(),
+      kind: z.enum(["daily", "topic", "author"]),
+      key: z.string().trim().min(1).max(80),
     }),
   )
-  .handler(async ({ data }): Promise<{ quotes: DeskQuote[]; author?: string; from: string; topic?: string }> => {
-    const limit = data.limit ?? 12;
-    const seed = data.seed ?? `${Date.now()}`;
-    const topic = normalizeQuoteTopic(data.topic);
-    const query = (data.q ?? "").trim();
-    if (data.bust) cache().clear();
-    const daily = topic === "all" ? await fromRss() : await fromTopic(topic);
-    const locals = topicLocals(topic);
+  .handler(async ({ data }): Promise<WqResult> => loadWikiquote(data.kind, data.key, pull));
 
-    if (data.mode === "author") {
-      const name = (data.author ?? query).trim();
-      const slug = authorSlug(name);
-      if (slug.length < 2) return { quotes: [], from: "local" };
-      const known = POPULAR_AUTHORS.find(
-        (a) => a.slug === slug || authorSlug(a.name) === slug || a.name.toLowerCase() === name.toLowerCase(),
-      );
-      const slugs = [...new Set([known?.slug, slug, slug.replace(/-\d+$/, "")].filter(Boolean))] as string[];
-      const pick = (list: DeskQuote[]) =>
-        data.exact ? list.filter((q) => exactAuthor(q, name)) : list.filter((q) => slugs.some((s) => matchAuthor(q, name, s)));
-      for (const s of slugs) {
-        const quotes = pick(await fromAuthor(s));
-        if (quotes.length) {
-          return { quotes: quotes.slice(0, limit), author: quotes[0]?.author ?? name, from: "brainyquote" };
-        }
-      }
-      const pool = pick(unique([...daily, ...LOCAL_QUOTES]));
-      return {
-        quotes: pool.slice(0, limit),
-        author: pool[0]?.author ?? name,
-        from: pool.some((q) => q.source === "brainyquote") ? "brainyquote" : "local",
-      };
-    }
+export type QuoteMode = "random" | "popular" | "author";
+export type QuoteQuery = {
+  mode: QuoteMode;
+  author?: string;
+  topic?: string;
+  q?: string;
+  exact?: boolean;
+  limit?: number;
+  seed?: string;
+  /** Refresh: recheck this view's key only, bypassing the TTL. */
+  force?: boolean;
+};
 
-    const pool = (topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : liveQuotePool(daily, locals)).filter((q) =>
-      matchQuoteQuery(q, query),
-    );
+/** Today's daily key in the desk zone. */
+export function todayQuoteKey(d = new Date()) {
+  const p = manilaParts(d);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
 
-    if (data.mode === "popular") {
-      const quotes = pool.slice(0, limit);
-      return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
-    }
+/** Which Wikiquote view a query reads: author > topic > daily. */
+export function quoteView(o: Pick<QuoteQuery, "mode" | "author" | "topic" | "q">, today = todayQuoteKey()): { kind: WqKind; key: string } {
+  const name = (o.author ?? o.q ?? "").trim();
+  if (o.mode === "author" && name.length >= 2) return { kind: "author", key: name };
+  const topic = normalizeQuoteTopic(o.topic);
+  if (topic !== "all") return { kind: "topic", key: topic };
+  return { kind: "daily", key: today };
+}
 
-    const quotes = shuffle(pool, seed).slice(0, limit);
-    return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
-  });
+export type DeskQuotes = {
+  quotes: DeskQuote[];
+  author?: string;
+  topic?: string;
+  /** wikiquote when any live row is shown, else local (built-ins). */
+  from: "wikiquote" | "local";
+  state: ViewState["from"];
+  /** The Wikiquote page behind this view (attribution). */
+  page?: { title: string; href: string };
+};
+
+type Deps = {
+  fetcher?: (kind: WqKind, key: string) => Promise<WqResult>;
+  kv?: KV;
+  now?: () => number;
+  today?: string;
+};
+
+/** Client composer: persistent cache + Wikiquote + built-ins → the page/widget list. */
+export async function loadDeskQuotes(o: QuoteQuery, deps: Deps = {}): Promise<DeskQuotes> {
+  const fetcher = deps.fetcher ?? ((kind, key) => fetchWikiquote({ data: { kind, key } }));
+  const view = quoteView(o, deps.today);
+  const state = await loadView<DeskQuote>(
+    quoteCacheKey(view.kind, view.key),
+    async () => {
+      const r = await fetcher(view.kind, view.key);
+      return { quotes: r.quotes.map((q) => ({ ...q, source: "wikiquote" as const })), title: r.title };
+    },
+    { kv: "kv" in deps ? deps.kv : browserKV(), now: deps.now, force: o.force },
+  );
+  const live = state.quotes;
+  const limit = o.limit ?? 12;
+  const page = state.title ? { title: state.title, href: live[0]?.href ?? wqPageHref(state.title) } : undefined;
+  const from = (list: DeskQuote[]) => (list.some((q) => q.source === "wikiquote") ? "wikiquote" : "local") as DeskQuotes["from"];
+
+  if (view.kind === "author") {
+    const name = view.key;
+    const builtins = LOCAL_QUOTES.filter((q) => (o.exact ? exactAuthor(q, name) : authorMatches(q.author, name)));
+    const quotes = mergeQuotePool(live, builtins).slice(0, limit);
+    return { quotes, author: live[0]?.author ?? quotes[0]?.author ?? name, from: from(quotes), state: state.from, page };
+  }
+  const topic = normalizeQuoteTopic(o.topic);
+  const pool = mergeQuotePool(live, topic === "all" ? LOCAL_QUOTES : topicLocals(topic)).filter((q) => matchQuoteQuery(q, o.q ?? ""));
+  const quotes = (o.mode === "random" ? shuffle(pool, o.seed ?? `${Date.now()}`) : pool).slice(0, limit);
+  return { quotes, topic, from: from(quotes), state: state.from, page };
+}

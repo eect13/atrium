@@ -58,7 +58,9 @@ export async function httpText(url: string, headers?: Record<string, string>) {
   if (!safe) throw new Error("That address is not allowed");
   if (isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    const text = await withTimeout(invoke<string>("fetch_text", { url: safe }), 22_000, "Timed out");
+    // Only the User-Agent crosses to Rust (an honest client id where a source asks for one).
+    const ua = headers?.["User-Agent"];
+    const text = await withTimeout(invoke<string>("fetch_text", ua ? { url: safe, ua } : { url: safe }), 22_000, "Timed out");
     if (text.length > BODY_CAP) throw new Error("Response too large");
     return text;
   }

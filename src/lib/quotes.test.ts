@@ -1,101 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { authorChipsFromQuotes, authorMatches, authorSlug, exactAuthor, liveQuotePool, matchQuoteQuery, normalizeQuoteTopic, parseBrainyHtml, parseBrainyRss, quoteTopicChips, topicLocals } from "./quotes.ts";
+import { WQ_TOPIC_PAGES } from "./wikiquote.ts";
+import { LOCAL_QUOTES, authorChipsFromQuotes, authorMatches, authorSlug, exactAuthor, matchQuoteQuery, mergeQuotePool, normalizeQuoteTopic, quoteTopicChips, topicLocals } from "./quotes.ts";
 
-const SNIP = `
-<a href="/quotes/albert_einstein_121993" class="b-qt qt_121993 oncl_q" title="view quote">We cannot solve our problems with the same thinking we used when we created them.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_121993 oncl_a" title="view author">Albert Einstein</a>
-<a href="/quotes/albert_einstein_148817" class="b-qt qt_148817 oncl_q" title="view quote">Peace cannot be kept by force; it can only be achieved by understanding.</a><a href="/authors/albert-einstein-quotes" class="bq-aut qa_148817 oncl_a" title="view author">Albert Einstein</a>
-`;
+const wq = (text: string, author = "Someone") => ({ text, author, href: "https://en.wikiquote.org/wiki/X", source: "wikiquote" as const });
+const loc = (text: string, author = "Local") => ({ text, author, href: "https://en.wikiquote.org/wiki/Y", source: "local" as const });
 
-test("authorSlug folds names the way BrainyQuote does", () => {
+test("authorSlug folds names", () => {
   assert.equal(authorSlug("Albert Einstein"), "albert-einstein");
   assert.equal(authorSlug("Marcus Aurelius"), "marcus-aurelius");
   assert.equal(authorSlug("Dr. Maya Angelou"), "maya-angelou");
 });
 
-test("parseBrainyHtml reads b-qt / bq-aut pairs", () => {
-  const quotes = parseBrainyHtml(SNIP);
-  assert.equal(quotes.length, 2);
-  assert.equal(quotes[0]?.author, "Albert Einstein");
-  assert.match(quotes[0]?.text ?? "", /same thinking/);
-  assert.match(quotes[0]?.href ?? "", /albert_einstein_121993/);
-  assert.equal(quotes[0]?.source, "brainyquote");
+test("mergeQuotePool: live first, then built-ins, deduped by normalized text", () => {
+  const pool = mergeQuotePool(
+    [wq("Live line number one is long enough."), wq("Shared line that both sets carry.")],
+    [loc("Shared line, that both sets carry!"), loc("Built-in line that fills in after.")],
+  );
+  assert.deepEqual(pool.map((q) => q.source), ["wikiquote", "wikiquote", "local"]);
+  assert.equal(pool.length, 3);
 });
 
-test("parseBrainyRss reads current title=author description=quote items", () => {
-  const xml = `<?xml version="1.0"?><rss><channel>
-    <item><title>Benjamin Disraeli</title><description>"I am prepared for the worst, but hope for the best."</description><link>https://www.brainyquote.com/authors/benjamin-disraeli-quotes</link></item>
-  </channel></rss>`;
-  const quotes = parseBrainyRss(xml);
-  assert.equal(quotes.length, 1);
-  assert.equal(quotes[0]?.author, "Benjamin Disraeli");
-  assert.match(quotes[0]?.text ?? "", /prepared for the worst/);
-});
-
-test("parseBrainyRss still reads title — author items", () => {
-  const xml = `<?xml version="1.0"?><rss><channel>
-    <item><title>Stay hungry. Stay foolish. - Steve Jobs</title><link>https://www.brainyquote.com/quotes/steve_jobs_1</link><description>Stay hungry. Stay foolish. - Steve Jobs</description></item>
-  </channel></rss>`;
-  const quotes = parseBrainyRss(xml);
-  assert.equal(quotes.length, 1);
-  assert.equal(quotes[0]?.author, "Steve Jobs");
-  assert.match(quotes[0]?.text ?? "", /Stay hungry/);
-});
-
-test("liveQuotePool skips desk copies when the public feed is full", () => {
-  const daily = Array.from({ length: 5 }, (_, i) => ({
-    text: `Public line number ${i} is long enough.`,
-    author: "Someone",
-    href: "https://example.com",
-    source: "brainyquote" as const,
-  }));
-  const local = [
-    {
-      text: "Desk copy that should stay out of Random.",
-      author: "Local",
-      href: "https://example.com",
-      source: "local" as const,
-    },
-  ];
-  const pool = liveQuotePool(daily, local);
-  assert.equal(pool.length, 5);
-  assert.ok(pool.every((q) => q.source === "brainyquote"));
-});
-
-test("liveQuotePool skips desk copies when any public line is live", () => {
-  const daily = [
-    {
-      text: "Only one public line here is long enough.",
-      author: "Someone",
-      href: "https://example.com",
-      source: "brainyquote" as const,
-    },
-  ];
-  const local = [
-    {
-      text: "Desk copy that should stay out of Random.",
-      author: "Local",
-      href: "https://example.com",
-      source: "local" as const,
-    },
-  ];
-  const pool = liveQuotePool(daily, local);
-  assert.equal(pool.length, 1);
-  assert.equal(pool[0]?.source, "brainyquote");
-});
-
-test("liveQuotePool uses desk copies only when the public feed is empty", () => {
-  const local = [
-    {
-      text: "Desk copy fills the quiet session.",
-      author: "Local",
-      href: "https://example.com",
-      source: "local" as const,
-    },
-  ];
-  const pool = liveQuotePool([], local);
-  assert.equal(pool.length, 1);
-  assert.equal(pool[0]?.source, "local");
+test("mergeQuotePool: offline (no live rows) keeps every built-in visible", () => {
+  assert.equal(mergeQuotePool([], LOCAL_QUOTES).length, 42);
+  assert.ok(LOCAL_QUOTES.every((q) => q.source === "local" && q.href.startsWith("https://en.wikiquote.org/wiki/")));
 });
 
 test("normalizeQuoteTopic keeps known topics", () => {
@@ -112,7 +40,7 @@ test("topicLocals pads a quiet topic from desk copies", () => {
   assert.deepEqual(empty, []);
 });
 
-test("exactAuthor matches BrainyQuote slug, not a substring", () => {
+test("exactAuthor matches the full name slug, not a substring", () => {
   const q = { text: "Imagination is more important than knowledge.", author: "Albert Einstein", href: "https://example.com", source: "local" as const };
   assert.equal(exactAuthor(q, "Albert Einstein"), true);
   assert.equal(exactAuthor(q, "Einstein"), false);
@@ -133,10 +61,10 @@ test("matchQuoteQuery looks in line and person", () => {
   assert.equal(matchQuoteQuery(q, "  "), true);
 });
 
-test("quoteTopicChips is driven by pool data", () => {
+test("quoteTopicChips: All plus every topic that maps to a Wikiquote page", () => {
   const chips = quoteTopicChips();
-  assert.ok(chips.some((c) => c.id === "all"));
-  assert.ok(chips.length >= 2);
+  assert.equal(chips[0]?.id, "all");
+  assert.deepEqual(chips.slice(1).map((c) => c.id), Object.keys(WQ_TOPIC_PAGES));
   assert.ok(chips.every((c) => c.label));
 });
 
