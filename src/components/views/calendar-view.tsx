@@ -8,14 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { CalendarPeek } from "@/components/widgets";
+import { CalendarPeek, SpanBar } from "@/components/widgets";
 import { FloatBtn } from "@/components/desk-chrome";
 import { EventCatManager } from "@/components/event-cat-manager";
 import { redirectToLoginIfRequired } from "@/lib/app-data";
 import {
   addDays,
   eventCoverDays,
-  eventCoversDay,
   fmtDate,
   fmtWhen,
   fromManila,
@@ -33,7 +32,6 @@ import {
   WORLD_ZONES,
   uid,
   weekRangeLabel,
-  dayLabel,
   WEEKDAY_NAMES,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
@@ -41,7 +39,8 @@ import { gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents,
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { expandEvents } from "@/lib/repeat";
-import { catsWithOrphans, eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
+import { catsWithOrphans, eventCatLabel, eventCatTagStyle, type EventCategory } from "@/lib/event-cats";
+import { PAGE_SPAN_CAP, UNCAPPED_SPAN, layoutSpanRows, spanCellLabel, spanRangeLabel, spanWhen, type SpanSegment } from "@/lib/span-layout";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent } from "@/lib/types";
 
@@ -84,6 +83,29 @@ function paintSpan(cursor: Date, mode: CalMode) {
 }
 
 type RepeatChoice = "none" | "daily" | "weekly" | "monthly" | "yearly";
+
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
+
+/** Full Calendar span: one button per week-row segment (32px, like the pills), bar centred, focus ring around the bar. */
+function SpanButton({ seg, cats, onOpen }: { seg: SpanSegment<CalendarEvent>; cats: EventCategory[]; onOpen: (e: CalendarEvent) => void }) {
+  const label = `${seg.e.title}, ${eventCatLabel(cats, seg.e.cat)}, ${spanRangeLabel(seg.e)}`;
+  return (
+    <button
+      type="button"
+      className="group z-[1] flex min-h-8 min-w-0 cursor-pointer items-center rounded-md hover:bg-accent focus-visible:outline-none"
+      style={{ gridColumn: `${seg.c0 + 1} / ${seg.c1 + 2}`, gridRow: 2 + seg.lane }}
+      aria-label={label}
+      title={label}
+      onClick={() => onOpen(seg.e)}
+    >
+      <SpanBar
+        seg={seg}
+        cats={cats}
+        className={`flex-1 group-focus-visible:shadow-[0_0_0_2px_var(--color-card),0_0_0_4px_var(--color-ring)] ${seg.trueStart ? "" : "ml-px"} ${seg.trueEnd ? "" : "mr-px"}`}
+      />
+    </button>
+  );
+}
 
 export function CalendarView() {
   const { events, eventCats, addEvent, updateEvent, removeEvent, importEvents, calMode, calCursor, setCalMode, setCalCursor, gcalCals, gcalOff, setGcalCals, toggleGcal } = useAtrium(
@@ -298,8 +320,17 @@ export function CalendarView() {
 
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const grid = useMemo(() => monthCells(cursor), [cursor]);
-  const onDate = (d: Date) =>
-    shown.filter((e) => eventCoversDay(e, d)).toSorted((a, b) => +new Date(a.start) - +new Date(b.start));
+  const outside = useMemo(() => new Set(grid.filter((c) => c.out).map((c) => isoDate(c.date))), [grid]);
+  // One shared span layout (lib/span-layout) for Month rows and the Week strip; spans are one bar per week row.
+  const monthRows = useMemo(() => {
+    const keys = grid.map((c) => isoDate(c.date));
+    return layoutSpanRows(shown, Array.from({ length: keys.length / 7 }, (_, w) => keys.slice(w * 7, w * 7 + 7)), PAGE_SPAN_CAP);
+  }, [shown, grid]);
+  const weekRow = useMemo(() => {
+    const o = manilaParts(cursor);
+    const keys = Array.from({ length: 7 }, (_, i) => isoDate(fromManila(o.year, o.month, o.day - o.weekdayIndex + i, 12)));
+    return layoutSpanRows(shown, [keys], UNCAPPED_SPAN)[0]!;
+  }, [shown, cursor]);
 
   const agendaMonth = isoMonth(cursor);
   const agenda = Object.groupBy(
@@ -313,19 +344,18 @@ export function CalendarView() {
     (row) => row.day,
   );
   const agendaDays = Object.entries(agenda).slice(0, 20);
-  const weekOrigin = manilaParts(cursor);
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="font-display text-2xl font-medium tracking-tight">{heading(cursor, mode)}</h2>
-        <Button variant="outline" size="sm" onClick={() => setCursor(shiftCursor(cursor, mode, -1))}>
+        <Button variant="outline" size="sm" className="h-11" onClick={() => setCursor(shiftCursor(cursor, mode, -1))}>
           Prev
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setCursor(new Date())}>
+        <Button variant="outline" size="sm" className="h-11" onClick={() => setCursor(new Date())}>
           Today
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setCursor(shiftCursor(cursor, mode, 1))}>
+        <Button variant="outline" size="sm" className="h-11" onClick={() => setCursor(shiftCursor(cursor, mode, 1))}>
           Next
         </Button>
         <div className="flex flex-wrap rounded-md border border-border">
@@ -364,13 +394,13 @@ export function CalendarView() {
             Import ICS
           </span>
         </label>
-        <Button variant="outline" size="sm" onClick={() => downloadICS(listed)}>
+        <Button variant="outline" size="sm" className="h-11" onClick={() => downloadICS(listed)}>
           Export
         </Button>
         <Button variant="outline" className="h-11" onClick={() => void pullGoogle()}>
           Connect calendar
         </Button>
-        <Button size="sm" onClick={() => openDay(isoDate())}>
+        <Button size="sm" className="h-11" onClick={() => openDay(isoDate())}>
           New event
         </Button>
         <FloatBtn kind="calendar" />
@@ -380,11 +410,12 @@ export function CalendarView() {
       </p>
       <div className="mb-6 flex flex-col gap-2 sm:flex-row">
         <Input
+          className="h-11"
           placeholder="Public iCal URL (secret iCal address, Outlook, Apple…)"
           value={subUrl}
           onChange={(e) => setSubUrl(e.target.value)}
         />
-        <Button variant="secondary" onClick={() => void subscribe()}>
+        <Button variant="secondary" className="h-11" onClick={() => void subscribe()}>
           Subscribe
         </Button>
       </div>
@@ -410,8 +441,8 @@ export function CalendarView() {
       ) : null}
 
       {mode === "month" && (
-        <div role="grid" aria-label={monthName(cursor)} className="grid grid-cols-7 gap-1.5">
-          <div role="row" className="contents">
+        <div role="grid" aria-label={monthName(cursor)}>
+          <div role="row" className="mb-1 grid grid-cols-7 gap-x-1.5">
           {weekdays.map((d, i) => (
             <div key={d} role="columnheader" className="px-1 pb-1 text-center text-xs text-muted-foreground">
               <span aria-hidden="true" className="sm:hidden">{d[0]}</span>
@@ -420,65 +451,72 @@ export function CalendarView() {
             </div>
           ))}
           </div>
-          {Array.from({ length: grid.length / 7 }, (_, w) => grid.slice(w * 7, w * 7 + 7)).map((week) => (
-          <div key={isoDate(week[0].date)} role="row" className="contents">
-          {week.map((c) => {
-            const evs = onDate(c.date);
-            const isToday = sameDay(c.date, new Date());
+          {monthRows.map((row) => {
+            // Lanes, then single pills, then an optional "+N more" row (pills / "+N more" 32px, Eric's call).
+            const singles = Math.max(0, ...row.cells.map((c) => c.shown.length));
+            const over = row.cells.some((c) => c.more > 0);
+            const tracks = `44px${row.lanes ? ` repeat(${row.lanes}, 32px)` : ""}${singles ? ` repeat(${singles}, 32px)` : ""}${over ? " 32px" : ""} 6px`;
             return (
-              <div
-                key={isoDate(c.date) + (c.out ? "-out" : "")}
-                role="gridcell"
-                className={`min-h-16 rounded-md border p-1 text-left sm:min-h-24 sm:p-1.5 ${c.out ? "border-dashed" : "bg-card"} ${isToday ? "border-[var(--today-accent)] ring-1 ring-[var(--today-accent)]" : "border-border"}`}
-              >
+          <div key={row.days[0]} role="row" className="mb-1.5 grid grid-cols-7 gap-x-1.5" style={{ gridTemplateRows: tracks }}>
+          {row.days.map((key, i) => {
+            const cell = row.cells[i]!;
+            const date = manilaAt(key, 12);
+            const out = outside.has(key);
+            const isToday = sameDay(date, new Date());
+            return (
+              <div key={key} role="gridcell" className="contents">
+                <div
+                  aria-hidden="true"
+                  style={{ gridColumn: i + 1, gridRow: "1 / -1" }}
+                  className={`min-h-16 rounded-md border sm:min-h-24 ${out ? "border-dashed" : "bg-card"} ${isToday ? "border-[var(--today-accent)] ring-1 ring-[var(--today-accent)]" : "border-border"}`}
+                />
                 <button
                   type="button"
-                  className="flex min-h-11 w-full items-start text-left text-xs leading-none text-muted-foreground"
-                  aria-label={dayLabel(c.date, evs.length)}
+                  style={{ gridColumn: i + 1, gridRow: 1 }}
+                  className={`z-[1] flex min-h-11 w-full items-start rounded-md px-1.5 pt-1.5 text-left text-xs leading-none sm:px-2 sm:pt-2 ${out ? "text-muted-foreground/60" : "text-muted-foreground"} ${FOCUS}`}
+                  aria-label={spanCellLabel(date, cell.all)}
                   aria-current={isToday ? "date" : undefined}
-                  onClick={() => openDay(isoDate(c.date))}
+                  onClick={() => openDay(key)}
                 >
-                  {c.day}
+                  {manilaParts(date).day}
                 </button>
-                {evs.slice(0, 3).map((e, i) => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    className={`mt-0.5 min-h-6 w-full items-center rounded-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8 ${i > 0 ? "hidden sm:flex" : "flex"}`}
-                    aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
-                    title={`${e.title} · ${eventCatLabel(eventCats, e.cat)}`}
-                    onClick={() => openEvent(e)}
-                  >
-                    <span className="cat-tag w-full" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
-                      <span>{e.title}</span>
-                    </span>
-                  </button>
-                ))}
-                {evs.length > 1 ? (
-                  <button
-                    type="button"
-                    className="mt-0.5 flex min-h-11 w-full shrink-0 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
-                    aria-label={`${evs.length - 1} more`}
-                    onClick={() => showDay(isoDate(c.date))}
-                  >
-                    <span className="cat-tag cat-tag-more w-full">+{evs.length - 1}</span>
-                  </button>
-                ) : null}
-                {evs.length > 3 ? (
-                  <button
-                    type="button"
-                    className="mt-0.5 hidden min-h-8 w-full shrink-0 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex"
-                    aria-label={`${evs.length - 3} more`}
-                    onClick={() => showDay(isoDate(c.date))}
-                  >
-                    <span className="cat-tag cat-tag-more w-full">+{evs.length - 3} more</span>
-                  </button>
+                {cell.shown.length || cell.more ? (
+                  <div className="z-[1] flex min-w-0 flex-col px-1 sm:px-1.5" style={{ gridColumn: i + 1, gridRow: `${2 + row.lanes} / -2` }}>
+                    {cell.shown.map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        className={`flex min-h-8 w-full min-w-0 items-center rounded-full text-left ${FOCUS}`}
+                        aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
+                        title={`${e.title} · ${eventCatLabel(eventCats, e.cat)}`}
+                        onClick={() => openEvent(e)}
+                      >
+                        <span className="cat-tag w-full" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
+                          <span>{e.title}</span>
+                        </span>
+                      </button>
+                    ))}
+                    {cell.more ? (
+                      <button
+                        type="button"
+                        className={`mt-auto flex min-h-8 w-full shrink-0 items-center rounded-full ${FOCUS}`}
+                        aria-label={`${cell.more} more`}
+                        onClick={() => showDay(key)}
+                      >
+                        <span className="cat-tag cat-tag-more w-full">+{cell.more} more</span>
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             );
           })}
-          </div>
+          {row.segs.map((s) => (
+            <SpanButton key={s.e.id} seg={s} cats={eventCats} onOpen={openEvent} />
           ))}
+          </div>
+            );
+          })}
         </div>
       )}
 
@@ -503,42 +541,82 @@ export function CalendarView() {
       )}
 
       {mode === "week" && (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
-          {weekdays.map((d, i) => {
-            const startW = fromManila(
-              weekOrigin.year,
-              weekOrigin.month,
-              weekOrigin.day - weekOrigin.weekdayIndex + i,
-              12,
-            );
-            const evs = onDate(startW);
-            return (
-              <div
-                key={d}
-                className={`min-h-48 rounded-lg border bg-card p-3 ${sameDay(startW, new Date()) ? "border-[var(--today-accent)]" : "border-border"}`}
-              >
-                <button
-                  type="button"
-                  className="min-h-8 text-xs text-muted-foreground"
-                  onClick={() => openDay(isoDate(startW))}
-                >
-                  {d} {manilaParts(startW).day}
-                </button>
-                {evs.map((e) => (
+        <>
+          {/* md+: one 7-column grid — day cards underneath, a span band under the day headers, timed rows below. */}
+          <div
+            role="group"
+            aria-label={heading(cursor, mode)}
+            className="hidden gap-x-2 md:grid md:grid-cols-7"
+            style={{ gridTemplateRows: `44px${weekRow.lanes ? ` repeat(${weekRow.lanes}, 32px)` : ""} 1fr` }}
+          >
+            {weekRow.days.map((key, i) => {
+              const date = manilaAt(key, 12);
+              const isToday = sameDay(date, new Date());
+              return (
+                <div key={key} className="contents">
+                  <div
+                    aria-hidden="true"
+                    style={{ gridColumn: i + 1, gridRow: "1 / -1" }}
+                    className={`min-h-48 rounded-lg border bg-card ${isToday ? "border-[var(--today-accent)]" : "border-border"}`}
+                  />
                   <button
-                    key={e.id}
                     type="button"
-                    className="mt-2 block min-h-8 w-full text-left text-sm"
-                    onClick={() => openEvent(e)}
+                    style={{ gridColumn: i + 1, gridRow: 1 }}
+                    className={`z-[1] min-h-11 rounded-lg px-3 text-left text-xs text-muted-foreground ${FOCUS}`}
+                    aria-label={spanCellLabel(date, weekRow.cells[i]!.all)}
+                    aria-current={isToday ? "date" : undefined}
+                    onClick={() => openDay(key)}
                   >
-                    <span className="tabular-nums text-muted-foreground">{fmtWhen(e)} </span>
-                    {e.title}
+                    {weekdays[i]} {manilaParts(date).day}
                   </button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+                  <div className="z-[1] flex min-w-0 flex-col px-3 pb-3" style={{ gridColumn: i + 1, gridRow: 2 + weekRow.lanes }}>
+                    {weekRow.cells[i]!.singles.map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        className={`mt-2 block min-h-8 w-full rounded-sm text-left text-sm ${FOCUS}`}
+                        onClick={() => openEvent(e)}
+                      >
+                        <span className="tabular-nums text-muted-foreground">{fmtWhen(e)} </span>
+                        {e.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {weekRow.segs.map((s) => (
+              <SpanButton key={s.e.id} seg={s} cats={eventCats} onOpen={openEvent} />
+            ))}
+          </div>
+          {/* Phone: days stack in one column, so each day lists what covers it (spans read "day n of N"). */}
+          <div className="grid grid-cols-1 gap-2 md:hidden">
+            {weekRow.days.map((key, i) => {
+              const date = manilaAt(key, 12);
+              return (
+                <div
+                  key={key}
+                  className={`rounded-lg border bg-card p-3 ${sameDay(date, new Date()) ? "border-[var(--today-accent)]" : "border-border"}`}
+                >
+                  <button type="button" className={`min-h-11 w-full rounded-sm text-left text-xs text-muted-foreground ${FOCUS}`} onClick={() => openDay(key)}>
+                    {weekdays[i]} {manilaParts(date).day}
+                  </button>
+                  {weekRow.cells[i]!.all.map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      className={`mt-2 block min-h-8 w-full rounded-sm text-left text-sm ${FOCUS}`}
+                      onClick={() => openEvent(e)}
+                    >
+                      <span className="tabular-nums text-muted-foreground">{spanWhen(e, key)} </span>
+                      {e.title}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {mode === "agenda" && (
@@ -556,13 +634,14 @@ export function CalendarView() {
                         <span>{e.title}</span>
                       </span>
                       <div className="mt-1 text-xs text-muted-foreground tabular-nums">
-                        {fmtWhen(e)}
+                        {spanWhen(e, k)}
                         {e.reminder ? ` · ${e.reminder}m before` : ""} · {eventCatLabel(eventCats, e.cat)} · {sourceLine(e)}
                       </div>
                     </button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="h-11"
                       onClick={() => {
                         if (e.seriesId) {
                           const master = events.find((x) => x.id === e.seriesId);

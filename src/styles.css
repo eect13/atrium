@@ -246,6 +246,47 @@ html.light {
     gap: 7px;
     font-size: 0.8125rem;
   }
+  /*
+   * Multi-day span bar (Card 138 §5) — Shape 1 type in one continuous bar per
+   * week-row segment. True ends: rounded + 4px inset + dot. Squared ends run to
+   * the row edge (a squared start carries a ‹ chevron instead of the dot).
+   * Keyline = primary-foreground: invisible on card, ≥3:1 edge on a selected (primary) day.
+   */
+  .span-bar {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    height: var(--tag-h);
+    padding: 0 8px 0 3px;
+    background: var(--tag-bg, var(--color-muted));
+    color: var(--tag-fg, var(--color-foreground));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px var(--color-primary-foreground);
+  }
+  .span-bar-start {
+    margin-left: 4px;
+    padding-left: 6px;
+    border-top-left-radius: var(--tag-radius);
+    border-bottom-left-radius: var(--tag-radius);
+  }
+  .span-bar-start::before {
+    content: "";
+    flex: none;
+    width: var(--tag-dot);
+    height: var(--tag-dot);
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .span-bar-end {
+    margin-right: 4px;
+    border-top-right-radius: var(--tag-radius);
+    border-bottom-right-radius: var(--tag-radius);
+  }
 
   .wallet-face {
     background: var(--color-card);

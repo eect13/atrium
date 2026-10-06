@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentPropsWithoutRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  CircleDot,
   Eye,
   EyeOff,
   Shuffle,
@@ -12,7 +15,6 @@ import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import {
   addDays,
-  eventCoverDays,
   eventCoversDay,
   fmtDate,
   fmtWhen,
@@ -29,12 +31,12 @@ import {
   noteTitle,
   pct,
   sameDay,
-  dayLabel,
   deskZone,
   WEEKDAY_NAMES,
 } from "@/lib/format";
 import { eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
-import { CAL_VIEWS, CAL_VIEW_LABEL, calViewFor, pillBars, type CalView } from "@/lib/cal-view";
+import { CAL_VIEWS, CAL_VIEW_LABEL, calViewFor, type CalView } from "@/lib/cal-view";
+import { WIDGET_SPAN_CAP, layoutSpanRows, spanCellLabel, spanWhen, type SpanRow, type SpanSegment } from "@/lib/span-layout";
 import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
@@ -58,6 +60,7 @@ import { LOCAL_QUOTES, fetchQuotes, readQuoteSeed, readQuoteSession, writeQuoteS
 import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tip } from "@/components/ui/tooltip";
 
 export function WeatherBody() {
   return <WeatherGlance hours={6} days={5} />;
@@ -112,14 +115,41 @@ function barStyle(cats: CatList, e: CalendarEvent) {
   return { ...eventCatTagStyle(cats, e.cat, e.color), background: "var(--tag-bg)" };
 }
 
-/** Mini-grid cell marks: solid pill bars only — names live in the day agenda. */
-function DayBars({ list, max, on, cats }: { list: CalendarEvent[]; max: number; on: boolean; cats: CatList }) {
-  if (!list.length) return null;
-  const { bars, more } = pillBars(list.length, max);
+/**
+ * One continuous bar per week-row segment (widget + full Calendar). True ends are
+ * rounded and inset; squared ends run to the row edge, and a squared start shows ‹.
+ * The keyline (primary-foreground) is invisible on card and keeps the bar ≥3:1 on a selected (primary) day.
+ */
+export function SpanBar({
+  seg,
+  cats,
+  className,
+  style,
+  ...rest
+}: { seg: SpanSegment<CalendarEvent>; cats: CatList } & ComponentPropsWithoutRef<"span">) {
   return (
-    <span className="mt-1 flex w-full flex-col items-stretch gap-0.5 px-1.5" aria-hidden="true">
-      {list.slice(0, bars).map((e) => (
-        <span key={e.id} className="block h-1.5 rounded-full" style={barStyle(cats, e)} />
+    <span
+      {...rest}
+      className={cn("span-bar", seg.trueStart ? "span-bar-start" : "span-bar-cont", seg.trueEnd && "span-bar-end", className)}
+      style={{ ...eventCatTagStyle(cats, seg.e.cat, seg.e.color), ...style }}
+    >
+      {seg.trueStart ? null : <ChevronLeft className="size-2.5 shrink-0" strokeWidth={3} aria-hidden="true" />}
+      <span className="min-w-0 truncate">{seg.e.title}</span>
+    </span>
+  );
+}
+
+/** Mini-grid singles: solid pill bars + "+N" (counts come from the shared span layout cap). */
+function DayBars({ shown, more, on, cats }: { shown: CalendarEvent[]; more: number; on: boolean; cats: CatList }) {
+  if (!shown.length && !more) return null;
+  return (
+    <span className="mt-[3px] flex w-full flex-col items-stretch gap-0.5 px-1.5" aria-hidden="true">
+      {shown.map((e) => (
+        <span
+          key={e.id}
+          className={cn("block h-1.5 rounded-full", on && "shadow-[0_0_0_1px_var(--color-primary-foreground)]")}
+          style={barStyle(cats, e)}
+        />
       ))}
       {more ? (
         <span className={cn("text-center text-[0.625rem] leading-none tabular-nums", on ? "text-primary-foreground" : "text-muted-foreground")}>
@@ -127,6 +157,83 @@ function DayBars({ list, max, on, cats }: { list: CalendarEvent[]; max: number; 
         </span>
       ) : null}
     </span>
+  );
+}
+
+const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
+
+/** One widget week row: day buttons underneath, span lanes + single bars overlaid (decorative). */
+function PeekSpanRow({
+  row,
+  kind,
+  day,
+  now,
+  outside,
+  cats,
+  onDay,
+}: {
+  row: SpanRow<CalendarEvent>;
+  kind: "month" | "week";
+  day: string;
+  now: Date;
+  outside?: Set<string>;
+  cats: CatList;
+  onDay: (key: string) => void;
+}) {
+  const head = kind === "month" ? 26 : 44;
+  return (
+    <div
+      role="row"
+      className={cn("grid grid-cols-7", kind === "month" ? "gap-x-0.5" : "gap-x-1")}
+      style={{ gridTemplateRows: `${head}px${row.lanes ? ` repeat(${row.lanes}, 22px)` : ""} auto` }}
+    >
+      {row.days.map((key, i) => {
+        const cell = row.cells[i]!;
+        const d = manilaAt(key, 12);
+        const on = key === day;
+        const isToday = sameDay(d, now);
+        const parts = manilaParts(d);
+        return (
+          <div key={key} role="gridcell" className="contents">
+            <button
+              type="button"
+              aria-label={spanCellLabel(d, cell.all)}
+              aria-pressed={on}
+              aria-current={isToday ? "date" : undefined}
+              onClick={() => onDay(key)}
+              style={{ gridColumn: i + 1, gridRow: "1 / -1" }}
+              className={cn(
+                "flex flex-col items-center justify-start pt-1.5 text-xs tabular-nums",
+                FOCUS_RING,
+                kind === "month" ? "min-h-14 rounded-sm" : "min-h-24 rounded-md",
+                on
+                  ? "bg-primary text-primary-foreground"
+                  : cn(kind === "week" && "bg-muted", outside?.has(key) ? "text-muted-foreground/60" : "text-muted-foreground"),
+                isToday && !on && "inset-ring inset-ring-ring",
+              )}
+            >
+              {kind === "week" ? <span>{parts.weekday.slice(0, 2)}</span> : null}
+              <span>{parts.day}</span>
+            </button>
+            {cell.shown.length || cell.more ? (
+              <span className="pointer-events-none z-[1] self-start" style={{ gridColumn: i + 1, gridRow: 2 + row.lanes }}>
+                <DayBars shown={cell.shown} more={cell.more} on={on} cats={cats} />
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+      {row.segs.map((s) => (
+        <SpanBar
+          key={s.e.id}
+          seg={s}
+          cats={cats}
+          aria-hidden="true"
+          className="pointer-events-none z-[1] self-center"
+          style={{ gridColumn: `${s.c0 + 1} / ${s.c1 + 2}`, gridRow: 2 + s.lane }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -139,10 +246,13 @@ function weekRangeLabel(a: Date, b: Date) {
   }
 }
 
+const weekRows = (keys: string[]) => Array.from({ length: Math.ceil(keys.length / 7) }, (_, w) => keys.slice(w * 7, w * 7 + 7));
+
 /**
  * Calendar widget / float body. Today | Week | Month (default Month), remembered
- * per `widgetId`. Month + Week grids carry solid pill bars only; the day agenda
- * below shows Shape 1 `.cat-tag` pills + event name once.
+ * per `widgetId`. Month + Week grids draw multi-day events as continuous bars
+ * (shared `layoutSpanRows`) and singles as solid pill bars; the day agenda below
+ * shows Shape 1 `.cat-tag` pills + event name once.
  */
 export function CalendarPeek({
   date,
@@ -189,15 +299,16 @@ export function CalendarPeek({
     return expandEvents(stored, from, to);
   }, [stored, grid, week, day]);
 
-  const byDay = useMemo(() => {
-    const map: Record<string, CalendarEvent[]> = {};
-    for (const e of painted) {
-      for (const k of eventCoverDays(e)) (map[k] ??= []).push(e);
-    }
-    for (const k of Object.keys(map)) map[k]!.sort((a, b) => a.start.localeCompare(b.start));
-    return map;
-  }, [painted]);
-  const list = byDay[day] ?? [];
+  const outside = useMemo(() => new Set(grid.filter((c) => c.out).map((c) => isoDate(c.date))), [grid]);
+  const rows = useMemo(() => {
+    if (view === "month") return layoutSpanRows(painted, weekRows(grid.map((c) => isoDate(c.date))), WIDGET_SPAN_CAP);
+    if (view === "week") return layoutSpanRows(painted, [week.map((d) => isoDate(d))], WIDGET_SPAN_CAP);
+    return [];
+  }, [view, painted, grid, week]);
+  const list = useMemo(
+    () => painted.filter((e) => eventCoversDay(e, day)).toSorted((a, b) => a.start.localeCompare(b.start)),
+    [painted, day],
+  );
 
   const pick = (e: CalendarEvent) => {
     if (onSelect) onSelect(e);
@@ -227,23 +338,33 @@ export function CalendarPeek({
       : view === "week"
         ? weekRangeLabel(week[0]!, week[6]!)
         : fmtDate(manilaAt(day, 12).toISOString());
-  const navBtn = "min-h-8 shrink-0 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground";
+  const unit = view === "today" ? "day" : view;
+  const iconBtn = cn(
+    "inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
+    FOCUS_RING,
+  );
 
   const header = (
     <div className="mb-3 shrink-0 space-y-2">
-      <div className="flex items-center gap-1" data-tauri-drag-region>
+      <div className="flex items-center gap-0.5" data-tauri-drag-region>
         <span className="min-w-0 grow truncate px-1 text-sm font-medium" data-tauri-drag-region aria-live="polite">
           {title}
         </span>
-        <button type="button" data-no-drag className={navBtn} onClick={goToday}>
-          Today
-        </button>
-        <button type="button" data-no-drag className={navBtn} aria-label={`Previous ${view === "today" ? "day" : view}`} onClick={() => step(-1)}>
-          Prev
-        </button>
-        <button type="button" data-no-drag className={navBtn} aria-label={`Next ${view === "today" ? "day" : view}`} onClick={() => step(1)}>
-          Next
-        </button>
+        <Tip label="Go to today">
+          <button type="button" data-no-drag className={iconBtn} aria-label="Go to today" onClick={goToday}>
+            <CircleDot className="size-4" aria-hidden="true" />
+          </button>
+        </Tip>
+        <Tip label={`Previous ${unit}`}>
+          <button type="button" data-no-drag className={iconBtn} aria-label={`Previous ${unit}`} onClick={() => step(-1)}>
+            <ChevronLeft className="size-4" aria-hidden="true" />
+          </button>
+        </Tip>
+        <Tip label={`Next ${unit}`}>
+          <button type="button" data-no-drag className={iconBtn} aria-label={`Next ${unit}`} onClick={() => step(1)}>
+            <ChevronRight className="size-4" aria-hidden="true" />
+          </button>
+        </Tip>
       </div>
       <div role="group" aria-label="Calendar view" className="inline-flex rounded-md bg-muted p-0.5" data-no-drag>
         {CAL_VIEWS.map((v) => (
@@ -253,8 +374,9 @@ export function CalendarPeek({
             data-no-drag
             aria-pressed={view === v}
             className={cn(
-              "min-h-9 rounded-[calc(var(--radius-md)-2px)] px-3 text-xs",
-              view === v ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+              "min-h-11 rounded-[calc(var(--radius-md)-2px)] px-3.5 text-xs",
+              FOCUS_RING,
+              view === v ? "bg-background text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => pickView(v)}
           >
@@ -267,9 +389,11 @@ export function CalendarPeek({
 
   const dayAgenda = (
     <div className="mt-3 min-h-0 flex-1 overflow-auto">
-      <p className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted-foreground">
-        {fmtDate(manilaAt(day, 12).toISOString())}
-      </p>
+      {view === "today" ? null : (
+        <p className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted-foreground">
+          {fmtDate(manilaAt(day, 12).toISOString())}
+        </p>
+      )}
       {!list.length ? (
         <p className="text-sm text-muted-foreground">Nothing on this day.</p>
       ) : (
@@ -280,7 +404,7 @@ export function CalendarPeek({
               <button
                 key={e.id}
                 type="button"
-                className="flex min-h-11 w-full items-start gap-2.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-left"
+                className={cn("flex min-h-11 w-full items-start gap-2.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-left", FOCUS_RING)}
                 aria-label={`${e.title}, ${cat}`}
                 onClick={() => pick(e)}
               >
@@ -290,7 +414,7 @@ export function CalendarPeek({
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium leading-snug">{e.title}</span>
                   <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
-                    {fmtWhen(e)}
+                    {spanWhen(e, day)}
                     {e.loc ? ` · ${e.loc}` : ""}
                   </span>
                 </span>
@@ -305,25 +429,22 @@ export function CalendarPeek({
   const fullLink = embedded ? null : (
     <button
       type="button"
-      className="mt-auto shrink-0 pt-2 text-left text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      className={cn(
+        "mt-auto inline-flex min-h-11 shrink-0 items-center self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground",
+        FOCUS_RING,
+      )}
       onClick={() => setView("calendar")}
     >
       Full calendar
     </button>
   );
 
-  const cellTone = (on: boolean, isToday: boolean, muted: boolean) =>
-    cn(
-      on ? "bg-primary text-primary-foreground" : muted ? "text-muted-foreground/60" : "text-muted-foreground",
-      isToday && !on && "ring-1 ring-ring",
-    );
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
       {view === "month" ? (
-        <div role="grid" aria-label={monthName(cursor)} className="grid grid-cols-7 gap-0.5">
-          <div role="row" className="contents">
+        <div role="grid" aria-label={monthName(cursor)} className="flex flex-col gap-0.5">
+          <div role="row" className="grid grid-cols-7 gap-x-0.5">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
               <div key={`${d}-${i}`} role="columnheader" className="pb-1 text-center text-[0.65rem] text-muted-foreground">
                 <span aria-hidden="true">{d}</span>
@@ -331,61 +452,15 @@ export function CalendarPeek({
               </div>
             ))}
           </div>
-          {Array.from({ length: grid.length / 7 }, (_, w) => grid.slice(w * 7, w * 7 + 7)).map((row) => (
-            <div key={isoDate(row[0]!.date)} role="row" className="contents">
-              {row.map((c) => {
-                const key = isoDate(c.date);
-                const items = byDay[key] ?? [];
-                const on = key === day;
-                return (
-                  <div key={key + (c.out ? "-out" : "")} role="gridcell" className="contents">
-                    <button
-                      type="button"
-                      aria-label={dayLabel(c.date, items.length)}
-                      aria-pressed={on}
-                      aria-current={sameDay(c.date, now) ? "date" : undefined}
-                      onClick={() => setDay(key)}
-                      className={cn(
-                        "flex min-h-14 flex-col items-center justify-start rounded-sm pt-1.5 text-xs tabular-nums",
-                        cellTone(on, sameDay(c.date, now), c.out),
-                      )}
-                    >
-                      {c.day}
-                      <DayBars list={items} max={3} on={on} cats={eventCats} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+          {rows.map((row) => (
+            <PeekSpanRow key={row.days[0]} row={row} kind="month" day={day} now={now} outside={outside} cats={eventCats} onDay={setDay} />
           ))}
         </div>
       ) : view === "week" ? (
-        <div className="grid grid-cols-7 gap-1" role="group" aria-label={title}>
-          {week.map((d) => {
-            const key = isoDate(d);
-            const items = byDay[key] ?? [];
-            const on = key === day;
-            const parts = manilaParts(d);
-            return (
-              <button
-                key={key}
-                type="button"
-                aria-label={dayLabel(d, items.length)}
-                aria-pressed={on}
-                aria-current={sameDay(d, now) ? "date" : undefined}
-                onClick={() => setDay(key)}
-                className={cn(
-                  "flex min-h-16 flex-col items-center justify-start rounded-md pt-1.5 text-xs",
-                  on ? "" : "bg-muted",
-                  cellTone(on, sameDay(d, now), false),
-                )}
-              >
-                <span>{parts.weekday.slice(0, 2)}</span>
-                <span className="tabular-nums">{parts.day}</span>
-                <DayBars list={items} max={2} on={on} cats={eventCats} />
-              </button>
-            );
-          })}
+        <div role="grid" aria-label={title}>
+          {rows.map((row) => (
+            <PeekSpanRow key={row.days[0]} row={row} kind="week" day={day} now={now} cats={eventCats} onDay={setDay} />
+          ))}
         </div>
       ) : null}
       {dayAgenda}
