@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { FloatBtn } from "@/components/desk-chrome";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -150,47 +151,32 @@ export function ClockView() {
             const over = overId === z && dragId && dragId !== z;
             if (confirming) {
               return (
-                <li
+                <ConfirmRow
                   key={z}
-                  className={cn(
-                    "flex min-h-[88px] items-stretch gap-1 rounded-[14px] bg-destructive/10 p-2.5 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-destructive)_50%,var(--color-border))]",
-                  )}
-                  aria-label={`Remove ${city}?`}
+                  as="li"
+                  subject={city}
+                  verb="Remove"
+                  triggerId={z}
+                  className="min-h-[88px] flex-nowrap items-stretch gap-1 rounded-[14px] border-0 bg-destructive/10 p-2.5 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-destructive)_50%,var(--color-border))]"
+                  bodyClassName="flex-1 py-1 pr-1"
+                  messageClassName="text-[15px] font-semibold"
+                  actionsClassName="ml-0 flex-row items-center gap-1 self-center sm:flex-col"
+                  buttonClassName="px-2.5 text-xs"
+                  lead={
+                    <span className="inline-flex size-11 shrink-0 items-center justify-center self-center text-muted-foreground" aria-hidden>
+                      <GripVertical className="size-4" />
+                    </span>
+                  }
+                  onCancel={() => setConfirmId(null)}
+                  onConfirm={() => {
+                    updateClock((p) => withoutClockZone(p, z));
+                    setConfirmId(null);
+                    toast(`Removed ${city}`);
+                  }}
                 >
-                  <span className="inline-flex size-11 shrink-0 items-center justify-center self-center text-muted-foreground" aria-hidden>
-                    <GripVertical className="size-4" />
-                  </span>
-                  <div className="min-w-0 flex-1 py-1 pr-1">
-                    <p className="text-[15px] font-semibold">
-                      Remove <strong className="font-semibold">{city}</strong>?
-                    </p>
-                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{z}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Removes it from your world clocks.</p>
-                  </div>
-                  <div className="flex flex-row items-center gap-1 self-center sm:flex-col">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-11 px-2.5 text-xs"
-                      onClick={() => setConfirmId(null)}
-                      autoFocus
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      className="h-11 px-2.5 text-xs"
-                      onClick={() => {
-                        updateClock((p) => withoutClockZone(p, z));
-                        setConfirmId(null);
-                        toast(`Removed ${city}`);
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </li>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{z}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Removes it from your world clocks.</p>
+                </ConfirmRow>
               );
             }
             const showDate = differentCivilDay(now, z, localTz);
@@ -247,6 +233,7 @@ export function ClockView() {
                   type="button"
                   className="inline-flex size-11 shrink-0 items-center justify-center self-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={`Remove ${city}`}
+                  data-confirm-trigger={z}
                   onClick={() => setConfirmId(z)}
                 >
                   <Trash2 className="size-4" />

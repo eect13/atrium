@@ -5,6 +5,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -149,24 +150,16 @@ export function EventCatManager({
               if (confirmId === c.id) {
                 const target = eventCatLabel(eventCats, remapCatId(eventCats, c.id));
                 return (
-                  <li
+                  <ConfirmRow
                     key={c.id}
-                    className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2 py-1.5"
-                    role="group"
-                    aria-label={`Delete ${c.label}?`}
-                  >
-                    <p className="min-w-0 grow text-sm">
-                      Delete <strong className="font-semibold">{c.label}</strong>? Events remapped to {target}.
-                    </p>
-                    <div className="ml-auto flex gap-2">
-                      <Button type="button" variant="outline" className="h-11" onClick={() => setConfirmId(null)} autoFocus>
-                        Cancel
-                      </Button>
-                      <Button type="button" variant="destructive" className="h-11" onClick={() => confirmRemove(c)}>
-                        Delete
-                      </Button>
-                    </div>
-                  </li>
+                    as="li"
+                    subject={c.label}
+                    verb="Delete"
+                    detail={`Events remapped to ${target}.`}
+                    triggerId={c.id}
+                    onCancel={() => setConfirmId(null)}
+                    onConfirm={() => confirmRemove(c)}
+                  />
                 );
               }
               if (editId === c.id) {
@@ -222,6 +215,7 @@ export function EventCatManager({
                       type="button"
                       className={`${ICON_BTN} hover:text-destructive`}
                       aria-label={`Delete ${c.label}`}
+                      data-confirm-trigger={c.id}
                       disabled={eventCats.length <= 1}
                       onClick={() => {
                         setEditId(null);

@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
+import { CONFIRM_HOME, ConfirmRow, ConfirmTrigger } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { confirmStep, type ConfirmAct } from "@/lib/confirm";
 import { uid } from "@/lib/format";
 import { FEED_PRESETS, compareRegion, packIsOn, probeFeed, sortedFeedPacks, sourceRegion } from "@/lib/feeds";
 import { NEWS_TAGS, asNewsTag } from "@/lib/headline";
@@ -107,8 +109,15 @@ export function FeedSources({
     onRefresh();
   }
 
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const ask = (act: ConfirmAct) => setConfirmId((cur) => confirmStep(cur, act).confirmId);
+  function close(next: boolean) {
+    if (!next) ask({ type: "close" });
+    setOpen(next);
+  }
+
   return (
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={close}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Sources</DialogTitle>
@@ -201,15 +210,32 @@ export function FeedSources({
                 value={catalogQ}
                 onChange={(e) => setCatalogQ(e.target.value)}
                 placeholder="Search sources"
-                className="h-11"
                 aria-label="Search the catalog"
+                {...CONFIRM_HOME}
               />
               <p className="text-xs text-muted-foreground">
                 {onCount} on · {feeds.length - onCount} more
                 {catalogQ.trim() ? "" : " — type a name to browse"}
               </p>
               {listedShown.length ? (
-                listedShown.map((f) => (
+                listedShown.map((f) =>
+                confirmId === f.id ? (
+                  <ConfirmRow
+                    key={f.id}
+                    subject={f.name}
+                    verb="Remove"
+                    detail="Its stories leave Feed. You can add it back from Sources."
+                    triggerId={f.id}
+                    onCancel={() => ask({ type: "cancel" })}
+                    onConfirm={() => {
+                      const { commit } = confirmStep(confirmId, { type: "confirm", id: f.id });
+                      setConfirmId(null);
+                      if (!commit) return;
+                      removeFeed(commit);
+                      toast(`Removed ${f.name}`);
+                    }}
+                  />
+                ) : (
                 <div key={f.id} className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm">{f.name}</p>
@@ -218,20 +244,12 @@ export function FeedSources({
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      className="px-2 text-xs text-muted-foreground hover:text-destructive"
-                      onClick={() => {
-                        removeFeed(f.id);
-                        toast(`Removed ${f.name}`);
-                      }}
-                    >
-                      Remove
-                    </button>
-                    <Switch checked={f.enabled} onCheckedChange={() => toggleFeed(f.id)} />
+                    <ConfirmTrigger id={f.id} label={`Remove ${f.name}`} onClick={() => ask({ type: "ask", id: f.id })} />
+                    <Switch checked={f.enabled} onCheckedChange={() => toggleFeed(f.id)} aria-label={f.name} />
                   </div>
                 </div>
-                ))
+                ),
+                )
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {catalogQ.trim()
@@ -246,7 +264,7 @@ export function FeedSources({
             <div className="flex justify-end">
               <Button
                 onClick={() => {
-                  setOpen(false);
+                  close(false);
                   if (onCount) onRefresh();
                 }}
               >

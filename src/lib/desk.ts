@@ -6,7 +6,7 @@ export const DESK_HEADER = 56;
 /** Tab chips + home-indicator. Matches `.pb-dock` (chips ~52px + safe-area). */
 export const DESK_DOCK = 72;
 /** Title bar height — close control lives here, so it must stay on-screen. */
-export const DESK_BAR = 44;
+export const DESK_BAR = 48;
 /** Snap-to-edge distance. */
 export const DESK_SNAP = 24;
 

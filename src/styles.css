@@ -34,6 +34,8 @@
   --shadow-border: 0 0 0 1px rgb(242 242 240 / 0.08);
   --shadow-float: 0 0 0 1px rgb(242 242 240 / 0.1), 0 16px 40px rgb(0 0 0 / 0.45);
   --spacing-dock: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  /* Minimum touch target (44px). size-hit / h-hit / min-h-hit / min-w-hit. */
+  --spacing-hit: 2.75rem;
   --aspect-plastic: 1.586;
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -116,6 +118,21 @@ html.light {
   --cat-mint: #1d7a3e;
   --cat-mint-fg: #ffffff;
   --today-accent: #1760b0;
+}
+
+/* Hit area ≥ --spacing-hit around a smaller visual. Use only where neighbouring
+   target centres are ≥ 44px apart and no overflow:hidden ancestor clips it. */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--spacing-hit));
+    height: max(100%, var(--spacing-hit));
+    transform: translate(-50%, -50%);
+  }
 }
 
 @layer base {

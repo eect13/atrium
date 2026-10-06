@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow, ConfirmTrigger } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -91,7 +92,7 @@ export function DigestHero({
         <button
           type="button"
           onClick={onSettings}
-          className="min-h-9 shrink-0 rounded-full bg-muted px-3 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="hit-area min-h-9 shrink-0 rounded-full bg-muted px-3 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={`Digest settings, ${digestLabel(prefs)}`}
         >
           {digestLabel(prefs)}
@@ -248,17 +249,13 @@ function HubCard({
         </div>
       </div>
       {confirm ? (
-        <div className="mt-2 rounded-md border border-destructive/50 bg-destructive/10 p-2" role="group" aria-label={`Delete ${item.title}?`}>
-          <p className="text-sm">Delete <strong className="font-semibold">{item.title}</strong>?</p>
-          <div className="mt-2 flex gap-2">
-            <Button type="button" variant="outline" className="h-11" onClick={() => setConfirm(false)}>
-              Cancel
-            </Button>
-            <Button type="button" variant="destructive" className="h-11" onClick={remove}>
-              Delete
-            </Button>
-          </div>
-        </div>
+        <ConfirmRow
+          className="mt-2"
+          subject={item.title}
+          verb="Delete"
+          onCancel={() => setConfirm(false)}
+          onConfirm={remove}
+        />
       ) : (
         <Textarea
           value={note}
@@ -479,44 +476,24 @@ export function InterestDialog({
               <ul className="space-y-2">
                 {prefs.interests.map((i) =>
                   confirmId === i ? (
-                    <li
+                    <ConfirmRow
                       key={i}
-                      className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2 py-1.5"
-                      role="group"
-                      aria-label={`Delete ${i}?`}
-                    >
-                      <p className="min-w-0 grow text-sm">
-                        Delete <strong className="font-semibold">{i}</strong>? Stories stay; the tab goes.
-                      </p>
-                      <div className="ml-auto flex gap-2">
-                        <Button type="button" variant="outline" className="h-11" onClick={() => setConfirmId(null)} autoFocus>
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          className="h-11"
-                          onClick={() => {
-                            update((p) => withoutInterest(p, i));
-                            setConfirmId(null);
-                            toast(`Removed ${i}`);
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </li>
+                      as="li"
+                      subject={i}
+                      verb="Delete"
+                      detail="Stories stay; the tab goes."
+                      triggerId={i}
+                      onCancel={() => setConfirmId(null)}
+                      onConfirm={() => {
+                        update((p) => withoutInterest(p, i));
+                        setConfirmId(null);
+                        toast(`Removed ${i}`);
+                      }}
+                    />
                   ) : (
                     <li key={i} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-border px-2">
                       <span className="truncate text-sm">{i}</span>
-                      <button
-                        type="button"
-                        className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={`Delete ${i}`}
-                        onClick={() => setConfirmId(i)}
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
+                      <ConfirmTrigger id={i} label={`Delete ${i}`} onClick={() => setConfirmId(i)} />
                     </li>
                   ),
                 )}

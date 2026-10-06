@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GripHorizontal, Pin, PinOff, X } from "lucide-react";
+import { GripHorizontal, Pin, PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { NoteTools } from "@/components/note-chrome";
+import { CloseButton } from "@/components/ui/close-button";
 import { NoteInk } from "@/components/note-ink";
 import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
@@ -38,7 +39,7 @@ function Chrome({
   extra?: React.ReactNode;
 }) {
   return (
-    <header className="group/bar flex h-11 shrink-0 cursor-grab items-center gap-1 border-b border-current/15 px-2 active:cursor-grabbing">
+    <header className="group/bar flex h-12 shrink-0 cursor-grab items-center gap-1 border-b border-current/15 px-2 active:cursor-grabbing">
       <div className="flex min-w-0 grow items-center gap-1.5" data-tauri-drag-region>
         <GripHorizontal className="size-3.5 shrink-0 opacity-45" data-tauri-drag-region />
         <span className="min-w-0 truncate text-xs font-medium opacity-80" data-tauri-drag-region>
@@ -49,22 +50,18 @@ function Chrome({
       <button
         type="button"
         data-no-drag
-        className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10"
+        className="flex size-hit shrink-0 items-center justify-center rounded-md hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
         aria-label={pinnedTop ? "Unpin from top" : "Keep on top"}
         aria-pressed={pinnedTop}
         onClick={onPin}
       >
         {pinnedTop ? <Pin className="size-3.5" /> : <PinOff className="size-3.5 opacity-60" />}
       </button>
-      <button
-        type="button"
+      <CloseButton
         data-no-drag
-        className="flex size-8 items-center justify-center rounded-sm hover:bg-black/10"
+        className="text-current hover:bg-black/10 hover:text-current focus-visible:ring-current focus-visible:ring-offset-0"
         onClick={onClose}
-        aria-label="Close"
-      >
-        <X className="size-4" />
-      </button>
+      />
     </header>
   );
 }

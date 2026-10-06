@@ -9,7 +9,7 @@ const Switch = React.forwardRef<
   <SwitchPrimitives.Root
     className={cn(
       // On-track uses --color-ok (green) so checked state stays readable vs light primary-on-muted.
-      "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors data-[state=checked]:border-transparent data-[state=checked]:bg-ok data-[state=unchecked]:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      "peer hit-area inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors data-[state=checked]:border-transparent data-[state=checked]:bg-ok data-[state=unchecked]:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       className,
     )}
     {...props}

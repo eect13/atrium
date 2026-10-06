@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { GripHorizontal, X } from "lucide-react";
+import { GripHorizontal } from "lucide-react";
 import { clampDesk, clampSize, keyBox, resizeFrom, snapDesk, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { CloseButton } from "@/components/ui/close-button";
 import { Tip } from "@/components/ui/tooltip";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
@@ -157,6 +158,9 @@ export function FloatWindow({
 
   const geom = live.current;
   const ink = paper ? inkOnPaper(paper) : undefined;
+  const barBtn = paper
+    ? "text-current opacity-70 hover:bg-black/10 hover:text-current hover:opacity-100"
+    : "text-muted-foreground hover:bg-accent hover:text-foreground";
 
   return (
     <article
@@ -179,7 +183,7 @@ export function FloatWindow({
     >
       <header
         className={cn(
-          "group/bar relative z-[2] flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
+          "group/bar relative z-[2] flex h-12 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
           paper ? "border-current/20" : "border-border bg-muted",
         )}
         onPointerDown={(e) => {
@@ -200,10 +204,8 @@ export function FloatWindow({
           <button
             type="button"
             className={cn(
-              "relative z-[4] flex size-8 shrink-0 items-center justify-center rounded-sm",
-              paper
-                ? "opacity-70 hover:bg-black/10 hover:opacity-100"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              "relative z-[4] flex size-hit shrink-0 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              barBtn,
             )}
             aria-label={`Move or resize ${title}`}
             onKeyDown={(e) => {
@@ -220,19 +222,12 @@ export function FloatWindow({
           </button>
         </Tip>
         <Tip label="Close">
-          <button
-            type="button"
-            className={cn(
-              "relative z-[4] flex size-8 shrink-0 items-center justify-center rounded-sm",
-              paper
-                ? "opacity-70 hover:bg-black/10 hover:opacity-100"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-            aria-label="Close window"
+          <CloseButton
+            label="Close window"
+            title={undefined}
+            className={cn("relative z-[4] focus-visible:ring-offset-0", barBtn)}
             onClick={onClose}
-          >
-            <X className="size-4" />
-          </button>
+          />
         </Tip>
       </header>
       <div className="scroll-auto min-h-0 flex-1 bg-inherit p-3">{children}</div>

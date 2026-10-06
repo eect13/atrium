@@ -1,5 +1,5 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { CloseButton } from "@/components/ui/close-button";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
@@ -35,9 +35,8 @@ const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm text-muted-foreground hover:text-foreground">
-        <X className="size-4" />
-        <span className="sr-only">Close</span>
+      <DialogPrimitive.Close asChild>
+        <CloseButton className="absolute right-2 top-2" />
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
@@ -45,7 +44,7 @@ const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("mb-4 flex flex-col gap-1", className)} {...props} />;
+  return <div className={cn("mb-4 flex flex-col gap-1 pr-12", className)} {...props} />;
 }
 
 const DialogTitle = React.forwardRef<

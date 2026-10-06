@@ -3,10 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { AppWindow, House } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Shared look for the page-header Float buttons (44×44, desktop only). */
+const FLOAT_BTN =
+  "hidden size-hit items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex";
 
 export function FloatBtn({ kind }: { kind: WidgetKind }) {
   const openWindow = useAtrium((s) => s.openWindow);
@@ -18,7 +23,7 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
         <button
           type="button"
           className={cn(
-            "hidden size-11 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
+            FLOAT_BTN,
             on && "text-foreground",
           )}
           aria-label={label}
@@ -48,7 +53,7 @@ export function NotesFloatBtn() {
         <button
           type="button"
           className={cn(
-            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
+            FLOAT_BTN,
             on && "text-foreground",
           )}
           aria-label={label}
@@ -138,16 +143,18 @@ export function DeskMenu() {
     <div ref={root} className="relative">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
             type="button"
-            className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
+            variant="outline"
+            size="icon"
+            className="text-foreground"
             aria-label="Windows"
             aria-expanded={open}
             aria-haspopup="menu"
             onClick={() => setOpen((o) => !o)}
           >
             <AppWindow className="size-4" />
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent>Windows</TooltipContent>
       </Tooltip>
