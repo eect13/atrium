@@ -153,7 +153,7 @@ export function DashboardView({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+              className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
               aria-label={dashLocked ? "Unlock layout" : "Lock layout"}
               aria-pressed={!dashLocked}
               onClick={() => setDashLocked(!dashLocked)}
@@ -168,7 +168,7 @@ export function DashboardView({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
                 aria-label="Reset layout"
                 onClick={() => resetDash()}
               >
@@ -198,7 +198,7 @@ export function DashboardView({
                       type="button"
                       aria-label={`Move ${DASH_LABEL[id]}`}
                       title="Drag to rearrange"
-                      className="flex size-9 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                      className="flex size-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground hover:text-foreground active:cursor-grabbing"
                       onPointerDown={(e) => grab(e, id)}
                     >
                       <GripVertical className="size-4" />
@@ -212,7 +212,7 @@ export function DashboardView({
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          className="inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                          className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
                           aria-label={`Resize ${DASH_LABEL[id]}`}
                           onClick={() => setDashSpan(id, cycleDashSpan(dashSpan[id] ?? DASH_SPAN_N[id]))}
                         >

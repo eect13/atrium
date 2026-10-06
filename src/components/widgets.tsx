@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowUpRight,
   Eye,
   EyeOff,
   Shuffle,
@@ -40,7 +41,15 @@ import { sessionSpark, tapeSpark } from "@/lib/sparks";
 import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
-import { cityFromTz, clockList, formatZoneTime, formatZoneWeekday } from "@/lib/clock";
+import {
+  cityFromTz,
+  clockList,
+  differentCivilDay,
+  formatLocalOffsetLabel,
+  formatOffsetVsLocal,
+  formatZoneTime,
+  formatZoneWeekday,
+} from "@/lib/clock";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
@@ -712,9 +721,12 @@ export function NewsPeek({
   );
 }
 
+const CLOCK_ROWS_MAX = 6;
+
 export function ClockBody({ preview = false }: { preview?: boolean }) {
   const profile = useAtrium((s) => s.profile);
   const clockPrefs = useAtrium((s) => s.clockPrefs);
+  const setView = useAtrium((s) => s.setView);
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -726,29 +738,51 @@ export function ClockBody({ preview = false }: { preview?: boolean }) {
   const locale = profile.locale;
   const main = zones[0]!;
   const rest = zones.slice(1);
+  const shown = rest.slice(0, CLOCK_ROWS_MAX);
+  const hidden = rest.length - shown.length;
+  const linkLabel = !rest.length
+    ? "Add cities in Clock tab"
+    : hidden > 0
+      ? `+${hidden} more in Clock tab`
+      : "Edit in Clock tab";
   return (
-    <div className={preview ? "space-y-1" : "space-y-3"}>
-      <div>
-        <p className="font-display text-3xl font-medium tabular-nums tracking-tight">
-          {formatZoneTime(now, main, { hour24, seconds: !preview, locale })}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {preview
-            ? cityFromTz(main)
-            : `${formatZoneWeekday(now, main, locale)} · ${cityFromTz(main)}`}
-          {!preview ? ` · ${hour24 ? "24h" : "12h"}` : ""}
-        </p>
-      </div>
-      {rest.length ? (
-        <ul className="space-y-1.5">
-          {rest.map((z) => (
-            <li key={z} className="flex min-h-9 items-center justify-between gap-3 text-sm">
-              <span className="truncate text-muted-foreground">{cityFromTz(z)}</span>
-              <span className="tabular-nums">{formatZoneTime(now, z, { hour24, locale })}</span>
+    <div>
+      <p className="font-display text-3xl font-medium tabular-nums tracking-tight">
+        {formatZoneTime(now, main, { hour24, seconds: !preview, locale })}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {preview
+          ? cityFromTz(main)
+          : `${formatZoneWeekday(now, main, locale)} · ${cityFromTz(main)} · ${formatLocalOffsetLabel(now, main)}`}
+      </p>
+      {shown.length ? (
+        <ul className="mt-3" aria-label="World clocks">
+          {shown.map((z) => (
+            <li key={z} className="flex min-h-11 items-center justify-between gap-3 border-t border-border/70">
+              <span className="min-w-0">
+                <span className="block truncate text-sm">{cityFromTz(z)}</span>
+                <span className="block text-[11px] tabular-nums text-muted-foreground">
+                  {formatOffsetVsLocal(now, z, main)}
+                  {differentCivilDay(now, z, main)
+                    ? ` · ${now.toLocaleDateString(locale || "en-GB", { timeZone: z, weekday: "short" })}`
+                    : ""}
+                </span>
+              </span>
+              <span className="whitespace-nowrap text-[15px] tabular-nums">{formatZoneTime(now, z, { hour24, locale })}</span>
             </li>
           ))}
         </ul>
-      ) : null}
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">No other cities yet</p>
+      )}
+      <button
+        type="button"
+        className="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+        onClick={() => setView("clock")}
+      >
+        {linkLabel}
+        <ArrowUpRight className="size-3.5" aria-hidden />
+      </button>
     </div>
   );
 }

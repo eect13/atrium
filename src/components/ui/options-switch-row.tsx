@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** Finance Manager–style Options row: title + helper + Switch control. Atrium tokens only. */
+/** Finance Manager–style Options row: title + helper + Switch control. Atrium tokens only.
+ *  The whole row is a <label>, so clicking anywhere toggles the Switch (its own aria-label still names it). */
 export function OptionsSwitchRow({
   title,
   hint,
@@ -14,12 +15,12 @@ export function OptionsSwitchRow({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-h-11 items-center justify-between gap-4 py-2.5", className)}>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{hint}</p>
-      </div>
-      <div className="flex shrink-0 items-center self-center">{children}</div>
-    </div>
+    <label className={cn("flex min-h-11 cursor-pointer items-center justify-between gap-4 py-2.5", className)}>
+      <span className="block min-w-0 flex-1">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{hint}</span>
+      </span>
+      <span className="flex shrink-0 items-center self-center">{children}</span>
+    </label>
   );
 }

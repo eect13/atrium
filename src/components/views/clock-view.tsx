@@ -171,7 +171,7 @@ export function ClockView() {
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-9 px-2.5 text-xs"
+                      className="h-11 px-2.5 text-xs"
                       onClick={() => setConfirmId(null)}
                       autoFocus
                     >
@@ -180,7 +180,7 @@ export function ClockView() {
                     <Button
                       type="button"
                       variant="destructive"
-                      className="h-9 px-2.5 text-xs"
+                      className="h-11 px-2.5 text-xs"
                       onClick={() => {
                         updateClock((p) => withoutClockZone(p, z));
                         setConfirmId(null);

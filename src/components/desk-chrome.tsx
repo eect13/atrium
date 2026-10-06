@@ -18,7 +18,7 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
         <button
           type="button"
           className={cn(
-            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
+            "hidden size-11 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
             on && "text-foreground",
           )}
           aria-label={label}
