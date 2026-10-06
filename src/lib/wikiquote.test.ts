@@ -62,6 +62,7 @@ const QOTD = `{{Wikiquote:Quote of the day/Template
 test("cleanWikitext strips links, templates, refs, markup and entities", () => {
   assert.equal(cleanWikitext("''[[w:Luck|Luck]]'' is '''here'''{{cn}}<ref>r</ref> &amp; now {{w|Page|label}}"), "Luck is here & now label");
   assert.equal(cleanWikitext("One<br>Two<br />"), "One / Two");
+  assert.equal(cleanWikitext("Verse one.<br/><br/>Verse two."), "Verse one. / Verse two.");
   assert.equal(cleanWikitext("[[File:x.jpg|thumb|cap]]Text [https://a.b label]"), "Text label");
 });
 

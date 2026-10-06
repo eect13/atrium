@@ -68,7 +68,8 @@ export function cleanWikitext(raw: string) {
   s = s.replace(/'{2,}/g, "");
   s = s.replace(/<[^>]+>/g, "");
   s = decodeEntities(s).replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1");
-  return s.replace(/^(?:\s*\/\s*)+|(?:\s*\/\s*)+$/g, "").trim();
+  // Stanza breaks (<br><br>) collapse to one separator.
+  return s.replace(/(?:\s*\/\s*){2,}/g, " / ").replace(/^(?:\s*\/\s*)+|(?:\s*\/\s*)+$/g, "").trim();
 }
 
 /** Card-worthy text: real sentence, no leftover markup, within length. */

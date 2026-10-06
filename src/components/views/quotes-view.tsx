@@ -61,7 +61,8 @@ export function useDeskQuotes(
   return Object.assign(query, { recheck });
 }
 
-const LINK = "underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm";
+/** Attribution links: text-sized look, 44px tall target. */
+const LINK = "inline-flex min-h-hit items-center rounded-sm underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function QuoteCard({
   q,
@@ -286,7 +287,7 @@ export function QuotesView() {
                 <li key={a.slug}>
                   <button
                     type="button"
-                    className="flex min-h-9 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
+                    className="flex min-h-hit w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
                     onClick={() => {
                       setPerson(a.name);
                       goAuthor(a.name);

@@ -119,7 +119,7 @@ export function PlaceField({
           }
           if (e.key === "Escape") setOpen(false);
         }}
-        className="flex h-10 w-full rounded-md border border-border bg-muted px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-hit w-full rounded-md border border-border bg-muted px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       {open && hits.length > 0 ? (
         <ul
@@ -135,7 +135,7 @@ export function PlaceField({
               role="option"
               aria-selected={i === active}
               className={cn(
-                "flex min-h-10 w-full items-center rounded-sm px-2 text-left text-sm",
+                "flex min-h-hit w-full items-center rounded-sm px-2 text-left text-sm",
                 i === active ? "bg-muted" : "hover:bg-muted",
               )}
               onMouseDown={(e) => e.preventDefault()}

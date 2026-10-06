@@ -762,7 +762,7 @@ export function CalendarView() {
                 </select>
                 <button
                   type="button"
-                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  className="inline-flex min-h-hit items-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                   onClick={() => setCatsOpen(true)}
                 >
                   Manage categories
@@ -843,17 +843,22 @@ export function CalendarView() {
               </div>
               <div className="space-y-1">
                 <Label>Color</Label>
-                <div className="flex h-11 items-center gap-1">
+                <div className="flex h-11 flex-wrap items-center">
                   {["#7986cb", "#33b679", "#f6bf26", "#e67c73", "#8e24aa"].map((c) => (
                     <button
                       key={c}
                       type="button"
                       aria-label={`Color ${c}`}
                       aria-pressed={color === c}
-                      className={`size-6 rounded-full border ${color === c ? "border-foreground" : "border-transparent"}`}
-                      style={{ background: c }}
+                      className="inline-flex size-hit items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => setColor(color === c ? "" : c)}
-                    />
+                    >
+                      <span
+                        aria-hidden
+                        className={`size-6 rounded-full border ${color === c ? "border-foreground" : "border-transparent"}`}
+                        style={{ background: c }}
+                      />
+                    </button>
                   ))}
                 </div>
               </div>
