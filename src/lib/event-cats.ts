@@ -1,6 +1,6 @@
 /** User/data-driven calendar event categories (no hardcoded product copy in UI). */
 
-import { catLabel } from "@/lib/format";
+import { catLabel } from "./format.ts";
 
 export type EventCategory = {
   id: string;
