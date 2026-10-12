@@ -4,7 +4,7 @@ All notable changes to Atrium. Versions match `package.json`, `src-tauri/tauri.c
 
 ## 1.2.48 — 2026-10-12
 
-Covers Cards 134–149 on `c134/atrium-clock-tab` (since the 1.2.47 pack at `a76307a`).
+Covers Cards 134–154 on `c134/atrium-clock-tab` (since the 1.2.47 pack at `a76307a`).
 
 ### Clock (Cards 134, 139)
 - Clock sidebar module after Weather (hideable) and a Clock tab: local time, world-clock cards (drag reorder, confirm remove), city search, 24h switch; Options › World clock links to it. Dashboard widget and Clock float share one zone list (`a76307a`).
@@ -36,5 +36,15 @@ Covers Cards 134–149 on `c134/atrium-clock-tab` (since the 1.2.47 pack at `a76
 - Transaction Remove (dialog and register), watcher Remove, and Account and Budget Delete all ask first with ConfirmRow (N1, Form 149).
 - Quote dialog peer tickers and the Quote widget's Random button are 44px (N4, N6).
 
+### Card 154 (Critic 150, Form 152, Scout 153)
+- Quote float: the quote and Random scroll; a pinned 44px footer (top border) keeps "— author" (truncated, tooltip), Wikiquote and CC BY-SA always visible. `QuoteAttribution` has stack and inline layouts (B1).
+- Selects get the same focus-visible ring as inputs (B2).
+- The Dashboard quote widget and its float show the same session quote; Random in one updates the other. Stored in localStorage per app launch (N9).
+- Account cards get a 44px ⋯ menu (Edit, Show/Hide number), shared with Hub cards as `ui/overflow-menu`; Enter on the active card opens Edit, Shift+F10 opens the menu (N11).
+- The web build sends `AtriumDesk/1.2.48 (…/issues) Node.js/22 undici` to Wikiquote; desktop keeps `reqwest/0.12` (N10).
+- Retry-After also accepts an HTTP-date, and waits are capped at 15 minutes on web and desktop (N12).
+- Seven built-in quotes corrected per Scout 153: Einstein re-worded (LIFE 1955); Twain ×2, Buddha, Sun Tzu, Confucius, Gandhi swapped for Wikiquote-sourced lines.
+
 ### Tests
+- Card 154: session-quote mirror and stale-launch tests; Retry-After seconds, HTTP-date and cap tests (TS and Rust).
 - `event-cats.test.ts` import fixed so `test:src` runs under Node strip-types (`737db05`).
