@@ -247,7 +247,7 @@ async function page(get: WqGet, title: string) {
 /** Topic chip id → Wikiquote theme page (data table, one place). */
 export const WQ_TOPIC_PAGES: Record<string, string> = {
   life: "Life",
-  funny: "Humor",
+  funny: "Comedy",
   love: "Love",
   wisdom: "Wisdom",
   success: "Success",

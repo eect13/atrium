@@ -114,13 +114,22 @@ function local(author: string, _slug: string, text: string): DeskQuote {
   return { text, author, href: wqPageHref(author), source: "local" };
 }
 
-/** Built-in offline set: always available, shown after live rows and alone when offline. */
+/**
+ * Built-in offline set: always available, shown after live rows and alone when offline.
+ * Origin: unknown. Added in 91f4199 (2026-09-08, BrainyQuote era) with no source list; 21/42 also
+ * appear in quotable-io/data. Card 147 (Scout 148 S4) checked against Wikiquote author pages:
+ * Aristotle "We are what we repeatedly do" → Will Durant (The Story of Philosophy, 1926);
+ * Marcus Aurelius "power over your mind" (Misattributed) → Meditations VII.64; Seneca "Luck…"
+ * (Disputed) → Letter I; Mandela "It always seems impossible" (Obama eulogy) → 1990 Boston speech.
+ * Not yet found on author pages (unverified, kept): Einstein "Strive not…", Twain "Kindness…",
+ * Buddha "The mind is everything…", Sun Tzu "In the midst of chaos…", Confucius "how slowly…".
+ */
 export const LOCAL_QUOTES: DeskQuote[] = [
   local("Albert Einstein", "albert-einstein", "Life is like riding a bicycle. To keep your balance, you must keep moving."),
   local("Albert Einstein", "albert-einstein", "Imagination is more important than knowledge."),
   local("Albert Einstein", "albert-einstein", "Strive not to be a success, but rather to be of value."),
   local("Marcus Aurelius", "marcus-aurelius", "The impediment to action advances action. What stands in the way becomes the way."),
-  local("Marcus Aurelius", "marcus-aurelius", "You have power over your mind — not outside events. Realize this, and you will find strength."),
+  local("Marcus Aurelius", "marcus-aurelius", "Very little is needed to make a happy life."),
   local("Marcus Aurelius", "marcus-aurelius", "Waste no more time arguing about what a good man should be. Be one."),
   local("Steve Jobs", "steve-jobs", "Stay hungry. Stay foolish."),
   local("Steve Jobs", "steve-jobs", "Innovation distinguishes between a leader and a follower."),
@@ -129,12 +138,12 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Oscar Wilde", "oscar-wilde", "Be yourself; everyone else is already taken."),
   local("Oscar Wilde", "oscar-wilde", "We are all in the gutter, but some of us are looking at the stars."),
   local("Seneca", "seneca", "We suffer more often in imagination than in reality."),
-  local("Seneca", "seneca", "Luck is what happens when preparation meets opportunity."),
+  local("Seneca", "seneca", "While we are postponing, life speeds by."),
   local("Confucius", "confucius", "It does not matter how slowly you go as long as you do not stop."),
   local("Confucius", "confucius", "The man who moves a mountain begins by carrying away small stones."),
   local("Rumi", "rumi", "Yesterday I was clever, so I wanted to change the world. Today I am wise, so I am changing myself."),
   local("Rumi", "rumi", "What you seek is seeking you."),
-  local("Nelson Mandela", "nelson-mandela", "It always seems impossible until it's done."),
+  local("Nelson Mandela", "nelson-mandela", "Education is the most powerful weapon which we can use."),
   local("Nelson Mandela", "nelson-mandela", "Courage is not the absence of fear, but the triumph over it."),
   local("Winston Churchill", "winston-churchill", "Success is not final, failure is not fatal: it is the courage to continue that counts."),
   local("Winston Churchill", "winston-churchill", "If you're going through hell, keep going."),
@@ -146,7 +155,7 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Mark Twain", "mark-twain", "Kindness is the language which the deaf can hear and the blind can see."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "What you do speaks so loudly that I cannot hear what you say."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "Do not go where the path may lead, go instead where there is no path and leave a trail."),
-  local("Aristotle", "aristotle", "We are what we repeatedly do. Excellence, then, is not an act, but a habit."),
+  local("Will Durant", "will-durant", "We are what we repeatedly do. Excellence, then, is not an act, but a habit."),
   local("Aristotle", "aristotle", "Knowing yourself is the beginning of all wisdom."),
   local("Buddha", "buddha", "The mind is everything. What you think you become."),
   local("Buddha", "buddha", "Do not dwell in the past, do not dream of the future, concentrate the mind on the present moment."),
