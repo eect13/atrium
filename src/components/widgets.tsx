@@ -35,7 +35,7 @@ import {
   WEEKDAY_NAMES,
 } from "@/lib/format";
 import { eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
-import { CAL_VIEWS, CAL_VIEW_LABEL, calViewFor, type CalView } from "@/lib/cal-view";
+import { CAL_VIEWS, CAL_VIEW_LABEL, EMPTY_DAY, calViewFor, type CalView } from "@/lib/cal-view";
 import { WIDGET_SPAN_CAP, layoutSpanRows, spanCellLabel, spanWhen, type SpanRow, type SpanSegment } from "@/lib/span-layout";
 import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
@@ -367,7 +367,7 @@ export function CalendarPeek({
           </button>
         </Tip>
       </div>
-      <div role="group" aria-label="Calendar view" className="inline-flex rounded-md bg-muted p-0.5" data-no-drag>
+      <div role="group" aria-label="Calendar view" className="inline-flex rounded-xl bg-muted p-0.5" data-no-drag>
         {CAL_VIEWS.map((v) => (
           <button
             key={v}
@@ -375,7 +375,7 @@ export function CalendarPeek({
             data-no-drag
             aria-pressed={view === v}
             className={cn(
-              "min-h-11 rounded-[calc(var(--radius-md)-2px)] px-3.5 text-xs",
+              "min-h-11 rounded-[calc(var(--radius-xl)-2px)] px-3.5 text-xs",
               FOCUS_RING,
               view === v ? "bg-background text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
             )}
@@ -396,7 +396,7 @@ export function CalendarPeek({
         </p>
       )}
       {!list.length ? (
-        <p className="text-sm text-muted-foreground">Nothing on this day.</p>
+        <p className="text-sm text-muted-foreground">{EMPTY_DAY}</p>
       ) : (
         <div className="space-y-1">
           {list.map((e) => {

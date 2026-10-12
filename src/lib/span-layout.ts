@@ -7,7 +7,7 @@
  * squared ends), the row's visible lane count, and per-day marks (singles shown
  * under the lanes + a "+N" overflow count) under a cap the caller picks.
  */
-import { dayLabel, deskZone, fmtWhen, isoDate, manilaAt } from "./format.ts";
+import { dayLabel, deskZone, fmtWhen, isoDate, manilaAt, manilaParts } from "./format.ts";
 
 export type SpanEvent = { id: string; title: string; start: string; end: string };
 
@@ -141,14 +141,16 @@ export function spanDayOf(e: { start: string; end: string }, key: string) {
   return { n, total };
 }
 
-/** "6 – 8 Oct" style range for a span, in the desk locale / zone. */
-export function spanRangeLabel(e: { start: string; end: string }) {
+/** "6 – 8 Oct" style range for a span, in the desk locale / zone; adds the year outside the desk year. */
+export function spanRangeLabel(e: { start: string; end: string }, now = new Date()) {
   const { first, last } = eventDayRange(e);
   const { locale, tz } = deskZone();
   const a = manilaAt(first, 12);
   const b = manilaAt(last, 12);
+  const year = String(manilaParts(now).year);
+  const withYear = first.slice(0, 4) !== year || last.slice(0, 4) !== year;
   try {
-    return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: tz }).formatRange(a, b);
+    return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", ...(withYear ? { year: "numeric" } : {}), timeZone: tz }).formatRange(a, b);
   } catch {
     return `${first} – ${last}`;
   }

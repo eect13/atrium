@@ -183,3 +183,11 @@ test("Card 147 N2: timed spans of 12h+ keep their time range; only true all-day 
   assert.equal(isAllDayEvent(allDay("legacy", "2026-10-16", "2026-10-19")), true);
   assert.equal(isAllDayEvent({ start: manilaAt("2026-10-16", 0).toISOString(), end: manilaAt("2026-10-18", 0).toISOString() }), true);
 });
+
+test("Card 149 5c: range label adds the year only outside the desk year", () => {
+  const ev = allDay("trip", "2026-10-16", "2026-10-19");
+  assert.doesNotMatch(spanRangeLabel(ev, manilaAt("2026-06-01", 12)), /2026/);
+  assert.match(spanRangeLabel(ev, manilaAt("2027-01-05", 12)), /2026/);
+  const cross = allDay("ny", "2026-12-30", "2027-01-02");
+  assert.match(spanRangeLabel(cross, manilaAt("2026-12-01", 12)), /2027/);
+});

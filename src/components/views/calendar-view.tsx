@@ -366,7 +366,7 @@ export function CalendarView() {
         <Button variant="outline" size="sm" className="h-11" onClick={() => setCursor(shiftCursor(cursor, mode, 1))}>
           Next
         </Button>
-        <div className="flex flex-wrap rounded-md border border-border">
+        <div className="flex flex-wrap overflow-hidden rounded-xl border border-border">
           {(["month", "week", "day", "agenda"] as const).map((m) => (
             <button
               key={m}
@@ -491,10 +491,12 @@ export function CalendarView() {
                 {cell.shown.length || cell.more ? (
                   <div className="z-[1] flex min-w-0 flex-col px-1 sm:px-1.5" style={{ gridColumn: i + 1, gridRow: `${2 + row.lanes} / -2` }}>
                     {cell.shown.map((e) => (
+                      <span key={e.id} className="contents">
+                      {/* Below sm: label-less 6px bar; the day cell button stays the target (Form 149 5d). */}
+                      <span aria-hidden className="mb-0.5 block h-1.5 w-full rounded-full bg-[var(--tag-bg)] sm:hidden" style={eventCatTagStyle(eventCats, e.cat, e.color)} />
                       <button
-                        key={e.id}
                         type="button"
-                        className={`flex min-h-8 w-full min-w-0 items-center rounded-full text-left ${FOCUS}`}
+                        className={`hidden min-h-8 w-full min-w-0 items-center rounded-full text-left sm:flex ${FOCUS}`}
                         aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}
                         title={`${e.title} · ${eventCatLabel(eventCats, e.cat)}`}
                         onClick={() => openEvent(e)}
@@ -503,6 +505,7 @@ export function CalendarView() {
                           <span>{e.title}</span>
                         </span>
                       </button>
+                      </span>
                     ))}
                     {cell.more ? (
                       <button
