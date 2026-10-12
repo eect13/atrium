@@ -167,7 +167,7 @@ export function PeerStrip({
             {rows.map((r) => (
               <tr key={r.sym} className={cn(r.sym === ticker ? "text-foreground" : "text-muted-foreground")}>
                 <td className="py-1">
-                  <button type="button" className="min-h-11 font-mono text-left" onClick={() => onOpen(r.sym)}>
+                  <button type="button" className="min-h-hit min-w-hit font-mono text-left" onClick={() => onOpen(r.sym)}>
                     {r.sym}
                   </button>
                 </td>
