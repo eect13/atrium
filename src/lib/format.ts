@@ -194,11 +194,23 @@ export function fmtDate(iso: string) {
   });
 }
 
-/** True when the event is flagged all-day or spans at least 12 hours. */
+/**
+ * True all-day only: the explicit flag wins. Unflagged (legacy) events count as all-day
+ * only when they run whole days in the desk zone (00:00 → 23:59 or next 00:00). A timed span of
+ * 12h+ (night shift, red-eye) stays timed.
+ */
 export function isAllDayEvent(e: { start: string; end: string; allDay?: boolean }) {
-  if (e.allDay) return true;
-  const ms = new Date(e.end).getTime() - new Date(e.start).getTime();
-  return Number.isFinite(ms) && ms >= 12 * 3_600_000;
+  if (e.allDay != null) return e.allDay;
+  const a = new Date(e.start);
+  const b = new Date(e.end);
+  const ms = b.getTime() - a.getTime();
+  if (!Number.isFinite(ms) || ms < 23 * 3_600_000 + 59 * 60_000) return false;
+  const at = (d: Date, h: number, m: number) => {
+    const p = manilaParts(d);
+    return p.hour === h && p.minute === m;
+  };
+  // Desk all-day ends are inclusive 23:59; exclusive midnight ends also count.
+  return at(a, 0, 0) && (at(b, 23, 59) || at(b, 0, 0));
 }
 
 /** Normalize Google `YYYY-MM-DD` or ICS `YYYYMMDD` to desk `YYYY-MM-DD`. */

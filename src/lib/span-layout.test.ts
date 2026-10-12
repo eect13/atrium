@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fromManila, inclusiveAllDayEnd, isoDate, manilaAt, monthCells } from "./format.ts";
+import { fromManila, inclusiveAllDayEnd, isAllDayEvent, isoDate, manilaAt, monthCells } from "./format.ts";
 import { PAGE_SPAN_CAP, WIDGET_SPAN_CAP, eventDayRange, isSpanEvent, layoutSpanRows, spanCellLabel, spanDayOf, spanRangeLabel, spanWhen } from "./span-layout.ts";
 
-type Ev = { id: string; title: string; start: string; end: string };
+type Ev = { id: string; title: string; start: string; end: string; allDay?: boolean };
 const allDay = (id: string, first: string, last: string, title = id): Ev => ({
   id,
   title,
@@ -170,4 +170,16 @@ test("span layout: agenda helpers — day n of N and range label", () => {
   const one = timed("x", "2026-10-17", 9, "2026-10-17", 10);
   assert.equal(spanWhen(one, "2026-10-17").includes("day"), false);
   assert.equal(spanCellLabel(manilaAt("2026-10-17", 12), [ev, one]), "Sat 17 Oct, 2 events: trip, x");
+});
+
+test("Card 147 N2: timed spans of 12h+ keep their time range; only true all-day says All day", () => {
+  const night = timed("night", "2026-10-14", 22, "2026-10-16", 6);
+  assert.equal(isAllDayEvent(night), false);
+  assert.match(spanWhen(night, "2026-10-14"), /^\d{1,2}:00\s?PM – \d{1,2}:00\s?AM · \D*14\D+16\D* · day 1 of 3$/);
+  const shift = timed("shift", "2026-10-17", 7, "2026-10-17", 20);
+  assert.equal(isAllDayEvent(shift), false);
+  assert.equal(isAllDayEvent({ ...night, allDay: true }), true);
+  assert.equal(isAllDayEvent({ ...allDay("legacy", "2026-10-16", "2026-10-19"), allDay: false }), false);
+  assert.equal(isAllDayEvent(allDay("legacy", "2026-10-16", "2026-10-19")), true);
+  assert.equal(isAllDayEvent({ id: "x", title: "x", start: manilaAt("2026-10-16", 0).toISOString(), end: manilaAt("2026-10-18", 0).toISOString() }), true);
 });
