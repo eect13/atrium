@@ -16,24 +16,67 @@ export type DeskQuote = {
 export const QUOTE_SESSION_KEY = "atrium.quote.session";
 export const QUOTE_SEED_KEY = "atrium.quote.seed";
 
-export function readQuoteSession(): DeskQuote | undefined {
-  if (typeof sessionStorage === "undefined") return undefined;
+/** Main-window launch id: the session quote lives in localStorage so floats (own webviews) mirror the widget. */
+export const QUOTE_LAUNCH_KEY = "atrium.quote.launch";
+
+type QuoteStore = Pick<Storage, "getItem" | "setItem">;
+const localStore = (): QuoteStore | undefined => (typeof localStorage === "undefined" ? undefined : localStorage);
+let launched = false;
+
+/** Main window, once per app launch: a new launch id retires the old session quote ("new quote each launch"). */
+export function markQuoteLaunch(store = localStore(), id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`) {
+  if (!store || launched) return;
+  launched = true;
   try {
-    const raw = JSON.parse(sessionStorage.getItem(QUOTE_SESSION_KEY) ?? "null") as DeskQuote | null;
-    if (!raw?.text || !raw.author) return undefined;
-    return raw;
+    store.setItem(QUOTE_LAUNCH_KEY, JSON.stringify({ id }));
+  } catch {
+    /* quota */
+  }
+}
+
+function launchId(store: QuoteStore): string | undefined {
+  try {
+    return (JSON.parse(store.getItem(QUOTE_LAUNCH_KEY) ?? "null") as { id?: string } | null)?.id;
   } catch {
     return undefined;
   }
 }
 
-export function writeQuoteSession(q: DeskQuote) {
-  if (typeof sessionStorage === "undefined") return;
+/** Parse a stored `{launch, quote}`; ignored when it belongs to another launch. */
+export function parseQuoteSession(raw: string | null, launch: string | undefined): DeskQuote | undefined {
   try {
-    sessionStorage.setItem(QUOTE_SESSION_KEY, JSON.stringify(q));
+    const v = JSON.parse(raw ?? "null") as { launch?: string; quote?: DeskQuote } | null;
+    const q = v?.quote;
+    if (!launch || v?.launch !== launch || !q?.text || !q.author) return undefined;
+    return q;
+  } catch {
+    return undefined;
+  }
+}
+
+export function readQuoteSession(store = localStore()): DeskQuote | undefined {
+  if (!store) return undefined;
+  return parseQuoteSession(store.getItem(QUOTE_SESSION_KEY), launchId(store));
+}
+
+export function writeQuoteSession(q: DeskQuote, store = localStore()) {
+  if (!store) return;
+  try {
+    store.setItem(QUOTE_SESSION_KEY, JSON.stringify({ launch: launchId(store), quote: q }));
   } catch {
     /* quota */
   }
+}
+
+/** For `storage` events from another window (widget ↔ float). */
+export function quoteFromStorageEvent(key: string | null, value: string | null, store = localStore()): DeskQuote | undefined {
+  if (key !== QUOTE_SESSION_KEY || !store) return undefined;
+  return parseQuoteSession(value, launchId(store));
+}
+
+/** Test hook: allow markQuoteLaunch again. */
+export function resetQuoteLaunchForTest() {
+  launched = false;
 }
 
 export function nextQuoteSeed() {

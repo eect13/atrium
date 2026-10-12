@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WQ_TOPIC_PAGES } from "./wikiquote.ts";
-import { LOCAL_QUOTES, authorChipsFromQuotes, authorMatches, authorSlug, exactAuthor, matchQuoteQuery, mergeQuotePool, normalizeQuoteTopic, quoteTopicChips, topicLocals } from "./quotes.ts";
+import { LOCAL_QUOTES, authorChipsFromQuotes, authorMatches, authorSlug, exactAuthor, matchQuoteQuery, mergeQuotePool, normalizeQuoteTopic, quoteTopicChips, topicLocals, QUOTE_SESSION_KEY, markQuoteLaunch, quoteFromStorageEvent, readQuoteSession, resetQuoteLaunchForTest, writeQuoteSession } from "./quotes.ts";
 
 const wq = (text: string, author = "Someone") => ({ text, author, href: "https://en.wikiquote.org/wiki/X", source: "wikiquote" as const });
 const loc = (text: string, author = "Local") => ({ text, author, href: "https://en.wikiquote.org/wiki/Y", source: "local" as const });
@@ -75,4 +75,23 @@ test("authorChipsFromQuotes dedupes from results", () => {
     { text: "Three line long enough here.", author: "Bob", href: "https://example.com", source: "local" },
   ]);
   assert.deepEqual(names, ["Ada", "Bob"]);
+});
+
+test("Card 154 N9: session quote is shared per launch via localStorage; stale launch ignored", () => {
+  const m = new Map<string, string>();
+  const store = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  const a = { text: "Very little is needed to make a happy life.", author: "Marcus Aurelius", href: "h", source: "local" as const };
+  const b = { ...a, text: "While we are postponing, life speeds by.", author: "Seneca" };
+  resetQuoteLaunchForTest();
+  markQuoteLaunch(store, "L1");
+  markQuoteLaunch(store, "L-ignored");
+  writeQuoteSession(a, store);
+  assert.deepEqual(readQuoteSession(store), a, "float (same storage) reads the widget's quote");
+  writeQuoteSession(b, store);
+  assert.equal(quoteFromStorageEvent(QUOTE_SESSION_KEY, m.get(QUOTE_SESSION_KEY)!, store)?.author, "Seneca", "Random in one window reaches the other");
+  assert.equal(quoteFromStorageEvent("other", m.get(QUOTE_SESSION_KEY)!, store), undefined);
+  resetQuoteLaunchForTest();
+  markQuoteLaunch(store, "L2");
+  assert.equal(readQuoteSession(store), undefined, "new launch → stale quote ignored");
+  assert.equal(readQuoteSession({ getItem: () => "{bad", setItem: () => {} }), undefined);
 });

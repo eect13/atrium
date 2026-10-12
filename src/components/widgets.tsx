@@ -56,7 +56,7 @@ import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
 import { useMarkets } from "@/components/use-markets";
-import { LOCAL_QUOTES, loadDeskQuotes, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
+import { LOCAL_QUOTES, loadDeskQuotes, quoteFromStorageEvent, readQuoteSeed, readQuoteSession, writeQuoteSession } from "@/lib/quotes";
 import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -487,6 +487,15 @@ export function QuoteBody() {
     networkMode: "always",
   });
   const text = q.data?.text;
+  // Widget ↔ float mirror (Form 152 N9): Random in another window updates this one.
+  useEffect(() => {
+    const on = (e: StorageEvent) => {
+      const next = quoteFromStorageEvent(e.key, e.newValue);
+      if (next) queryClient.setQueryData(["quotes", "session"], next);
+    };
+    window.addEventListener("storage", on);
+    return () => window.removeEventListener("storage", on);
+  }, [queryClient]);
 
   async function shuffle() {
     const current = queryClient.getQueryData<{ text?: string }>(["quotes", "session"])?.text ?? text;
