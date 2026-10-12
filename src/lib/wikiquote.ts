@@ -16,8 +16,19 @@ export function wqUserAgent(lib = "reqwest/0.12") {
   return `AtriumDesk/${APP_VERSION} (${WQ_CONTACT}) ${lib}`;
 }
 export const WQ_UA = wqUserAgent();
-/** `Api-User-Agent` too: the only id a plain browser can send. */
-export const WQ_HEADERS: Record<string, string> = { "User-Agent": WQ_UA, "Api-User-Agent": WQ_UA };
+/** Library token per transport: Tauri → Rust reqwest; web → the Node 22 server fn's fetch (undici). */
+export const WQ_LIB = { tauri: "reqwest/0.12", web: "Node.js/22 undici" } as const;
+/** `User-Agent` + `Api-User-Agent` (the only id a plain browser can send) for one transport. */
+export function wqHeaders(lib: string): Record<string, string> {
+  const ua = wqUserAgent(lib);
+  return { "User-Agent": ua, "Api-User-Agent": ua };
+}
+export const WQ_HEADERS = wqHeaders(WQ_LIB.tauri);
+/** Which transport this call runs on: Tauri webview (IPC → reqwest) or the server fn (Node fetch). */
+function transportHeaders() {
+  const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return wqHeaders(tauri ? WQ_LIB.tauri : WQ_LIB.web);
+}
 
 /** Max length for a card; the daily quote (often verse) gets more room. */
 export const QUOTE_MAX = 300;
@@ -288,7 +299,7 @@ function serial(get: WqGet, url: string): Promise<string | null> {
       if (wait > 0) await WQ_PACE.sleep(wait);
       let body: string | null;
       try {
-        body = await get(url, WQ_HEADERS);
+        body = await get(url, transportHeaders());
       } catch (e) {
         body = null;
         const ra = wqRetryAfter(e);

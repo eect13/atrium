@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   WQ_PACE,
+  WQ_LIB,
   WQ_UA,
   acceptQuote,
   authorFromCite,
@@ -14,6 +15,8 @@ import {
   qotdTitle,
   searchTitles,
   wqBackoffMs,
+  wqHeaders,
+  wqUserAgent,
   wqPageHref,
   wqParseUrl,
   wqRetryAfter,
@@ -158,7 +161,7 @@ test("loadWikiquote daily/topic: one parse call with the honest User-Agent", asy
   const topic = await loadWikiquote("topic", "wisdom", m.get);
   assert.equal(topic.quotes.length, 4);
   assert.equal(topic.title, "Wisdom");
-  assert.ok(m.calls.every((c) => c.ua === WQ_UA && /AtriumDesk/.test(c.ua)));
+  assert.ok(m.calls.every((c) => c.ua === wqUserAgent(WQ_LIB.web) && /AtriumDesk/.test(c.ua)));
   assert.ok(m.calls.every((c) => c.url.startsWith("https://en.wikiquote.org/w/api.php?action=parse&format=json")));
 });
 
@@ -233,4 +236,11 @@ test("Card 147 S3: 429 then success → retried after the wait, 3 tries max, ≥
   } finally {
     Object.assign(WQ_PACE, saved);
   }
+});
+
+test("Card 154 N10: web (server fn, Node fetch) names undici; Tauri keeps reqwest", () => {
+  const web = wqHeaders(WQ_LIB.web);
+  assert.match(web["User-Agent"]!, /^AtriumDesk\/\d+\.\d+\.\d+ \(https:\/\/github\.com\/eect13\/atrium\/issues\) Node\.js\/22 undici$/);
+  assert.equal(web["Api-User-Agent"], web["User-Agent"]);
+  assert.match(wqHeaders(WQ_LIB.tauri)["User-Agent"]!, / reqwest\/0\.12$/);
 });
