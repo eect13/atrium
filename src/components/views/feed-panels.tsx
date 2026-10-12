@@ -1,8 +1,8 @@
 "use client";
 
+import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmRow, ConfirmTrigger } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -205,48 +205,24 @@ function HubCard({
           <p className="line-clamp-2 text-sm font-medium leading-snug">{item.title}</p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.src || hostOf(item.url)}</p>
         </a>
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            aria-label={`More for ${item.title}`}
-            aria-expanded={menu}
-            aria-haspopup="menu"
-            className="inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => {
-              setConfirm(false);
-              setMenu((v) => !v);
-            }}
-          >
-            <MoreHorizontal className="size-4" />
-          </button>
-          {menu ? (
-            <div role="menu" className="absolute right-0 top-12 z-30 w-40 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]">
-              <button
-                type="button"
-                role="menuitem"
-                className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
-                onClick={() => {
-                  downloadHubItemMarkdown(item);
-                  setMenu(false);
-                  toast("Exported .md");
-                }}
-              >
-                Export
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm text-destructive hover:bg-destructive/15"
-                onClick={() => {
-                  setMenu(false);
-                  setConfirm(true);
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <OverflowMenu
+          label={`More for ${item.title}`}
+          open={menu}
+          onOpenChange={(v) => {
+            setConfirm(false);
+            setMenu(v);
+          }}
+          items={[
+            {
+              label: "Export",
+              onSelect: () => {
+                downloadHubItemMarkdown(item);
+                toast("Exported .md");
+              },
+            },
+            { label: "Delete", destructive: true, onSelect: () => setConfirm(true) },
+          ]}
+        />
       </div>
       {confirm ? (
         <ConfirmRow
