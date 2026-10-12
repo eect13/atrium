@@ -181,5 +181,5 @@ test("Card 147 N2: timed spans of 12h+ keep their time range; only true all-day 
   assert.equal(isAllDayEvent({ ...night, allDay: true }), true);
   assert.equal(isAllDayEvent({ ...allDay("legacy", "2026-10-16", "2026-10-19"), allDay: false }), false);
   assert.equal(isAllDayEvent(allDay("legacy", "2026-10-16", "2026-10-19")), true);
-  assert.equal(isAllDayEvent({ id: "x", title: "x", start: manilaAt("2026-10-16", 0).toISOString(), end: manilaAt("2026-10-18", 0).toISOString() }), true);
+  assert.equal(isAllDayEvent({ start: manilaAt("2026-10-16", 0).toISOString(), end: manilaAt("2026-10-18", 0).toISOString() }), true);
 });
