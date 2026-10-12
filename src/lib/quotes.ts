@@ -3,7 +3,7 @@ import { z } from "zod";
 import { manilaParts } from "./format.ts";
 import { httpText } from "./http.ts";
 import { browserKV, loadView, quoteCacheKey, type KV, type ViewState } from "./quote-cache.ts";
-import { WQ_TOPIC_PAGES, loadWikiquote, wqPageHref, type WqKind, type WqResult } from "./wikiquote.ts";
+import { WQ_TOPIC_PAGES, loadWikiquote, wqRetryAfter, wqPageHref, type WqKind, type WqResult } from "./wikiquote.ts";
 
 export type DeskQuote = {
   text: string;
@@ -299,7 +299,9 @@ async function pull(url: string, headers: Record<string, string>): Promise<strin
       httpText(url, headers),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
     ]);
-  } catch {
+  } catch (e) {
+    // 429/503 carry "retry-after=N" up so the Wikiquote pacer can honour it.
+    if (wqRetryAfter(e) !== null) throw e;
     return null;
   }
 }

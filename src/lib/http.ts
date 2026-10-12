@@ -69,7 +69,10 @@ export async function httpText(url: string, headers?: Record<string, string>) {
     signal: AbortSignal.timeout(12_000),
     redirect: "follow",
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const ra = res.headers.get("retry-after");
+    throw new Error(`HTTP ${res.status}${ra && /^\d+$/.test(ra.trim()) ? `; retry-after=${ra.trim()}` : ""}`);
+  }
   const text = await res.text();
   if (text.length > BODY_CAP) throw new Error("Response too large");
   return text;

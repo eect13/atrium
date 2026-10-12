@@ -19,7 +19,17 @@ async fn fetch_text(url: String, ua: Option<String>) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        return Err(format!("HTTP {}", res.status()));
+        // Keep Retry-After (seconds) so the caller can back off politely (Wikimedia 429/503).
+        let retry = res
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()));
+        return Err(match retry {
+            Some(s) => format!("HTTP {}; retry-after={}", res.status().as_u16(), s),
+            None => format!("HTTP {}", res.status().as_u16()),
+        });
     }
     let text = res.text().await.map_err(|e| e.to_string())?;
     if text.len() > 1_500_000 {

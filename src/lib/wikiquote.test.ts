@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  WQ_PACE,
   WQ_UA,
   acceptQuote,
   authorFromCite,
@@ -12,7 +13,11 @@ import {
   parseQuotePage,
   qotdTitle,
   searchTitles,
+  wqBackoffMs,
   wqPageHref,
+  wqParseUrl,
+  wqRetryAfter,
+  wqSearchUrl,
   type WqGet,
 } from "./wikiquote.ts";
 
@@ -179,4 +184,53 @@ test("loadWikiquote never throws: network failure, bad JSON, unknown topic → e
   assert.deepEqual(await loadWikiquote("topic", "wisdom", mockGet({ "page=Wisdom": "<html>429</html>" }).get), { quotes: [] });
   assert.deepEqual(await loadWikiquote("topic", "nope", mockGet({}).get), { quotes: [] });
   assert.deepEqual(await loadWikiquote("author", "zzzz", mockGet({ opensearch: JSON.stringify(["zzzz", [], [], []]) }).get), { quotes: [] });
+});
+
+test("Card 147 S2: UA names version, issue-tracker contact and library", () => {
+  assert.match(WQ_UA, /^AtriumDesk\/\d+\.\d+\.\d+ \(https:\/\/github\.com\/eect13\/atrium\/issues\) reqwest\/0\.12$/);
+  assert.ok(WQ_UA.length <= 200 && /^[\x20-\x7e]+$/.test(WQ_UA));
+});
+
+test("Card 147 S3: maxlag=5 on every URL; Retry-After honoured, else 5s doubling, capped, jittered", () => {
+  assert.match(wqParseUrl("Life"), /[?&]maxlag=5(&|$)/);
+  assert.match(wqSearchUrl("x"), /[?&]maxlag=5(&|$)/);
+  assert.equal(wqRetryAfter(new Error("HTTP 429; retry-after=30")), 30);
+  assert.equal(wqRetryAfter(new Error("HTTP 503")), undefined);
+  assert.equal(wqRetryAfter(new Error("HTTP 404")), null);
+  assert.equal(wqRetryAfter('{"error":{"code":"maxlag","info":"Waiting"}}'), 5);
+  assert.equal(wqBackoffMs(0, 30), 30_000);
+  assert.equal(wqBackoffMs(0, undefined, () => 0.5), 5_000);
+  assert.equal(wqBackoffMs(1, undefined, () => 0.5), 10_000);
+  assert.equal(wqBackoffMs(2, undefined, () => 0), 16_000);
+  assert.equal(wqBackoffMs(20, undefined, () => 1), Math.round(15 * 60_000 * 1.2));
+  assert.equal(wqBackoffMs(0, 99_999), 15 * 60_000);
+});
+
+test("Card 147 S3: 429 then success → retried after the wait, 3 tries max, ≥gap between calls", async () => {
+  const saved = { ...WQ_PACE };
+  let t = 0;
+  const waits: number[] = [];
+  Object.assign(WQ_PACE, { now: () => t, sleep: async (ms: number) => { waits.push(ms); t += ms; }, random: () => 0.5 });
+  try {
+    let n = 0;
+    const flaky: WqGet = async () => {
+      n += 1;
+      if (n === 1) throw new Error("HTTP 429; retry-after=2");
+      return JSON.stringify({ parse: { title: "Wisdom", wikitext: THEME_PAGE } });
+    };
+    const r = await loadWikiquote("topic", "wisdom", flaky);
+    assert.equal(n, 2);
+    assert.equal(r.quotes.length, 4);
+    assert.ok(waits.includes(2_000));
+    let m = 0;
+    const down: WqGet = async () => {
+      m += 1;
+      throw new Error("HTTP 503");
+    };
+    const d = await loadWikiquote("topic", "wisdom", down);
+    assert.equal(m, 3);
+    assert.deepEqual(d.quotes, []);
+  } finally {
+    Object.assign(WQ_PACE, saved);
+  }
 });

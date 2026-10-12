@@ -1,11 +1,22 @@
+import { APP_VERSION } from "./version.ts";
+
 /** Wikiquote (MediaWiki Action API) adapter: URLs, wikitext → quotes, and a serial loader.
  *  Text is CC BY-SA 4.0; every quote keeps a link to its page for attribution. */
 
 export const WQ_SITE = "https://en.wikiquote.org";
 export const WQ_API = `${WQ_SITE}/w/api.php`;
 export const WQ_LICENSE = { label: "CC BY-SA 4.0", href: "https://creativecommons.org/licenses/by-sa/4.0/" } as const;
-/** Honest client id per the Wikimedia User-Agent policy (sent where the platform lets us set it). */
-export const WQ_UA = "AtriumDesk/1 (https://github.com/eect13/atrium; desk quotes reader)";
+/**
+ * Honest client id per the Wikimedia User-Agent policy (Scout 148 S2):
+ * `<client>/<version> (<contact>) <library>/<version>`. Contact is the public issue tracker.
+ * Tauri sends it through reqwest 0.12 (Cargo.lock 0.12.28); web goes via the server's fetch.
+ */
+export const WQ_CONTACT = "https://github.com/eect13/atrium/issues";
+export function wqUserAgent(lib = "reqwest/0.12") {
+  return `AtriumDesk/${APP_VERSION} (${WQ_CONTACT}) ${lib}`;
+}
+export const WQ_UA = wqUserAgent();
+/** `Api-User-Agent` too: the only id a plain browser can send. */
 export const WQ_HEADERS: Record<string, string> = { "User-Agent": WQ_UA, "Api-User-Agent": WQ_UA };
 
 /** Max length for a card; the daily quote (often verse) gets more room. */
@@ -36,11 +47,11 @@ export function wqPageHref(title: string) {
 }
 
 export function wqParseUrl(title: string) {
-  return `${WQ_API}?action=parse&format=json&formatversion=2&redirects=1&prop=wikitext&page=${encodeURIComponent(title)}`;
+  return `${WQ_API}?action=parse&format=json&formatversion=2&redirects=1&maxlag=5&prop=wikitext&page=${encodeURIComponent(title)}`;
 }
 
 export function wqSearchUrl(q: string) {
-  return `${WQ_API}?action=opensearch&format=json&namespace=0&limit=5&search=${encodeURIComponent(q.trim())}`;
+  return `${WQ_API}?action=opensearch&format=json&namespace=0&limit=5&maxlag=5&search=${encodeURIComponent(q.trim())}`;
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -232,16 +243,81 @@ export function searchTitles(raw: string | null, q: string): string[] {
   }
 }
 
+/**
+ * Pacing (Scout 148 S3): one request in flight, ≥1 s between calls, and on 429/503/maxlag
+ * honour Retry-After, else back off 5 s ×2 (cap 15 min, ±20% jitter); 3 tries, then give up
+ * so the caller serves its cache. A shared cool-down keeps other views off the host too.
+ */
+export const WQ_PACE = {
+  gapMs: 1_000,
+  baseMs: 5_000,
+  capMs: 15 * 60_000,
+  /** Longest wait a single view sits through before giving up to its cache. */
+  holdMs: 30_000,
+  tries: 3,
+  now: () => Date.now(),
+  sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+  random: () => Math.random(),
+};
+
+/** Retryable answer → seconds from Retry-After (undefined when absent); null when not retryable. */
+export function wqRetryAfter(e: unknown): number | undefined | null {
+  const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  const status = /^HTTP (\d{3})/.exec(msg)?.[1];
+  const lag = /"code"\s*:\s*"maxlag"/.test(msg);
+  if (!lag && status !== "429" && status !== "503") return null;
+  const ra = /retry-after=(\d+)/i.exec(msg)?.[1];
+  if (ra) return Number(ra);
+  return lag ? 5 : undefined;
+}
+
+/** Wait before retry `attempt` (0-based): Retry-After when given, else 5 s × 2^attempt, capped, ±20%. */
+export function wqBackoffMs(attempt: number, retryAfterS?: number, random = WQ_PACE.random) {
+  if (retryAfterS != null && Number.isFinite(retryAfterS)) return Math.min(retryAfterS * 1000, WQ_PACE.capMs);
+  const raw = Math.min(WQ_PACE.baseMs * 2 ** attempt, WQ_PACE.capMs);
+  return Math.round(raw * (0.8 + 0.4 * random()));
+}
+
 let chain: Promise<unknown> = Promise.resolve();
-/** Wikimedia etiquette: one request in flight at a time. */
-function serial<T>(work: () => Promise<T>): Promise<T> {
+let nextAt = 0;
+/** Wikimedia etiquette: serial, spaced, and polite on 429/503/maxlag. */
+function serial(get: WqGet, url: string): Promise<string | null> {
+  const work = async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      const wait = nextAt - WQ_PACE.now();
+      if (wait > 0) await WQ_PACE.sleep(wait);
+      let body: string | null;
+      try {
+        body = await get(url, WQ_HEADERS);
+      } catch (e) {
+        body = null;
+        const ra = wqRetryAfter(e);
+        if (ra === null) {
+          nextAt = WQ_PACE.now() + WQ_PACE.gapMs;
+          throw e;
+        }
+        const back = wqBackoffMs(attempt, ra);
+        nextAt = WQ_PACE.now() + Math.max(WQ_PACE.gapMs, back);
+        // Long waits keep the host cool-down but don't hold the view: serve the cache now.
+        if (attempt + 1 >= WQ_PACE.tries || back > WQ_PACE.holdMs) throw e;
+        continue;
+      }
+      if (body && wqRetryAfter(body) !== null && body.length < 2_000) {
+        nextAt = WQ_PACE.now() + Math.max(WQ_PACE.gapMs, wqBackoffMs(attempt, 5));
+        if (attempt + 1 >= WQ_PACE.tries) return null;
+        continue;
+      }
+      nextAt = WQ_PACE.now() + WQ_PACE.gapMs;
+      return body;
+    }
+  };
   const next = chain.then(work, work);
   chain = next.catch(() => undefined);
   return next;
 }
 
 async function page(get: WqGet, title: string) {
-  return readParse(await serial(() => get(wqParseUrl(title), WQ_HEADERS)));
+  return readParse(await serial(get, wqParseUrl(title)));
 }
 
 /** Topic chip id → Wikiquote theme page (data table, one place). */
@@ -270,7 +346,7 @@ export async function loadWikiquote(kind: WqKind, key: string, get: WqGet): Prom
       const hit = title ? await page(get, title) : null;
       return hit ? { quotes: parseQuotePage(hit.wikitext, hit.title, "theme"), title: hit.title } : { quotes: [] };
     }
-    const ranked = searchTitles(await serial(() => get(wqSearchUrl(key), WQ_HEADERS)), key);
+    const ranked = searchTitles(await serial(get, wqSearchUrl(key)), key);
     const first = ranked[0];
     if (!first) return { quotes: [] };
     let hit = await page(get, first);
