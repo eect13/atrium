@@ -838,20 +838,29 @@ export function FinanceBooks() {
               </div>
               <Switch checked={newHidden} onCheckedChange={setNewHidden} aria-label="Hide from wallet" />
             </div>
+            {editingId && confirmDelete ? (
+              <ConfirmRow
+                subject={accounts.find((a) => a.id === editingId)?.name ?? "this account"}
+                verb="Delete"
+                detail="It leaves your wallet and books. Its transactions stay, unlinked."
+                triggerId={`acct-${editingId}`}
+                onCancel={() => setConfirmDelete(false)}
+                onConfirm={deleteCard}
+              />
+            ) : null}
             <div className="flex justify-end gap-2">
               {editingId ? (
-                confirmDelete ? (
                   <>
-                    <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
-                      Keep
-                    </Button>
-                    <Button type="button" variant="destructive" onClick={deleteCard}>
-                      Delete account
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => setConfirmDelete(true)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      data-confirm-trigger={`acct-${editingId}`}
+                      onClick={() => {
+                        // Last-account guard: toast, don't open the confirm.
+                        if (accounts.length <= 1) toast("Keep at least one account");
+                        else setConfirmDelete(true);
+                      }}
+                    >
                       Delete
                     </Button>
                     <Button type="button" variant="outline" onClick={() => setAcctOpen(false)}>
@@ -859,7 +868,6 @@ export function FinanceBooks() {
                     </Button>
                     <Button type="submit">Save</Button>
                   </>
-                )
               ) : (
                 <>
                   <Button type="button" variant="outline" onClick={() => setAcctOpen(false)}>
@@ -934,31 +942,26 @@ export function FinanceBooks() {
                 onChange={(e) => setBudgetLimit(e.target.value)}
               />
             </div>
+            {budgetEdit && budgetEdit !== "new" && budgetGone ? (
+              <ConfirmRow
+                subject={budgetEdit.name}
+                verb="Delete"
+                detail="Spending isn't affected."
+                triggerId={`budget-${budgetEdit.id}`}
+                onCancel={() => setBudgetGone(false)}
+                onConfirm={() => {
+                  removeBudget(budgetEdit.id);
+                  setBudgetGone(false);
+                  setBudgetEdit(null);
+                  toast("Budget deleted");
+                }}
+              />
+            ) : null}
             <div className="flex justify-end gap-2">
               {budgetEdit && budgetEdit !== "new" ? (
-                budgetGone ? (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => setBudgetGone(false)}>
-                      Keep
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => {
-                        removeBudget(budgetEdit.id);
-                        setBudgetGone(false);
-                        setBudgetEdit(null);
-                        toast("Budget removed");
-                      }}
-                    >
-                      Delete budget
-                    </Button>
-                  </>
-                ) : (
-                  <Button type="button" variant="outline" onClick={() => setBudgetGone(true)}>
-                    Delete
-                  </Button>
-                )
+                <Button type="button" variant="outline" data-confirm-trigger={`budget-${budgetEdit.id}`} onClick={() => setBudgetGone(true)}>
+                  Delete
+                </Button>
               ) : null}
               <Button type="button" variant="outline" onClick={() => setBudgetEdit(null)}>
                 Cancel
