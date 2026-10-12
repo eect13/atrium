@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 /** Shared native <select> look (border-input boundary, 44px). Used by Finance and Calendar. */
 export const FIELD_SELECT =
-  "h-11 w-full rounded-md border border-input bg-muted px-3 text-sm";
+  "h-11 w-full rounded-md border border-input bg-muted px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
 export function Chip({
   active,
