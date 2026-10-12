@@ -6,6 +6,7 @@ import { FileDown, Star } from "lucide-react";
 import { toast } from "sonner";
 import { ChangePill, Spark, TickMark } from "@/components/spark";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -204,6 +205,7 @@ export function QuoteSheet({
   const [qty, setQty] = useState(held?.qty != null ? String(held.qty) : "");
   const [avg, setAvg] = useState(held?.avg != null ? String(held.avg) : "");
   const [pdfHref, setPdfHref] = useState<string | null>(null);
+  const [confirmUnwatch, setConfirmUnwatch] = useState(false);
   useEffect(() => {
     return () => {
       if (pdfHref) URL.revokeObjectURL(pdfHref);
@@ -516,8 +518,21 @@ export function QuoteSheet({
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        {watching ? (
-          <Button variant="outline" className="min-h-11" aria-label="Remove from watcher" onClick={onRemove}>
+        {watching && confirmUnwatch ? (
+          <ConfirmRow
+            className="w-full"
+            subject={row.item.label}
+            verb="Remove"
+            detail="It leaves the watcher. You can watch it again."
+            triggerId="unwatch"
+            onCancel={() => setConfirmUnwatch(false)}
+            onConfirm={() => {
+              setConfirmUnwatch(false);
+              onRemove();
+            }}
+          />
+        ) : watching ? (
+          <Button variant="outline" className="min-h-11" aria-label="Remove from watcher" data-confirm-trigger="unwatch" onClick={() => setConfirmUnwatch(true)}>
             <Star className="size-4 fill-primary text-primary" />
             Watching
           </Button>

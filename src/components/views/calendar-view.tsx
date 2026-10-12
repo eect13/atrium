@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -138,6 +139,8 @@ export function CalendarView() {
     calMode === "week" || calMode === "day" || calMode === "agenda" || calMode === "month" ? calMode : "month",
   );
   const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [removeId, setRemoveId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(() => toManilaInput(manilaAt(isoDate(), 9)));
@@ -184,6 +187,7 @@ export function CalendarView() {
   }
 
   function openDay(date: string) {
+    setConfirmDelete(false);
     setEditId(null);
     setStart(toManilaInput(manilaAt(date, 9)));
     setEnd(toManilaInput(manilaAt(date, 10)));
@@ -208,6 +212,7 @@ export function CalendarView() {
 
   function openEvent(ev: CalendarEvent) {
     const master = ev.seriesId ? (events.find((e) => e.id === ev.seriesId) ?? ev) : ev;
+    setConfirmDelete(false);
     setEditId(master.id);
     setTitle(master.title);
     setStart(toManilaInput(master.start));
@@ -627,7 +632,23 @@ export function CalendarView() {
                 <h4 className="mb-2 text-xs uppercase tracking-[0.06em] text-muted-foreground">
                   {fmtDate(manilaAt(k, 12).toISOString())}
                 </h4>
-                {list!.map(({ e }) => (
+                {list!.map(({ e }) =>
+                  removeId === `${k}-${e.id}` ? (
+                  <ConfirmRow
+                    key={`${k}-${e.id}`}
+                    className="my-1"
+                    subject={e.title}
+                    verb="Remove"
+                    detail="It leaves your calendar."
+                    triggerId={`${k}-${e.id}`}
+                    onCancel={() => setRemoveId(null)}
+                    onConfirm={() => {
+                      removeEvent(e.id);
+                      setRemoveId(null);
+                      toast("Event removed");
+                    }}
+                  />
+                  ) : (
                   <div key={`${k}-${e.id}`} className="flex items-center gap-3 border-b border-border py-2">
                     <button type="button" className="min-w-0 grow text-left" onClick={() => openEvent(e)} aria-label={`${e.title}, ${eventCatLabel(eventCats, e.cat)}`}>
                       <span className="cat-tag cat-tag-lg" style={eventCatTagStyle(eventCats, e.cat, e.color)} title={eventCatLabel(eventCats, e.cat)}>
@@ -642,6 +663,7 @@ export function CalendarView() {
                       variant="ghost"
                       size="sm"
                       className="h-11"
+                      {...(e.seriesId ? {} : { "data-confirm-trigger": `${k}-${e.id}` })}
                       onClick={() => {
                         if (e.seriesId) {
                           const master = events.find((x) => x.id === e.seriesId);
@@ -650,14 +672,14 @@ export function CalendarView() {
                           toast("Skipped this date");
                           return;
                         }
-                        removeEvent(e.id);
-                        toast("Event removed");
+                        setRemoveId(`${k}-${e.id}`);
                       }}
                     >
                       {e.seriesId ? "Skip" : "Remove"}
                     </Button>
                   </div>
-                ))}
+                  ),
+                )}
               </div>
             ))
           ) : (
@@ -872,6 +894,21 @@ export function CalendarView() {
                 Meet
               </a>
             ) : null}
+            {editId && confirmDelete ? (
+              <ConfirmRow
+                subject={title.trim() || "this event"}
+                verb="Delete"
+                detail="It leaves your calendar."
+                triggerId="event-delete"
+                onCancel={() => setConfirmDelete(false)}
+                onConfirm={() => {
+                  removeEvent(editId);
+                  setConfirmDelete(false);
+                  setOpen(false);
+                  toast("Event removed");
+                }}
+              />
+            ) : (
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
@@ -890,14 +927,7 @@ export function CalendarView() {
                 </Button>
               ) : null}
               {editId ? (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    removeEvent(editId);
-                    setOpen(false);
-                    toast("Event removed");
-                  }}
-                >
+                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => setConfirmDelete(true)}>
                   Delete
                 </Button>
               ) : null}
@@ -956,6 +986,7 @@ export function CalendarView() {
                 Save
               </Button>
             </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

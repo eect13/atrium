@@ -5,6 +5,7 @@ import { Eye, EyeOff, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,7 @@ export function FinanceBooks() {
     year,
   });
   const [acctOpen, setAcctOpen] = useState(false);
+  const [removeTxId, setRemoveTxId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newName, setNewName] = useState("");
@@ -550,6 +552,23 @@ export function FinanceBooks() {
                         <td className={rowPad} />
                         <td className={rowPad} />
                       </tr>
+                      ) : removeTxId === r.tx.id ? (
+                      <tr key={r.tx.id} className="border-t border-border">
+                        <td colSpan={9} className={rowPad}>
+                          <ConfirmRow
+                            subject={r.tx.payee || r.tx.memo || r.tx.date}
+                            verb="Remove"
+                            detail="It leaves the register and balances."
+                            triggerId={`reg-${r.tx.id}`}
+                            onCancel={() => setRemoveTxId(null)}
+                            onConfirm={() => {
+                              removeTx(r.tx.id);
+                              setRemoveTxId(null);
+                              toast("Removed");
+                            }}
+                          />
+                        </td>
+                      </tr>
                       ) : (
                       <tr key={r.tx.id} className="border-t border-border">
                         <td className={rowPad}>
@@ -590,7 +609,7 @@ export function FinanceBooks() {
                           </button>
                         </td>
                         <td className={rowPad}>
-                          <Button variant="ghost" size="sm" onClick={() => removeTx(r.tx.id)}>
+                          <Button variant="ghost" size="sm" data-confirm-trigger={`reg-${r.tx.id}`} onClick={() => setRemoveTxId(r.tx.id)}>
                             Remove
                           </Button>
                         </td>
