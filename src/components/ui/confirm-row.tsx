@@ -8,6 +8,22 @@ const TRIGGER = "data-confirm-trigger";
 /** Put on the list's search/primary input: the focus target when no row is left. */
 export const CONFIRM_HOME = { "data-confirm-home": "" } as const;
 
+/** Open confirms, newest last: Esc in a Dialog/Sheet cancels the top one before closing (Form 149 §4). */
+const openConfirms: Array<{ current: () => void }> = [];
+
+/** Wrap a Dialog/Sheet `onEscapeKeyDown`: an open ConfirmRow eats the first Esc. */
+export function escapeConfirmFirst(handler?: (e: KeyboardEvent) => void) {
+  return (e: KeyboardEvent) => {
+    const top = openConfirms[openConfirms.length - 1];
+    if (top) {
+      e.preventDefault();
+      top.current();
+      return;
+    }
+    handler?.(e);
+  };
+}
+
 function triggerIn(el: Element | null | undefined) {
   return el?.querySelector<HTMLElement>(`[${TRIGGER}]`) ?? null;
 }
@@ -88,6 +104,15 @@ export function ConfirmRow({
     onCancel();
     if (triggerId) focusLater(() => document.querySelector<HTMLElement>(`[${TRIGGER}="${CSS.escape(triggerId)}"]`));
   };
+  const cancelRef = React.useRef(cancel);
+  cancelRef.current = cancel;
+  React.useEffect(() => {
+    openConfirms.push(cancelRef);
+    return () => {
+      const i = openConfirms.lastIndexOf(cancelRef);
+      if (i >= 0) openConfirms.splice(i, 1);
+    };
+  }, []);
   const confirm = () => {
     const row = ref.current;
     const next =
@@ -102,6 +127,7 @@ export function ConfirmRow({
     <As
       ref={ref as never}
       role="group"
+      data-confirm-open=""
       aria-label={`${verb} ${subject}?`}
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2 py-1.5",

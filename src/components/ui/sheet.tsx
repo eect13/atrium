@@ -2,6 +2,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { CloseButton } from "@/components/ui/close-button";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { escapeConfirmFirst } from "@/components/ui/confirm-row";
 
 const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
@@ -26,6 +27,7 @@ const SheetContent = React.forwardRef<
         className,
       )}
       {...props}
+      onEscapeKeyDown={escapeConfirmFirst(props.onEscapeKeyDown)}
     >
       {children}
       <DialogPrimitive.Close asChild>
