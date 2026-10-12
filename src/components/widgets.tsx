@@ -470,7 +470,7 @@ export function CalendarPeek({
   );
 }
 
-export function QuoteBody() {
+export function QuoteBody({ variant = "widget" }: { variant?: "widget" | "float" } = {}) {
   const queryClient = useQueryClient();
   const q = useQuery({
     queryKey: ["quotes", "session"],
@@ -517,6 +517,29 @@ export function QuoteBody() {
   }
   if (!text) {
     return <p className="text-sm text-muted-foreground">No quote this session.</p>;
+  }
+  if (variant === "float") {
+    // Form 152 B1: quote + Random scroll; attribution pinned in a 44px footer.
+    return (
+      <div className="flex h-full min-h-0 flex-col" data-quote-variant="float">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <p className="font-display text-base leading-snug">{text}</p>
+      <div className="mt-1 flex items-center gap-3">
+        <button
+          type="button"
+          className="inline-flex min-h-hit min-w-hit items-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          onClick={() => void shuffle()}
+        >
+          <span className="inline-flex items-center gap-1">
+            <Shuffle className="size-3" />
+            Random
+          </span>
+        </button>
+      </div>
+        </div>
+        {q.data ? <QuoteAttribution q={q.data} layout="inline" className="shrink-0 border-t border-border" /> : null}
+      </div>
+    );
   }
   return (
     <div>
@@ -888,7 +911,7 @@ export function WidgetBody({
   if (kind === "weather") return <WeatherBody />;
   if (kind === "agenda") return <AgendaBody />;
   if (kind === "calendar") return <CalendarPeek widgetId="float-calendar" />;
-  if (kind === "quote") return <QuoteBody />;
+  if (kind === "quote") return <QuoteBody variant="float" />;
   if (kind === "finance") return <FinancePeek />;
   if (kind === "clock") return <ClockBody />;
   return <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />;
