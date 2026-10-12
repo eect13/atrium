@@ -23,6 +23,7 @@ import {
 import { WQ_LICENSE, WQ_SITE } from "@/lib/wikiquote";
 import { onExternalAnchorClick } from "@/lib/http";
 import { cn } from "@/lib/utils";
+import { QUOTE_LINK, QuoteAttribution } from "@/components/quote-attribution";
 
 export function useDeskQuotes(
   mode: QuoteMode,
@@ -61,8 +62,7 @@ export function useDeskQuotes(
   return Object.assign(query, { recheck });
 }
 
-/** Attribution links: text-sized look, 44px tall target. */
-const LINK = "inline-flex min-h-hit items-center rounded-sm underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const LINK = QUOTE_LINK;
 
 function QuoteCard({
   q,
@@ -82,17 +82,7 @@ function QuoteCard({
     >
       <Quote className="mb-3 size-4 text-muted-foreground" aria-hidden />
       <p className={cn("font-display leading-snug", featured ? "text-2xl md:text-4xl" : "text-lg")}>{q.text}</p>
-      <p className="mt-4 text-sm text-muted-foreground">
-        — {q.author}
-        <span aria-hidden> · </span>
-        {q.source === "wikiquote" ? (
-          <a href={q.href} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
-            Wikiquote
-          </a>
-        ) : (
-          <span>Built-in</span>
-        )}
-      </p>
+      <QuoteAttribution q={q} className="mt-4 text-sm" />
       {onPick ? (
         <div className="mt-4">
           <Button
@@ -371,7 +361,7 @@ function QuoteSourceNote({ data }: { data?: { from: string; state: string; page?
           <a href={WQ_LICENSE.href} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
             {WQ_LICENSE.label}
           </a>
-          {data.state === "stale" ? " · saved copy (Wikiquote didn’t answer)" : ""}. Built-in quotes fill in after.
+          {" · excerpts edited"}{data.state === "stale" ? " · saved copy (Wikiquote didn’t answer)" : ""}. Built-in quotes fill in after.
         </>
       )}
     </p>

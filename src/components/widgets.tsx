@@ -61,6 +61,7 @@ import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tip } from "@/components/ui/tooltip";
+import { QuoteAttribution } from "@/components/quote-attribution";
 
 export function WeatherBody() {
   return <WeatherGlance hours={6} days={5} />;
@@ -485,7 +486,6 @@ export function QuoteBody() {
     gcTime: 6 * 60 * 60_000,
   });
   const text = q.data?.text;
-  const author = q.data?.author;
 
   async function shuffle() {
     const current = queryClient.getQueryData<{ text?: string }>(["quotes", "session"])?.text ?? text;
@@ -511,11 +511,11 @@ export function QuoteBody() {
   return (
     <div>
       <p className="font-display text-base leading-snug md:text-lg">{text}</p>
-      <p className="mt-3 text-xs text-muted-foreground">— {author}</p>
-      <div className="mt-3 flex items-center gap-3">
+      {q.data ? <QuoteAttribution q={q.data} className="mt-3 text-xs" /> : null}
+      <div className="mt-1 flex items-center gap-3">
         <button
           type="button"
-          className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          className="inline-flex min-h-hit min-w-hit items-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           onClick={() => void shuffle()}
         >
           <span className="inline-flex items-center gap-1">
