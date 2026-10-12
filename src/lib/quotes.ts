@@ -343,15 +343,39 @@ export function quoteView(o: Pick<QuoteQuery, "mode" | "author" | "topic" | "q">
 }
 
 export type DeskQuotes = {
+  /** Full merged pool (the view pages it); sliced only when `limit` is passed (widget). */
   quotes: DeskQuote[];
+  /** Pool size before any `limit` slice: the "of M" in "Showing N of M". */
+  total: number;
+  /** Live Wikiquote rows loaded for this view before the text filter (0 = none came back). */
+  liveTotal: number;
   author?: string;
   topic?: string;
+  /** All only: today's rotating live topic. */
+  dailyTopic?: QuoteTopicId;
   /** wikiquote when any live row is shown, else local (built-ins). */
   from: "wikiquote" | "local";
   state: ViewState["from"];
   /** The Wikiquote page behind this view (attribution). */
   page?: { title: string; href: string };
 };
+
+/** Show-more step: 16 per page, 24 in author mode (Form 149 §2). */
+export const QUOTE_PAGE = { list: 16, author: 24 } as const;
+
+/** All's rotating live topic: stable within a desk day, seeded like the N7 shuffle. */
+export function dailyQuoteTopic(today = todayQuoteKey()): QuoteTopicId {
+  const ids = QUOTE_TOPICS.map((t) => t.id).filter((id) => id !== "all" && id in WQ_TOPIC_PAGES);
+  return ids[hash(`all:${today}`) % ids.length] ?? "life";
+}
+
+/** Footer reason when no live row is on screen (N3): honest copy, not keyed on `from` alone. */
+export type QuoteNote = "live" | "filtered" | "offline" | "failed";
+export function quoteNoteReason(d: Pick<DeskQuotes, "from" | "liveTotal">, online = true): QuoteNote {
+  if (d.from === "wikiquote") return "live";
+  if (d.liveTotal > 0) return "filtered";
+  return online ? "failed" : "offline";
+}
 
 type Deps = {
   fetcher?: (kind: WqKind, key: string) => Promise<WqResult>;
@@ -372,19 +396,43 @@ export async function loadDeskQuotes(o: QuoteQuery, deps: Deps = {}): Promise<De
     },
     { kv: "kv" in deps ? deps.kv : browserKV(), now: deps.now, force: o.force },
   );
+  const today = deps.today ?? todayQuoteKey();
+  const order = (list: DeskQuote[]) => shuffle(list, `${view.kind}:${view.key}:${today}`);
+  const done = (pool: DeskQuote[], liveTotal: number, extra: Partial<DeskQuotes>): DeskQuotes => {
+    const quotes = o.limit ? pool.slice(0, o.limit) : pool;
+    return { quotes, total: pool.length, liveTotal, from: from(quotes), state: state.from, page, ...extra };
+  };
   const live = state.quotes;
-  const limit = o.limit ?? 12;
   const page = state.title ? { title: state.title, href: live[0]?.href ?? wqPageHref(state.title) } : undefined;
   const from = (list: DeskQuote[]) => (list.some((q) => q.source === "wikiquote") ? "wikiquote" : "local") as DeskQuotes["from"];
 
   if (view.kind === "author") {
     const name = view.key;
     const builtins = LOCAL_QUOTES.filter((q) => (o.exact ? exactAuthor(q, name) : authorMatches(q.author, name)));
-    const quotes = mergeQuotePool(live, builtins).slice(0, limit);
-    return { quotes, author: live[0]?.author ?? quotes[0]?.author ?? name, from: from(quotes), state: state.from, page };
+    const pool = mergeQuotePool(order(live), builtins);
+    return done(pool, live.length, { author: live[0]?.author ?? pool[0]?.author ?? name });
   }
   const topic = normalizeQuoteTopic(o.topic);
-  const pool = mergeQuotePool(live, topic === "all" ? LOCAL_QUOTES : topicLocals(topic)).filter((q) => matchQuoteQuery(q, o.q ?? ""));
-  const quotes = (o.mode === "random" ? shuffle(pool, o.seed ?? `${Date.now()}`) : pool).slice(0, limit);
-  return { quotes, topic, from: from(quotes), state: state.from, page };
+  if (view.kind === "topic") {
+    const pool = mergeQuotePool(order(live), topicLocals(topic)).filter((q) => matchQuoteQuery(q, o.q ?? ""));
+    return done(o.mode === "random" ? shuffle(pool, o.seed ?? `${Date.now()}`) : pool, live.length, { topic });
+  }
+  // All: today's quote first, then one rotating live topic (stable for the day), then built-ins.
+  const dailyTopic = dailyQuoteTopic(today);
+  const extraKey = quoteView({ mode: "popular", topic: dailyTopic }, today);
+  const extra = await loadView<DeskQuote>(
+    quoteCacheKey(extraKey.kind, extraKey.key),
+    async () => {
+      const r = await fetcher(extraKey.kind, extraKey.key);
+      return { quotes: r.quotes.map((q) => ({ ...q, source: "wikiquote" as const })), title: r.title };
+    },
+    { kv: "kv" in deps ? deps.kv : browserKV(), now: deps.now, force: o.force },
+  ).catch(() => ({ quotes: [] as DeskQuote[], from: "none" as const }));
+  const rotating = shuffle(extra.quotes, `topic:${dailyTopic}:${today}`);
+  const pool = mergeQuotePool([...live, ...rotating], LOCAL_QUOTES).filter((q) => matchQuoteQuery(q, o.q ?? ""));
+  return done(
+    o.mode === "random" ? shuffle(pool, o.seed ?? `${Date.now()}`) : pool,
+    live.length + rotating.length,
+    { topic, dailyTopic },
+  );
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { QUOTE_TTL_MS, isFresh, loadView, quoteCacheKey, readEntry, writeEntry, type KV } from "./quote-cache.ts";
-import { loadDeskQuotes } from "./quotes.ts";
+import { LOCAL_QUOTES, QUOTE_PAGE, dailyQuoteTopic, loadDeskQuotes, quoteNoteReason } from "./quotes.ts";
 
 function memKV(): KV & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -97,7 +97,8 @@ function deskDeps(answers: Record<string, string[]>, kv = memKV()) {
 test("desk: All = today's Wikiquote quote first, then the built-ins; attribution page set", async () => {
   const d = deskDeps({ "daily:2026-10-06": ["There rolls the deep where grew the tree."] });
   const r = await loadDeskQuotes({ mode: "popular", limit: 50 }, d.deps);
-  assert.deepEqual(d.asked, ["daily:2026-10-06"]);
+  // Card 147 (Eric via Form 149): All also reads today's rotating topic; here it fails → built-ins only.
+  assert.deepEqual(d.asked, ["daily:2026-10-06", `topic:${dailyQuoteTopic("2026-10-06")}`]);
   assert.equal(r.quotes[0]?.source, "wikiquote");
   assert.equal(r.quotes.length, 43);
   assert.equal(r.from, "wikiquote");
@@ -137,4 +138,51 @@ test("desk: an empty Wikiquote answer after a good one keeps the cached quotes (
   assert.equal(r.state, "stale");
   assert.equal(r.quotes[0]?.text, "Love is patient, love is kind, they say.");
   assert.ok(kv.data.has("atrium.quotes.v1:topic:love"));
+});
+
+test("Card 147: All adds one rotating live topic per day (stable within the day), built-ins on failure", async () => {
+  const day = "2026-10-06";
+  const t = dailyQuoteTopic(day);
+  assert.equal(dailyQuoteTopic(day), t);
+  assert.notEqual(t, "all");
+  const days = Array.from({ length: 14 }, (_, i) => dailyQuoteTopic(`2026-10-${String(i + 1).padStart(2, "0")}`));
+  assert.ok(new Set(days).size > 1, "topic rotates across days");
+  const lines = Array.from({ length: 30 }, (_, i) => `Topic line number ${i} is long enough to keep.`);
+  const ok = deskDeps({ "daily:2026-10-06": ["There rolls the deep where grew the tree."], [`topic:${t}`]: lines });
+  const r = await loadDeskQuotes({ mode: "popular" }, ok.deps);
+  assert.equal(r.dailyTopic, t);
+  assert.equal(r.quotes[0]?.text, "There rolls the deep where grew the tree.");
+  assert.equal(r.total, 1 + 30 + LOCAL_QUOTES.length);
+  assert.equal(r.liveTotal, 31);
+  assert.notDeepEqual(r.quotes.slice(1, 6).map((q) => q.text), lines.slice(0, 5), "rotating rows are shuffled, not page order");
+  const failed = deskDeps({ "daily:2026-10-06": ["There rolls the deep where grew the tree."] });
+  const f = await loadDeskQuotes({ mode: "popular" }, failed.deps);
+  assert.equal(f.total, 1 + LOCAL_QUOTES.length);
+});
+
+test("Card 147 N7: full pool + total; limit slices; topic order is seeded by day, not A–Z", async () => {
+  const lines = Array.from({ length: 120 }, (_, i) => `A${String(i).padStart(3, "0")} wisdom line long enough.`);
+  const d = deskDeps({ "topic:wisdom": lines });
+  const all = await loadDeskQuotes({ mode: "popular", topic: "wisdom" }, d.deps);
+  assert.equal(all.total, all.quotes.length);
+  assert.ok(all.total >= 120);
+  assert.notDeepEqual(all.quotes.slice(0, 16).map((q) => q.text), lines.slice(0, 16));
+  const again = await loadDeskQuotes({ mode: "popular", topic: "wisdom" }, d.deps);
+  assert.deepEqual(again.quotes.map((q) => q.text), all.quotes.map((q) => q.text), "stable within a day");
+  const cut = await loadDeskQuotes({ mode: "popular", topic: "wisdom", limit: QUOTE_PAGE.list }, d.deps);
+  assert.equal(cut.quotes.length, 16);
+  assert.equal(cut.total, all.total);
+  assert.equal(QUOTE_PAGE.author, 24);
+});
+
+test("Card 147 N3: footer reason — filtered vs failed vs offline", async () => {
+  const d = deskDeps({ "daily:2026-10-06": ["There rolls the deep where grew the tree."] });
+  const filtered = await loadDeskQuotes({ mode: "popular", q: "Mark Twain" }, d.deps);
+  assert.equal(filtered.from, "local");
+  assert.equal(quoteNoteReason(filtered), "filtered");
+  const none = await loadDeskQuotes({ mode: "popular" }, deskDeps({}).deps);
+  assert.equal(quoteNoteReason(none, true), "failed");
+  assert.equal(quoteNoteReason(none, false), "offline");
+  const live = await loadDeskQuotes({ mode: "popular" }, d.deps);
+  assert.equal(quoteNoteReason(live), "live");
 });

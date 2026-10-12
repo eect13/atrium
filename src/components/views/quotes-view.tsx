@@ -13,11 +13,14 @@ import {
   authorChipsFromQuotes,
   loadDeskQuotes,
   nextQuoteSeed,
+  QUOTE_PAGE,
+  quoteNoteReason,
   quoteTopicChips,
   readQuoteSeed,
   suggestAuthors,
   writeQuoteSession,
   type DeskQuote,
+  type DeskQuotes,
   type QuoteMode,
 } from "@/lib/quotes";
 import { WQ_LICENSE, WQ_SITE } from "@/lib/wikiquote";
@@ -46,7 +49,6 @@ export function useDeskQuotes(
         topic,
         q: q.trim() || undefined,
         exact,
-        limit: mode === "author" ? 24 : 16,
         seed,
         force: again,
       });
@@ -67,14 +69,18 @@ const LINK = QUOTE_LINK;
 function QuoteCard({
   q,
   featured = false,
+  idx,
   onPick,
 }: {
   q: DeskQuote;
   featured?: boolean;
+  idx?: number;
   onPick?: (q: DeskQuote) => void;
 }) {
   return (
     <article
+      data-quote-idx={idx}
+      tabIndex={idx != null ? -1 : undefined}
       className={cn(
         "rounded-xl bg-card text-card-foreground shadow-[var(--shadow-border)]",
         featured ? "p-6 md:p-8" : "p-5",
@@ -121,8 +127,19 @@ export function QuotesView() {
     exact,
   );
   const list = useMemo(() => quotes.data?.quotes ?? [], [quotes.data?.quotes]);
-  const hero = list[0];
-  const rest = list.slice(1);
+  // Show more (Form 149 §2): one page at a time, reset when the view changes.
+  const step = mode === "author" && search.trim() ? QUOTE_PAGE.author : QUOTE_PAGE.list;
+  const [shown, setShown] = useState<number>(step);
+  const gridRef = useRef<HTMLDivElement>(null);
+  useEffect(() => setShown(step), [step, mode, search, topic, filterQ, seed, exact]);
+  const visible = list.slice(0, shown);
+  const hero = visible[0];
+  const rest = visible.slice(1);
+  function showMore() {
+    const first = visible.length;
+    setShown((n) => n + step);
+    requestAnimationFrame(() => gridRef.current?.querySelector<HTMLElement>(`[data-quote-idx="${first}"]`)?.focus());
+  }
   // Chips from desk corpus + current result set (not a hardcoded dump).
   const topicChips = useMemo(() => quoteTopicChips(), []);
   const authorChips = useMemo(() => authorChipsFromQuotes(list), [list]);
@@ -330,26 +347,52 @@ export function QuotesView() {
         <div className="space-y-4">
           <QuoteCard q={hero} featured onPick={pin} />
           {rest.length ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {rest.map((q) => (
-                <QuoteCard key={`${q.author}-${q.text}`} q={q} onPick={pin} />
+            <div ref={gridRef} className="grid gap-4 sm:grid-cols-2">
+              {rest.map((q, i) => (
+                <QuoteCard key={`${q.author}-${q.text}`} q={q} idx={i + 1} onPick={pin} />
               ))}
             </div>
           ) : null}
         </div>
       )}
+      {list.length ? (
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            {visible.length >= list.length
+              ? `All ${list.length} shown`
+              : `Showing ${visible.length} of ${list.length}`}
+            {filterQ.trim() ? ` matching “${filterQ.trim()}”` : ""}
+          </p>
+          {visible.length < list.length ? (
+            <Button type="button" variant="outline" onClick={showMore}>
+              Show {Math.min(step, list.length - visible.length)} more
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {mode !== "author" && filterQ.trim().length >= 2 && quotes.data?.from === "local" ? (
+        <div className="mt-2 flex justify-center">
+          <Button type="button" variant="outline" onClick={() => goAuthor(filterQ)}>
+            Search Wikiquote for “{filterQ.trim()}”
+          </Button>
+        </div>
+      ) : null}
       <QuoteSourceNote data={quotes.data} />
     </div>
   );
 }
 
 /** Attribution + state line. CC BY-SA needs a visible link to the page and the license. */
-function QuoteSourceNote({ data }: { data?: { from: string; state: string; page?: { title: string; href: string } } }) {
+function QuoteSourceNote({ data }: { data?: DeskQuotes }) {
   if (!data) return null;
-  const offline = data.from === "local";
+  const reason = quoteNoteReason(data, typeof navigator === "undefined" || navigator.onLine !== false);
   return (
-    <p className="mt-4 text-xs text-muted-foreground" data-quote-source={data.from} data-quote-state={data.state}>
-      {offline ? (
+    <p className="mt-4 text-xs text-muted-foreground" data-quote-source={data.from} data-quote-state={data.state} data-quote-note={reason}>
+      {reason === "filtered" ? (
+        <>No Wikiquote quotes match this filter — showing built-in matches. </>
+      ) : reason === "offline" ? (
+        <>You’re offline — showing the built-in set. Refresh when you’re back online. </>
+      ) : reason === "failed" ? (
         <>Wikiquote didn’t answer — showing the built-in set. Refresh to try again. </>
       ) : (
         <>
