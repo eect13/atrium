@@ -164,13 +164,14 @@ function local(author: string, _slug: string, text: string): DeskQuote {
  * Aristotle "We are what we repeatedly do" → Will Durant (The Story of Philosophy, 1926);
  * Marcus Aurelius "power over your mind" (Misattributed) → Meditations VII.64; Seneca "Luck…"
  * (Disputed) → Letter I; Mandela "It always seems impossible" (Obama eulogy) → 1990 Boston speech.
- * Not yet found on author pages (unverified, kept): Einstein "Strive not…", Twain "Kindness…",
- * Buddha "The mind is everything…", Sun Tzu "In the midst of chaos…", Confucius "how slowly…".
+ * Card 153 Scout: Einstein re-worded to LIFE 1955; Twain ×2, Buddha, Sun Tzu, Confucius, Gandhi swapped for Wikiquote-sourced lines.
+ * Twain "secret of getting ahead" (Misattributed) → "Few things are harder to put up with than the annoyance of a
+ * good example." (Pudd'nhead Wilson, 1894, ch. 19; Wikiquote › Pudd'nhead Wilson).
  */
 export const LOCAL_QUOTES: DeskQuote[] = [
   local("Albert Einstein", "albert-einstein", "Life is like riding a bicycle. To keep your balance, you must keep moving."),
   local("Albert Einstein", "albert-einstein", "Imagination is more important than knowledge."),
-  local("Albert Einstein", "albert-einstein", "Strive not to be a success, but rather to be of value."),
+  local("Albert Einstein", "albert-einstein", "Try not to become a man of success, but rather try to become a man of value."),
   local("Marcus Aurelius", "marcus-aurelius", "The impediment to action advances action. What stands in the way becomes the way."),
   local("Marcus Aurelius", "marcus-aurelius", "Very little is needed to make a happy life."),
   local("Marcus Aurelius", "marcus-aurelius", "Waste no more time arguing about what a good man should be. Be one."),
@@ -182,7 +183,7 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Oscar Wilde", "oscar-wilde", "We are all in the gutter, but some of us are looking at the stars."),
   local("Seneca", "seneca", "We suffer more often in imagination than in reality."),
   local("Seneca", "seneca", "While we are postponing, life speeds by."),
-  local("Confucius", "confucius", "It does not matter how slowly you go as long as you do not stop."),
+  local("Confucius", "confucius", "To know what you know and what you do not know, that is true knowledge."),
   local("Confucius", "confucius", "The man who moves a mountain begins by carrying away small stones."),
   local("Rumi", "rumi", "Yesterday I was clever, so I wanted to change the world. Today I am wise, so I am changing myself."),
   local("Rumi", "rumi", "What you seek is seeking you."),
@@ -194,20 +195,20 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Marie Curie", "marie-curie", "Be less curious about people and more curious about ideas."),
   local("Epictetus", "epictetus", "It's not what happens to you, but how you react to it that matters."),
   local("Epictetus", "epictetus", "No man is free who is not master of himself."),
-  local("Mark Twain", "mark-twain", "The secret of getting ahead is getting started."),
-  local("Mark Twain", "mark-twain", "Kindness is the language which the deaf can hear and the blind can see."),
+  local("Mark Twain", "mark-twain", "Few things are harder to put up with than the annoyance of a good example."),
+  local("Mark Twain", "mark-twain", "When in doubt, tell the truth."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "What you do speaks so loudly that I cannot hear what you say."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "Do not go where the path may lead, go instead where there is no path and leave a trail."),
   local("Will Durant", "will-durant", "We are what we repeatedly do. Excellence, then, is not an act, but a habit."),
   local("Aristotle", "aristotle", "Knowing yourself is the beginning of all wisdom."),
-  local("Buddha", "buddha", "The mind is everything. What you think you become."),
+  local("Buddha", "buddha", "All that we are is the result of what we have thought."),
   local("Buddha", "buddha", "Do not dwell in the past, do not dream of the future, concentrate the mind on the present moment."),
-  local("Mahatma Gandhi", "mahatma-gandhi", "Be the change that you wish to see in the world."),
+  local("Mahatma Gandhi", "mahatma-gandhi", "If we could change ourselves, the tendencies in the world would also change."),
   local("Mahatma Gandhi", "mahatma-gandhi", "The weak can never forgive. Forgiveness is the attribute of the strong."),
   local("Jane Austen", "jane-austen", "There is no charm equal to tenderness of heart."),
   local("Jane Austen", "jane-austen", "It isn't what we say or think that defines us, but what we do."),
   local("Sun Tzu", "sun-tzu", "The supreme art of war is to subdue the enemy without fighting."),
-  local("Sun Tzu", "sun-tzu", "In the midst of chaos, there is also opportunity."),
+  local("Sun Tzu", "sun-tzu", "To secure ourselves against defeat lies in our own hands, but the opportunity of defeating the enemy is provided by the enemy himself."),
   local("Simone Weil", "simone-weil", "Attention is the rarest and purest form of generosity."),
   local("Simone Weil", "simone-weil", "The world is the closed door. It is a barrier. And at the same time it is the way through."),
 ];
