@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { ConfirmRow } from "@/components/ui/confirm-row";
@@ -10,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CalendarPeek, SpanBar } from "@/components/widgets";
+import { FIELD_SELECT } from "@/components/views/finance-chip";
 import { FloatBtn } from "@/components/desk-chrome";
 import { EventCatManager } from "@/components/event-cat-manager";
 import { redirectToLoginIfRequired } from "@/lib/app-data";
@@ -36,11 +39,11 @@ import {
   WEEKDAY_NAMES,
 } from "@/lib/format";
 import { fetchIcsUrl } from "@/lib/feeds";
-import { gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents, mapGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
+import { EVENT_SWATCHES, gcalRange, googleNeedsInstances, listGoogleCalendars, listGoogleEvents, mapGoogleEvents, mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { expandEvents } from "@/lib/repeat";
-import { catsWithOrphans, eventCatLabel, eventCatTagStyle, type EventCategory } from "@/lib/event-cats";
+import { catFg, catsWithOrphans, eventCatLabel, eventCatTagStyle, type EventCategory } from "@/lib/event-cats";
 import { PAGE_SPAN_CAP, UNCAPPED_SPAN, layoutSpanRows, spanCellLabel, spanRangeLabel, spanWhen, type SpanSegment } from "@/lib/span-layout";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent } from "@/lib/types";
@@ -730,7 +733,7 @@ export function CalendarView() {
               <Label htmlFor="ev-tz">Time zone</Label>
               <select
                 id="ev-tz"
-                className="h-11 w-full rounded-md border border-border bg-muted px-3 text-sm"
+                className={FIELD_SELECT}
                 value={eventTz}
                 onChange={(e) => setEventTz(e.target.value)}
               >
@@ -772,7 +775,7 @@ export function CalendarView() {
                 <Label htmlFor="ev-cat">Category</Label>
                 <select
                   id="ev-cat"
-                  className="h-11 w-full rounded-md border border-border bg-muted px-3 text-sm"
+                  className={FIELD_SELECT}
                   value={cat}
                   onChange={(e) => setCat(e.target.value)}
                 >
@@ -800,7 +803,7 @@ export function CalendarView() {
                 <Label htmlFor="ev-repeat">Repeat</Label>
                 <select
                   id="ev-repeat"
-                  className="h-11 w-full rounded-md border border-border bg-muted px-3 text-sm"
+                  className={FIELD_SELECT}
                   value={repeat}
                   onChange={(e) => setRepeat(e.target.value as RepeatChoice)}
                 >
@@ -866,20 +869,25 @@ export function CalendarView() {
               <div className="space-y-1">
                 <Label>Color</Label>
                 <div className="flex min-h-11 flex-wrap items-center">
-                  {["#7986cb", "#33b679", "#f6bf26", "#e67c73", "#8e24aa"].map((c) => (
+                  {EVENT_SWATCHES.map(({ hex: c, name }) => (
                     <button
                       key={c}
                       type="button"
-                      aria-label={`Color ${c}`}
+                      aria-label={name}
                       aria-pressed={color === c}
                       className="inline-flex size-hit items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => setColor(color === c ? "" : c)}
                     >
                       <span
                         aria-hidden
-                        className={`size-6 rounded-full border ${color === c ? "border-foreground" : "border-transparent"}`}
+                        className={cn(
+                          "inline-flex size-6 items-center justify-center rounded-full",
+                          color === c ? "border-2 border-foreground" : "border border-input",
+                        )}
                         style={{ background: c }}
-                      />
+                      >
+                        {color === c ? <Check className="size-3.5" style={{ color: catFg(c) }} /> : null}
+                      </span>
                     </button>
                   ))}
                 </div>

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
+/** Shared native <select> look (border-input boundary, 44px). Used by Finance and Calendar. */
 export const FIELD_SELECT =
-  "h-11 w-full rounded-md border border-border bg-muted px-3 text-sm";
+  "h-11 w-full rounded-md border border-input bg-muted px-3 text-sm";
 
 export function Chip({
   active,

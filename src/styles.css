@@ -8,6 +8,8 @@
   --color-muted: #1c1c1f;
   --color-muted-foreground: #8e8e8a;
   --color-border: #2a2a2c;
+  /* Input/control boundary ≥3:1 vs card and muted (Form 149 1b); border stays the keyline. */
+  --color-input: #6a6a6c;
   --color-primary: #e8e8e4;
   --color-primary-foreground: #0c0c0d;
   --color-accent: #1c1c1f;
@@ -87,6 +89,7 @@ html.light {
   --color-muted: #e8e3d8;
   --color-muted-foreground: #625f59;
   --color-border: #d9d3c6;
+  --color-input: #85807a;
   --color-primary: #161513;
   --color-primary-foreground: #f3efe6;
   --color-accent: #e0dbd0;

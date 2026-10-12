@@ -141,6 +141,15 @@ export function googleNeedsInstances(events: { recurrence?: string[]; recurringE
   return events.some((e) => Boolean(e.recurringEventId));
 }
 
+/** Event-dialog colour swatches with hue words for names (Form 149 1a; hexes unchanged). */
+export const EVENT_SWATCHES = [
+  { hex: "#7986cb", name: "Lavender" },
+  { hex: "#33b679", name: "Sage" },
+  { hex: "#f6bf26", name: "Banana" },
+  { hex: "#e67c73", name: "Flamingo" },
+  { hex: "#8e24aa", name: "Grape" },
+] as const;
+
 const GOOGLE_COLORS: Record<string, string> = {
   "1": "#795548",
   "2": "#33b679",
