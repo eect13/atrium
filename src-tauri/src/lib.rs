@@ -2,6 +2,65 @@
 
 use tauri::Manager;
 
+/// Longest Retry-After honoured (15 min).
+const RETRY_AFTER_CAP: u64 = 15 * 60;
+
+/// RFC 9110 §10.2.3: delay-seconds or IMF-fixdate ("Wed, 21 Oct 2026 07:28:00 GMT") → seconds, capped.
+fn retry_after_secs(raw: &str, now_unix: u64) -> Option<u64> {
+    let v = raw.trim();
+    if v.is_empty() {
+        return None;
+    }
+    if v.chars().all(|c| c.is_ascii_digit()) {
+        return v.parse::<u64>().ok().map(|n| n.min(RETRY_AFTER_CAP));
+    }
+    let at = imf_fixdate_unix(v)?;
+    Some(at.saturating_sub(now_unix).min(RETRY_AFTER_CAP))
+}
+
+fn imf_fixdate_unix(v: &str) -> Option<u64> {
+    // "Sun, 06 Nov 1994 08:49:37 GMT"
+    let p: Vec<&str> = v.split_whitespace().collect();
+    if p.len() != 6 || p[5] != "GMT" {
+        return None;
+    }
+    let day: i64 = p[1].parse().ok()?;
+    let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        .iter()
+        .position(|m| *m == p[2])? as i64
+        + 1;
+    let year: i64 = p[3].parse().ok()?;
+    let t: Vec<i64> = p[4].split(':').map(|x| x.parse().ok()).collect::<Option<Vec<i64>>>()?;
+    if t.len() != 3 || !(1..=31).contains(&day) {
+        return None;
+    }
+    // Days from civil (Howard Hinnant).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + t[0] * 3_600 + t[1] * 60 + t[2];
+    u64::try_from(secs).ok()
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn seconds_date_and_cap() {
+        assert_eq!(retry_after_secs("120", 0), Some(120));
+        assert_eq!(retry_after_secs("99999", 0), Some(RETRY_AFTER_CAP));
+        assert_eq!(imf_fixdate_unix("Sun, 06 Nov 1994 08:49:37 GMT"), Some(784_111_777));
+        assert_eq!(retry_after_secs("Sun, 06 Nov 1994 08:50:07 GMT", 784_111_777), Some(30));
+        assert_eq!(retry_after_secs("Sun, 06 Nov 1994 08:49:37 GMT", 784_200_000), Some(0));
+        assert_eq!(retry_after_secs("Sun, 06 Nov 1994 10:49:37 GMT", 784_111_777), Some(RETRY_AFTER_CAP));
+        assert_eq!(retry_after_secs("soon", 0), None);
+    }
+}
+
 #[tauri::command]
 async fn fetch_text(url: String, ua: Option<String>) -> Result<String, String> {
     if blocked_url(&url) {
@@ -19,13 +78,16 @@ async fn fetch_text(url: String, ua: Option<String>) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        // Keep Retry-After (seconds) so the caller can back off politely (Wikimedia 429/503).
+        // Keep Retry-After (seconds or HTTP-date, capped 15 min) so the caller can back off politely.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let retry = res
             .headers()
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|v| v.to_str().ok())
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()));
+            .and_then(|v| retry_after_secs(v, now));
         return Err(match retry {
             Some(s) => format!("HTTP {}; retry-after={}", res.status().as_u16(), s),
             None => format!("HTTP {}", res.status().as_u16()),

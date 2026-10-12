@@ -22,6 +22,22 @@ export function isTauri() {
 
 const BODY_CAP = 1_500_000;
 
+/** Longest Retry-After we honour (Scout 148/153: cap 15 min). */
+export const RETRY_AFTER_CAP_S = 15 * 60;
+
+/**
+ * RFC 9110 §10.2.3 Retry-After → whole seconds, capped at 15 min.
+ * Accepts delay-seconds ("120") or an HTTP-date ("Wed, 21 Oct 2026 07:28:00 GMT"); null when absent/invalid.
+ */
+export function retryAfterSeconds(raw: string | null | undefined, now = Date.now()): number | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  if (/^\d+$/.test(v)) return Math.min(Number(v), RETRY_AFTER_CAP_S);
+  const t = Date.parse(v);
+  if (!Number.isFinite(t)) return null;
+  return Math.min(Math.max(0, Math.ceil((t - now) / 1000)), RETRY_AFTER_CAP_S);
+}
+
 function blockedHost(host: string) {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
   if (!h || h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || h === "metadata.google.internal") return true;
@@ -70,8 +86,8 @@ export async function httpText(url: string, headers?: Record<string, string>) {
     redirect: "follow",
   });
   if (!res.ok) {
-    const ra = res.headers.get("retry-after");
-    throw new Error(`HTTP ${res.status}${ra && /^\d+$/.test(ra.trim()) ? `; retry-after=${ra.trim()}` : ""}`);
+    const ra = retryAfterSeconds(res.headers.get("retry-after"));
+    throw new Error(`HTTP ${res.status}${ra != null ? `; retry-after=${ra}` : ""}`);
   }
   const text = await res.text();
   if (text.length > BODY_CAP) throw new Error("Response too large");
