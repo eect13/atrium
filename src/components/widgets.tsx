@@ -484,6 +484,7 @@ export function QuoteBody() {
     },
     staleTime: Infinity,
     gcTime: 6 * 60 * 60_000,
+    networkMode: "always",
   });
   const text = q.data?.text;
 

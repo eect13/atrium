@@ -56,6 +56,8 @@ export function useDeskQuotes(
     staleTime: 5 * 60_000,
     gcTime: 6 * 60 * 60_000,
     refetchOnWindowFocus: false,
+    // Offline still reads the saved copy + built-ins (React Query would otherwise pause on a skeleton).
+    networkMode: "always",
   });
   const recheck = () => {
     force.current = true;
