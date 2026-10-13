@@ -287,28 +287,32 @@ fn open_secret(b: &[u8]) -> Option<String> {
 }
 
 /// `calendar-session.bin` (sealed). Card 170's plaintext `calendar-session.secret` is read once,
-/// sealed into the new file, then removed.
-fn cal_read(app: &tauri::AppHandle) -> Option<String> {
-    let dir = cal_dir(app).ok()?;
-    if let Ok(b) = std::fs::read(dir.join("calendar-session.bin")) {
+/// sealed into the new file, then removed. `calendar-session.used` marks that this install has
+/// held a Rust-managed session, which closes the one-time `cal_session_adopt` door (Card 177 L8).
+const BIN: &str = "calendar-session.bin";
+const LEGACY: &str = "calendar-session.secret";
+const MARK: &str = "calendar-session.used";
+
+fn store_read(dir: &std::path::Path) -> Option<String> {
+    if let Ok(b) = std::fs::read(dir.join(BIN)) {
         return open_secret(&b).map(|v| v.trim().to_string()).filter(|v| valid_secret(v));
     }
-    let old = dir.join("calendar-session.secret");
+    let old = dir.join(LEGACY);
     let v = std::fs::read_to_string(&old).ok()?.trim().to_string();
     if !valid_secret(&v) {
         return None;
     }
-    if cal_write(app, &v).is_ok() {
+    if store_write(dir, &v).is_ok() {
         let _ = std::fs::remove_file(&old);
     }
     Some(v)
 }
 
-fn cal_write(app: &tauri::AppHandle, v: &str) -> Result<(), String> {
+fn store_write(dir: &std::path::Path, v: &str) -> Result<(), String> {
     if !valid_secret(v) {
         return Err("invalid value".into());
     }
-    let p = cal_dir(app)?.join("calendar-session.bin");
+    let p = dir.join(BIN);
     let tmp = p.with_extension("tmp");
     std::fs::write(&tmp, seal_secret(v)?).map_err(|e| e.to_string())?;
     #[cfg(unix)]
@@ -316,12 +320,13 @@ fn cal_write(app: &tauri::AppHandle, v: &str) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
     }
-    std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
+    let _ = std::fs::write(dir.join(MARK), b"1");
+    Ok(())
 }
 
-fn cal_clear_files(app: &tauri::AppHandle) -> Result<(), String> {
-    let dir = cal_dir(app)?;
-    for name in ["calendar-session.bin", "calendar-session.secret", "calendar-session.tmp"] {
+fn store_clear(dir: &std::path::Path) -> Result<(), String> {
+    for name in [BIN, LEGACY, "calendar-session.tmp"] {
         match std::fs::remove_file(dir.join(name)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -329,6 +334,28 @@ fn cal_clear_files(app: &tauri::AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Card 177 L8: adopt only the one-time move of a Card 165-era handle from localStorage — when
+/// this install has never held a Rust-managed session (no .bin, no legacy file, no marker).
+/// Anything else is refused, so a script can't plant a handle later.
+fn store_adopt(dir: &std::path::Path, v: &str) -> Result<(), String> {
+    if dir.join(MARK).exists() || dir.join(BIN).exists() || dir.join(LEGACY).exists() {
+        return Err("refused".into());
+    }
+    store_write(dir, v)
+}
+
+fn cal_read(app: &tauri::AppHandle) -> Option<String> {
+    store_read(&cal_dir(app).ok()?)
+}
+
+fn cal_write(app: &tauri::AppHandle, v: &str) -> Result<(), String> {
+    store_write(&cal_dir(app)?, v)
+}
+
+fn cal_clear_files(app: &tauri::AppHandle) -> Result<(), String> {
+    store_clear(&cal_dir(app)?)
 }
 
 /// Strip the refresh handle from a server reply before it goes to JS.
@@ -392,10 +419,7 @@ async fn cal_session_refresh(app: tauri::AppHandle) -> Result<serde_json::Value,
 /// never replaces a handle that is already stored.
 #[tauri::command]
 fn cal_session_adopt(app: tauri::AppHandle, value: String) -> Result<(), String> {
-    if cal_read(&app).is_some() {
-        return Ok(());
-    }
-    cal_write(&app, &value)
+    store_adopt(&cal_dir(&app)?, &value)
 }
 
 #[tauri::command]
@@ -405,7 +429,61 @@ fn cal_session_clear(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod secret_tests {
-    use super::{cal_api_base, open_secret, reply, seal_secret, valid_secret, without_refresh};
+    use super::{cal_api_base, open_secret, reply, seal_secret, store_adopt, store_clear, store_read, store_write, valid_secret, without_refresh, BIN, LEGACY, MARK};
+
+    fn tmp_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("atrium-c177-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn bin_path_sealed_round_trip_and_clear() {
+        let d = tmp_dir("bin");
+        store_write(&d, "mockrefresh1xxxxxxxx").unwrap();
+        let raw = std::fs::read(d.join(BIN)).unwrap();
+        #[cfg(windows)]
+        assert!(!raw.windows(20).any(|w| w == b"mockrefresh1xxxxxxxx"), "DPAPI: .bin is not plaintext");
+        let _ = raw;
+        assert_eq!(store_read(&d).as_deref(), Some("mockrefresh1xxxxxxxx"));
+        store_clear(&d).unwrap();
+        assert!(!d.join(BIN).exists());
+        assert_eq!(store_read(&d), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn legacy_plaintext_file_is_sealed_then_removed() {
+        let d = tmp_dir("legacy");
+        std::fs::write(d.join(LEGACY), "oldhandle_123").unwrap();
+        assert_eq!(store_read(&d).as_deref(), Some("oldhandle_123"));
+        assert!(!d.join(LEGACY).exists(), "plaintext file removed");
+        assert!(d.join(BIN).exists(), "sealed .bin written");
+        assert_eq!(store_read(&d).as_deref(), Some("oldhandle_123"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn adopt_is_one_time_only() {
+        let d = tmp_dir("adopt");
+        store_adopt(&d, "legacy_sid_1").unwrap();
+        assert_eq!(store_read(&d).as_deref(), Some("legacy_sid_1"));
+        assert!(store_adopt(&d, "planted_2").is_err(), "second adopt refused");
+        store_clear(&d).unwrap();
+        assert!(d.join(MARK).exists(), "marker survives sign-out");
+        assert!(store_adopt(&d, "planted_3").is_err(), "refused after sign-out too");
+        let d2 = tmp_dir("adopt2");
+        store_write(&d2, "claimed_handle").unwrap();
+        store_clear(&d2).unwrap();
+        assert!(store_adopt(&d2, "planted_4").is_err(), "refused once a claim ever happened");
+        let d3 = tmp_dir("adopt3");
+        std::fs::write(d3.join(LEGACY), "x_1").unwrap();
+        assert!(store_adopt(&d3, "planted_5").is_err(), "refused when a legacy file exists");
+        for x in [d, d2, d3] {
+            let _ = std::fs::remove_dir_all(&x);
+        }
+    }
 
     #[test]
     fn refresh_never_returned_to_js() {
