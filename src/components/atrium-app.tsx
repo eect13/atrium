@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Component, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { markQuoteLaunch } from "@/lib/quotes";
+import { browserKV, dropOldQuoteCaches } from "@/lib/quote-cache";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { AtriumBadge } from "@/components/atrium-mark";
@@ -296,7 +297,10 @@ function RailFoot({
 
 export function AtriumApp() {
   // Main window only (floats render FloatShell): new launch → new session quote, shared with floats.
-  useState(() => markQuoteLaunch());
+  useState(() => {
+    markQuoteLaunch();
+    dropOldQuoteCaches(browserKV() as Storage | undefined);
+  });
   const {
     view,
     setView,

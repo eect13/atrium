@@ -244,3 +244,30 @@ test("Card 154 N10: web (server fn, Node fetch) names undici; Tauri keeps reqwes
   assert.equal(web["Api-User-Agent"], web["User-Agent"]);
   assert.match(wqHeaders(WQ_LIB.tauri)["User-Agent"]!, / reqwest\/0\.12$/);
 });
+
+test("Card 165: citation lines that name a reporter or source are not authors (Quoted by Legge)", () => {
+  assert.equal(authorFromCite("Quoted by Legge, B., ''Trial of Mary Blandy'' (1752), 18 How. St. Tr. 1188."), "");
+  assert.equal(authorFromCite("As quoted in ''Some Book'' (1990), p. 3"), "");
+  assert.equal(authorFromCite("First attestation: John Thomas (football coach); quoted September 15, 1953"), "");
+  assert.equal(authorFromCite("Reported in Josiah Hotchkiss Gilbert, ''Dictionary of Burning Words''"), "");
+  assert.equal(authorFromCite("Attributed to Mark Twain"), "");
+  // Real authors still pass, linked or plain.
+  assert.equal(authorFromCite("[[Charles Bowen, Baron Bowen|Bowen]], L.J., ''Angus v. Clifford'' (1891)"), "Bowen");
+  assert.equal(authorFromCite("Sir William Grant, M.R., ''Burrowes v. Lock'' (1805), 10 Ves. Jr. 476."), "Sir William Grant");
+  assert.equal(authorFromCite("Lord [[John Romilly, 1st Baron Romilly|Romilly]], M.B., ''In Re Ward'' (1862)"), "Lord Romilly");
+  assert.equal(authorFromCite("[[Hugh Blair]], reported in Josiah Hotchkiss Gilbert (1895)"), "Hugh Blair");
+  const page = [
+    "* Kindness is the beginning of wisdom in every age and every place.",
+    "** [[Hugh Blair]], reported in Gilbert (1895), p. 420.",
+    "* He revealeth the deep and secret things, he knoweth what is in the darkness.",
+    "** Quoted by Legge, B., ''Trial of Mary Blandy'' (1752), 18 How. St. Tr. 1188.",
+    "* Courage is resistance to fear and mastery of fear, not absence of fear.",
+    "** [[Mark Twain]], ''Pudd'nhead Wilson'' (1894).",
+    "* The secret of change is to focus all of your energy on building the new.",
+    "** [[Dan Millman]], ''Way of the Peaceful Warrior'' (1980).",
+  ].join("\n");
+  const q = parseQuotePage(page, "Motivation", "theme");
+  assert.ok(!q.some((x) => /revealeth/.test(x.text)), "court-report quote dropped, not credited to Legge");
+  assert.ok(!q.some((x) => /Legge/.test(x.author)));
+  assert.ok(q.some((x) => x.author === "Hugh Blair"));
+});

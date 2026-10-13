@@ -11,9 +11,9 @@ const row = (text: string, author = "A") => ({ text, author, href: "https://en.w
 const DAY = 24 * 60 * 60_000;
 
 test("cache key: one entry per kind + normalized key", () => {
-  assert.equal(quoteCacheKey("author", "  Séneca the Younger "), "atrium.quotes.v1:author:seneca-the-younger");
-  assert.equal(quoteCacheKey("topic", "wisdom"), "atrium.quotes.v1:topic:wisdom");
-  assert.equal(quoteCacheKey("daily", "2026-10-06"), "atrium.quotes.v1:daily:2026-10-06");
+  assert.equal(quoteCacheKey("author", "  Séneca the Younger "), "atrium.quotes.v2:author:seneca-the-younger");
+  assert.equal(quoteCacheKey("topic", "wisdom"), "atrium.quotes.v2:topic:wisdom");
+  assert.equal(quoteCacheKey("daily", "2026-10-06"), "atrium.quotes.v2:daily:2026-10-06");
 });
 
 test("writeEntry refuses an empty result; readEntry survives a new session (same storage)", () => {
@@ -137,7 +137,7 @@ test("desk: an empty Wikiquote answer after a good one keeps the cached quotes (
   const r = await loadDeskQuotes({ mode: "popular", topic: "love", force: true }, empty.deps);
   assert.equal(r.state, "stale");
   assert.equal(r.quotes[0]?.text, "Love is patient, love is kind, they say.");
-  assert.ok(kv.data.has("atrium.quotes.v1:topic:love"));
+  assert.ok(kv.data.has("atrium.quotes.v2:topic:love"));
 });
 
 test("Card 147: All adds one rotating live topic per day (stable within the day), built-ins on failure", async () => {
@@ -185,4 +185,12 @@ test("Card 147 N3: footer reason — filtered vs failed vs offline", async () =>
   assert.equal(quoteNoteReason(none, false), "offline");
   const live = await loadDeskQuotes({ mode: "popular" }, d.deps);
   assert.equal(quoteNoteReason(live), "live");
+});
+
+test("Card 165: v1 quote caches (pre-attribution-fix) are dropped, v2 kept", async () => {
+  const { dropOldQuoteCaches } = await import("./quote-cache.ts");
+  const m = new Map<string, string>([["atrium.quotes.v1:topic:motivation", "x"], ["atrium.quotes.v2:topic:love", "y"], ["atrium.v1", "z"]]);
+  const store = { get length() { return m.size; }, key: (i: number) => [...m.keys()][i] ?? null, removeItem: (k: string) => void m.delete(k) };
+  assert.equal(dropOldQuoteCaches(store), 1);
+  assert.deepEqual([...m.keys()].sort(), ["atrium.quotes.v2:topic:love", "atrium.v1"]);
 });

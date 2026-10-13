@@ -124,11 +124,21 @@ export function pageAuthor(title: string) {
   return title.replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
 
-/** Theme-page citation line → author ("[[Horace]], Odes" → Horace). */
+/**
+ * Citation heads that name a reporter, a source or a status, never the speaker
+ * ("Quoted by Legge, B., Trial of Mary Blandy" is a court report quoting Daniel 2:22).
+ * Such lines give no author, so the quote is skipped rather than mis-attributed.
+ */
+const NOT_AUTHOR_HEAD =
+  /^(?:as\s+)?(?:quoted|cited|reported|recorded|related|translated|attributed|paraphrased|adapted|variant|variously|first\s+attestation|source|ibid|anonymous|unknown|unsourced|disputed|misattributed|original|context|note|from|in|see|also)\b/i;
+
+/** Theme-page citation line → author ("[[Horace]], Odes" → Horace). "" when the line names no author. */
 export function authorFromCite(cite: string) {
+  const plain = cleanWikitext(cite).trim();
+  if (NOT_AUTHOR_HEAD.test(plain)) return "";
   const link = /^\s*(?:''+)?\[\[(?!File:|Image:)([^|\]]+)(?:\|([^\]]+))?\]\]/i.exec(cite);
   if (link) return cleanWikitext(link[2] ?? link[1]!).replace(/^w:/i, "");
-  const head = cleanWikitext(cite).split(/[,(;]/)[0]?.trim() ?? "";
+  const head = plain.split(/[,(;]/)[0]?.trim() ?? "";
   const words = head.split(/\s+/).length;
   return head.length >= 2 && head.length <= 60 && words <= 5 && !/\d{3,}/.test(head) ? head : "";
 }

@@ -1,7 +1,8 @@
 /** Persistent per-view quote cache (survives reloads). Pure: storage and clock are injected. */
 
 export const QUOTE_TTL_MS = 7 * 24 * 60 * 60_000;
-const PREFIX = "atrium.quotes.v1";
+// v2 (Card 165): drops caches built before the citation fix ("— Quoted by Legge").
+const PREFIX = "atrium.quotes.v2";
 
 export type QuoteRow = { text: string; author: string; href: string; source: string };
 export type CacheEntry<T extends QuoteRow = QuoteRow> = { quotes: T[]; fetchedAt: number; title?: string };
@@ -88,4 +89,16 @@ export function browserKV(): KV | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Remove caches from older key versions (v1 held pre-fix attributions). Returns how many were removed. */
+export function dropOldQuoteCaches(store: Pick<Storage, "length" | "key" | "removeItem"> | undefined): number {
+  if (!store) return 0;
+  const old: string[] = [];
+  for (let i = 0; i < store.length; i += 1) {
+    const k = store.key(i);
+    if (k && k.startsWith("atrium.quotes.") && !k.startsWith(`${PREFIX}:`)) old.push(k);
+  }
+  for (const k of old) store.removeItem(k);
+  return old.length;
 }
