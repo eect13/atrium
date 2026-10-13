@@ -802,8 +802,8 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Atrium stays on this device. Add calendars by exporting an .ics or pasting a public iCal URL on
-            the Calendar screen — works with Fantastical, Outlook, Apple, and other apps that speak iCal.
+            Atrium stays on this device. Add calendars by importing an .ics file or pasting a private secret
+            address (.ics) under Calendar › Accounts. Works with Fantastical, Outlook, Apple, and other apps that speak iCal.
             Connected calendar accounts can also sync when signed in on this session.
           </p>
           <p>

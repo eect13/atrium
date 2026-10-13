@@ -60,7 +60,7 @@ export function CalendarToolbar({
           type="button"
           aria-pressed={mode === m}
           onClick={() => onMode(m)}
-          className={cn("min-h-10 rounded-[10px] px-3 text-sm capitalize", full && "flex-1", mode === m ? "bg-card text-foreground shadow-[var(--shadow-border)]" : "text-muted-foreground hover:text-foreground", FOCUS)}
+          className={cn("min-h-11 rounded-[10px] px-3 text-sm capitalize", full && "flex-1", mode === m ? "bg-card text-foreground shadow-[var(--shadow-border)]" : "text-muted-foreground hover:text-foreground", FOCUS)}
         >
           {m}
         </button>

@@ -1,4 +1,4 @@
-/** ICS file / public iCal URL: read-only by design (Card 163). */
+/** ICS file / secret iCal address: read-only by design (Card 163). */
 import type { CalendarEvent } from "../types.ts";
 import { READ_ONLY, ReadOnlyCalendarError, type CalendarMeta, type CalendarSource, type ListEventsResult } from "./source.ts";
 

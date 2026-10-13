@@ -1,7 +1,7 @@
 /**
  * Calendar sources (Card 163 §1). One small interface for every place events come from:
  *   - "google": read + write through the Atrium server (tokens never reach the device)
- *   - "ics":    read-only (an imported .ics file or a public iCal URL)
+ *   - "ics":    read-only (an imported .ics file or a secret iCal address)
  *   - "local":  read + write in the desk store
  * Client-safe: no secrets, no server imports.
  */
