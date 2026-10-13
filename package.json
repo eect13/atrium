@@ -29,7 +29,8 @@
     "deploy:android": "node scripts/pack-android.mjs",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "e2e:calendar": "node --experimental-strip-types --no-warnings scripts/e2e-calendar-mock.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
