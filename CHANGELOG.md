@@ -2,6 +2,28 @@
 
 All notable changes to Atrium. Versions match `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `src/lib/version.ts`.
 
+## Unreleased — Card 165 (branch `c165/atrium-cal-topic-sync`, not packed)
+
+### Calendar (Cards 161, 162, 164)
+- Month grid: the row owns the height and the card fills it (U1); phone rows use 8px bar slots with 2 bars + "+N" on overflow (U2); singles fill the first free slot of their own cell, 28px date track, whole-cell day button (U6).
+- One CalendarToolbar (U3): desktop title · ‹ Today › · view switch · Import ICS · Export · Accounts · New event · Float; phone title + New event + ⋯ (Import ICS, Export, Calendar accounts…, Float), nav row, full-width switch.
+- Day view is a day agenda: all-day/span strip, timed rows with a mono time column, now line on today; no embedded month grid or second switch (U5). Widget selected-day bars get a 2px keyline (U4).
+- Calendar accounts sheet (Card 164) from the toolbar, the phone ⋯ menu and Options › Calendar: Google (sign in, connecting, connected, sync now, disconnect with confirm), Google calendar picker with Atrium-only colours and show/hide, Other calendars (iCal URL / ICS, read-only, refresh, remove with confirm, subscribe / import), sync banners (failed, expired, offline, read-only access).
+- Real Google two-way sync behind a `CalendarSource` interface: Google read + write, ICS / iCal read-only. Tokens stay on the server (refresh tokens sealed with AES-256-GCM in Postgres); the web app uses an httpOnly cookie, desktop signs in in the system browser and claims a one-time hand-off. Incremental sync tokens with a full re-sync on 410; writes use If-Match and queue locally when Google is unreachable.
+- Events from read-only calendars open view-only; New event offers only writable calendars, primary first.
+- Without the server settings the sheet says Google Calendar isn't set up and lists the missing setting names; nothing is faked. The old connector-gateway "Connect calendar" path is removed.
+
+### Widgets (Card 161 A)
+- Clock: 44px mono hero, a 24h day/night band per city with work hours (new `clockPrefs.workHours`, default 09:00–18:00, editable in the Clock tab), work/off/night status, a clock-change notice when one is ≤30 days away, optional shared work hours.
+- Calendar: + quick add into the New event dialog, Up next with a minute countdown, 08:00–20:00 free/busy strip with a text summary; an empty day reads "Free".
+- Clock and Calendar widgets get a ⋯ options menu (`dashPrefs.widgets`); helper text is off by default.
+
+### Topic Finder (Card 161 A)
+- Topic Finder replaces the Resource hub: stories grouped across sources and ranked by value with a why-this list; Following = Feed interests, Saved = the hub (same .md / PDF export), Dismissed kept 30 days with Undo and "Less like this".
+
+### Quotes
+- Citation lines that name a reporter or source ("Quoted by Legge") are no longer taken as the author; quote caches move to `atrium.quotes.v2` and the old ones are dropped once.
+
 ## 1.2.48 — 2026-10-12
 
 Covers Cards 134–154 on `c134/atrium-clock-tab` (since the 1.2.47 pack at `a76307a`).
