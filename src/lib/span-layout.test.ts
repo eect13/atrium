@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fromManila, inclusiveAllDayEnd, isAllDayEvent, isoDate, manilaAt, monthCells } from "./format.ts";
-import { PAGE_SPAN_CAP, WIDGET_SPAN_CAP, eventDayRange, isSpanEvent, layoutSpanRows, spanCellLabel, spanDayOf, spanRangeLabel, spanWhen } from "./span-layout.ts";
+import { PAGE_SPAN_CAP, PHONE_SPAN_CAP, WIDGET_SPAN_CAP, eventDayRange, isSpanEvent, layoutSpanRows, spanCellLabel, spanDayOf, spanRangeLabel, spanWhen } from "./span-layout.ts";
 
 type Ev = { id: string; title: string; start: string; end: string; allDay?: boolean };
 const allDay = (id: string, first: string, last: string, title = id): Ev => ({
@@ -190,4 +190,26 @@ test("Card 149 5c: range label adds the year only outside the desk year", () => 
   assert.match(spanRangeLabel(ev, manilaAt("2027-01-05", 12)), /2026/);
   const cross = allDay("ny", "2026-12-30", "2027-01-02");
   assert.match(spanRangeLabel(cross, manilaAt("2026-12-01", 12)), /2027/);
+});
+
+test("Card 165 U6: page singles fill the first free slot of their own cell", () => {
+  const days = ["2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"];
+  const span = { id: "s", title: "Trip", start: "2026-10-04T01:00:00.000Z", end: "2026-10-05T10:00:00.000Z" };
+  const lunch = { id: "a", title: "Lunch", start: "2026-10-08T04:00:00.000Z", end: "2026-10-08T05:00:00.000Z" };
+  const [row] = layoutSpanRows([span, lunch], [days], PAGE_SPAN_CAP);
+  assert.equal(row!.lanes, 1);
+  assert.deepEqual(row!.cells[4]!.slots, [0], "Thursday is free of the span, so Lunch takes slot 0");
+  assert.equal(row!.marks, 1);
+});
+
+test("Card 165 U2: phone cap shows 2 bars + '+N' on overflow", () => {
+  const day = "2026-10-08";
+  const mk = (i: number) => ({ id: `e${i}`, title: `E${i}`, start: `${day}T0${i}:00:00.000Z`, end: `${day}T0${i}:30:00.000Z` });
+  const [row] = layoutSpanRows([mk(1), mk(2), mk(3), mk(4)], [[day]], PHONE_SPAN_CAP);
+  assert.equal(row!.cells[0]!.shown.length, 2);
+  assert.equal(row!.cells[0]!.more, 2);
+  assert.equal(row!.marks, 3);
+  const [fit] = layoutSpanRows([mk(1), mk(2), mk(3)], [[day]], PHONE_SPAN_CAP);
+  assert.equal(fit!.cells[0]!.shown.length, 3);
+  assert.equal(fit!.cells[0]!.more, 0);
 });

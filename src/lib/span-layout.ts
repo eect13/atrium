@@ -7,7 +7,7 @@
  * squared ends), the row's visible lane count, and per-day marks (singles shown
  * under the lanes + a "+N" overflow count) under a cap the caller picks.
  */
-import { dayLabel, deskZone, fmtWhen, isoDate, manilaAt, manilaParts } from "./format.ts";
+import { dayLabel, deskZone, eventCoversDay, fmtWhen, isAllDayEvent, isoDate, manilaAt, manilaParts } from "./format.ts";
 
 export type SpanEvent = { id: string; title: string; start: string; end: string };
 
@@ -48,6 +48,10 @@ export type DayMarks<E> = {
   shown: E[];
   /** Hidden singles + spans in lanes past the cap. */
   more: number;
+  /** Mark slot (0-based, under the date track) of each shown single. Packed per cell when the cap asks. */
+  slots: number[];
+  /** Phone (packed + "+N" takes a slot): where "+N" sits. */
+  moreSlot?: number;
 };
 
 export type SpanRow<E> = {
@@ -56,6 +60,8 @@ export type SpanRow<E> = {
   segs: SpanSegment<E>[];
   /** Visible lane count `L` shared by every day of the row. */
   lanes: number;
+  /** Mark tracks the row needs: highest used slot + 1 over all cells (lanes and singles). */
+  marks: number;
   cells: DayMarks<E>[];
 };
 
@@ -66,12 +72,19 @@ export type SpanCap = {
   maxLanes: number;
   /** True when "+N" takes one of the mark rows (widget bars); false when it sits in its own row (page). */
   moreTakesRow: boolean;
+  /**
+   * Card 161 U6: singles fill the first free slot of their own cell (a lane is only "taken"
+   * in the columns its span covers). Off: singles start under the row's lanes (widget).
+   */
+  packCells?: boolean;
 };
 
 /** Widget: 3 rows total, ≤2 span lanes, "+N" replaces the last bar. */
 export const WIDGET_SPAN_CAP: SpanCap = { rows: 3, maxLanes: 2, moreTakesRow: true };
 /** Full Calendar: 3 mark rows (lanes + singles) plus a separate "+N more" row. */
-export const PAGE_SPAN_CAP: SpanCap = { rows: 3, maxLanes: 3, moreTakesRow: false };
+export const PAGE_SPAN_CAP: SpanCap = { rows: 3, maxLanes: 3, moreTakesRow: false, packCells: true };
+/** Full Calendar on a phone (Card 161 U2): 3 bar slots; overflow shows 2 bars + "+N". */
+export const PHONE_SPAN_CAP: SpanCap = { rows: 3, maxLanes: 3, moreTakesRow: true, packCells: true };
 /** No cap (full Calendar week: every lane and every single is listed). */
 export const UNCAPPED_SPAN: SpanCap = { rows: Number.POSITIVE_INFINITY, maxLanes: Number.POSITIVE_INFINITY, moreTakesRow: false };
 
@@ -116,6 +129,7 @@ export function layoutSpanRows<E extends SpanEvent>(events: readonly E[], rows: 
     }
     const lanes = Math.min(laneEnd.length, cap.maxLanes);
     const room = Math.max(0, cap.rows - lanes);
+    let marks = lanes;
     const cells = days.map((key, col): DayMarks<E> => {
       const here = segs.filter((s) => s.c0 <= col && s.c1 >= col).sort((a, b) => a.lane - b.lane);
       const hidden = here.filter((s) => s.lane >= cap.maxLanes).length;
@@ -124,11 +138,31 @@ export function layoutSpanRows<E extends SpanEvent>(events: readonly E[], rows: 
         .map((r) => r.e)
         .sort(byStart);
       let shown: E[];
-      if (cap.moreTakesRow) shown = own.length <= room && !hidden ? own : own.slice(0, Math.max(0, room - 1));
-      else shown = own.slice(0, room);
-      return { key, all: [...here.map((s) => s.e), ...own], singles: own, shown, more: own.length - shown.length + hidden };
+      let slots: number[];
+      let moreAt: number | undefined;
+      if (cap.packCells) {
+        const taken = new Set(here.filter((s) => s.lane < cap.maxLanes).map((s) => s.lane));
+        const free: number[] = [];
+        for (let i = 0; i < cap.rows && Number.isFinite(cap.rows); i += 1) if (!taken.has(i)) free.push(i);
+        if (!Number.isFinite(cap.rows)) for (let i = 0; free.length < own.length; i += 1) if (!taken.has(i)) free.push(i);
+        const fits = own.length <= free.length && !hidden;
+        const n = cap.moreTakesRow && !fits ? Math.max(0, free.length - 1) : Math.min(own.length, free.length);
+        shown = own.slice(0, n);
+        slots = free.slice(0, n);
+        const used = Math.max(-1, ...taken, ...slots) + 1;
+        const over = own.length - shown.length + hidden > 0;
+        // Phone: "+N" sits in the slot after the shown bars.
+        if (cap.moreTakesRow && over && free[n] != null) moreAt = free[n]!;
+        marks = Math.max(marks, used, moreAt == null ? 0 : moreAt + 1);
+      } else {
+        if (cap.moreTakesRow) shown = own.length <= room && !hidden ? own : own.slice(0, Math.max(0, room - 1));
+        else shown = own.slice(0, room);
+        slots = shown.map((_, i) => lanes + i);
+        marks = Math.max(marks, lanes + shown.length);
+      }
+      return { key, all: [...here.map((s) => s.e), ...own], singles: own, shown, more: own.length - shown.length + hidden, slots, ...(moreAt == null ? {} : { moreSlot: moreAt }) };
     });
-    return { days, segs: segs.filter((s) => s.lane < cap.maxLanes), lanes, cells };
+    return { days, segs: segs.filter((s) => s.lane < cap.maxLanes), lanes, marks, cells };
   });
 }
 
@@ -169,3 +203,12 @@ export function spanCellLabel(d: Date, all: readonly { title: string }[]) {
   const base = dayLabel(d, all.length);
   return all.length ? `${base}: ${all.map((e) => e.title).join(", ")}` : base;
 }
+
+/** Split one desk day into the all-day / span strip and timed rows (start order). */
+export function dayParts<E extends SpanEvent & { allDay?: boolean }>(events: readonly E[], key: string) {
+  const here = events.filter((e) => eventCoversDay(e, key));
+  const strip = here.filter((e) => isAllDayEvent(e) || isSpanEvent(e)).sort((a, b) => a.start.localeCompare(b.start));
+  const timed = here.filter((e) => !strip.includes(e)).sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+  return { strip, timed };
+}
+

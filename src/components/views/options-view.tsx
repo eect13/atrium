@@ -1,5 +1,6 @@
 "use client";
 
+import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
 import { APP_LABEL } from "@/lib/version";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -56,6 +57,7 @@ const JUMP = [
   { id: "opt-modules", label: "Modules" },
   { id: "opt-markets", label: "Markets" },
   { id: "opt-news", label: "Feed" },
+  { id: "opt-calendar", label: "Calendar" },
   { id: "opt-clocks", label: "Clocks" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
@@ -63,6 +65,30 @@ const JUMP = [
   { id: "opt-data", label: "Data" },
 ];
 
+
+/** Options › Calendar › Calendar accounts (Card 164): opens the same sheet as the Calendar toolbar. */
+function CalendarOptionsCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card id="opt-calendar" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle>Calendar</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex min-h-11 items-center justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Calendar accounts</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Google, iCal URLs and imported ICS files.</span>
+          </span>
+          <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
+            Open
+          </Button>
+        </div>
+        <CalendarAccountsSheet open={open} onOpenChange={setOpen} />
+      </CardContent>
+    </Card>
+  );
+}
 
 function WorldClocksCard() {
   const setView = useAtrium((s) => s.setView);
@@ -676,6 +702,8 @@ export function OptionsView() {
           </CardContent>
         </Card>
       ) : null}
+
+      <CalendarOptionsCard />
 
       <Card id="opt-profile" className="scroll-mt-4">
         <CardHeader>

@@ -106,6 +106,12 @@ export type CalendarEvent = {
   allDay?: boolean;
   /** Google calendar id when source is google — used to hide Family / other. */
   calId?: string;
+  /** Google event id (the series master for a rule). Card 165 two-way sync. */
+  remoteId?: string;
+  /** Google etag, sent as If-Match so a stale write never overwrites a newer copy. */
+  etag?: string;
+  /** Which "Other calendars" source (ICS file / iCal URL) an ics event came from. */
+  srcId?: string;
   /** Stored rule. Occurrences are painted for the visible range, not saved. */
   repeat?: "daily" | "weekly" | "monthly" | "yearly";
   repeatInterval?: number;
@@ -129,6 +135,11 @@ export type GCalDesk = {
   id: string;
   label: string;
   lane: "mine" | "family" | "other";
+  /** Google accessRole; owner/writer are two-way, the rest view-only (Card 164). */
+  accessRole?: string;
+  primary?: boolean;
+  /** Atrium-only colour (CAT_PALETTE id); never written to Google. */
+  colour?: string;
 };
 
 export type NoteStroke = { color: string; w: number; pts: number[] };

@@ -148,12 +148,12 @@ function DayBars({ shown, more, on, cats }: { shown: CalendarEvent[]; more: numb
       {shown.map((e) => (
         <span
           key={e.id}
-          className={cn("block h-1.5 rounded-full", on && "shadow-[0_0_0_1px_var(--color-primary-foreground)]")}
+          className={cn("block rounded-full", on ? "h-2 shadow-[0_0_0_2px_var(--color-primary-foreground)]" : "h-1.5")}
           style={barStyle(cats, e)}
         />
       ))}
       {more ? (
-        <span className={cn("text-center text-[0.625rem] leading-none tabular-nums", on ? "text-primary-foreground" : "text-muted-foreground")}>
+        <span className={cn("text-center leading-none tabular-nums", on ? "text-[11px] font-semibold text-primary-foreground" : "text-[0.625rem] text-muted-foreground")}>
           +{more}
         </span>
       ) : null}
