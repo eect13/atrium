@@ -363,7 +363,7 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           {prefs.interests.length ? (
             <ul ref={list} aria-label="Followed topics, in order">
               {prefs.interests.map((i, n) => (
-                <TopicRow key={i} label={i} index={n} count={prefs.interests.length} onMove={(d) => move(i, d)} onRename={(to) => rename(i, to)} onUnfollow={() => unfollowWithUndo({ update: updateFeed, label: i, index: n, list: list.current, fallback: () => document.getElementById("feed-follow-input"), announce: setSaid })} />
+                <TopicRow key={i} label={i} index={n} count={prefs.interests.length} onMove={(d) => move(i, d)} onRename={(to) => rename(i, to)} onUnfollow={() => unfollowWithUndo({ update: updateFeed, label: i, index: n, list: list.current, fallback: () => document.getElementById("feed-follow-input") })} />
               ))}
             </ul>
           ) : null}

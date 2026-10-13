@@ -76,15 +76,17 @@ import { useFloatsAllowed } from "@/lib/use-platform";
 import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
 import { cn } from "@/lib/utils";
+import { markCrashedView } from "@/lib/view-crash";
 
 
-class ViewCrash extends Component<{ children: ReactNode }, { err: Error | null }> {
+class ViewCrash extends Component<{ children: ReactNode; view: string }, { err: Error | null }> {
   state: { err: Error | null } = { err: null };
   static getDerivedStateFromError(err: Error) {
     return { err };
   }
   componentDidCatch(err: Error, info: ErrorInfo) {
     console.error("Atrium view crashed", err, info.componentStack);
+    markCrashedView(this.props.view);
   }
   render() {
     if (this.state.err) {
@@ -345,6 +347,22 @@ export function AtriumApp() {
   // FORM-WCAG #2 (2.4.11): while keyboard focus is in main, the float layer drops under it.
   const [floatsUnder, setFloatsUnder] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Card 197: in the phone/tablet app, Android Back (history.back) closes the open drawer instead of exiting.
+  useEffect(() => {
+    if (floats || !menuOpen || typeof window === "undefined") return;
+    const prev = window.history.state as Record<string, unknown> | null;
+    window.history.pushState({ ...(prev ?? {}), atriumDrawer: true }, "");
+    let popped = false;
+    const onPop = () => {
+      popped = true;
+      setMenuOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (!popped && (window.history.state as { atriumDrawer?: boolean } | null)?.atriumDrawer) window.history.back();
+    };
+  }, [floats, menuOpen]);
   const [hit, setHit] = useState(-1);
   const [omniBox, setOmniBox] = useState<{ top: number; left: number; width: number } | null>(null);
   const omniWrap = useRef<HTMLDivElement>(null);
@@ -637,7 +655,7 @@ export function AtriumApp() {
       </Sheet>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-        <header className="relative z-50 shrink-0 border-b border-border bg-background pt-[env(safe-area-inset-top)]">
+        <header className={cn("relative z-50 shrink-0 border-b border-border bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]", floats ? "pt-[env(safe-area-inset-top)]" : "pt-[max(env(safe-area-inset-top),1.5rem)]")}>
           <h1 className="sr-only">Atrium dashboard</h1>
           <div className="flex h-14 items-center gap-2 px-3 md:gap-3 md:px-4">
             <Tooltip>
@@ -701,7 +719,7 @@ export function AtriumApp() {
                 </TooltipTrigger>
                 <TooltipContent>BDO · finance · note: buy rice · Lunch Friday 1pm</TooltipContent>
               </Tooltip>
-              <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded-sm border border-border bg-background px-1.5 font-mono text-[0.65rem] leading-5 text-muted-foreground md:inline">
+              <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded-sm border border-border bg-background px-1.5 font-mono text-[0.65rem] leading-5 text-muted-foreground md:pointer-fine:inline">
                 {modHint}
               </kbd>
               {cmd.trim() && hits.length && omniBox ? (
@@ -770,7 +788,7 @@ export function AtriumApp() {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFloatsUnder(false);
           }}
         >
-          <ViewCrash>
+          <ViewCrash key={view} view={view}>
           {view === "dashboard" && (
             <Suspense fallback={<ViewFallback />}>
               <DashboardView headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />

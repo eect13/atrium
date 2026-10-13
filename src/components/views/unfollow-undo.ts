@@ -6,7 +6,7 @@ type Update = (fn: (p: FeedPrefs) => FeedPrefs) => void;
 /**
  * Form 194 G6: unfollow at once → toast "Unfollowed {topic}" · Undo (re-inserted at its old position).
  * Focus: the next row's ×, else the previous row's ×, else `fallback()` (the Follow field).
- * Undo returns focus to the restored row's ×. `announce` feeds a polite live region.
+ * Undo returns focus to the restored row's ×. The toast itself is the (single) live announcement.
  */
 export function unfollowWithUndo({
   update,
@@ -14,18 +14,16 @@ export function unfollowWithUndo({
   index,
   list,
   fallback,
-  announce,
 }: {
   update: Update;
   label: string;
   index: number;
   list: HTMLElement | null;
   fallback: () => HTMLElement | null;
-  announce?: (msg: string) => void;
 }) {
   const xs = () => [...(list?.querySelectorAll<HTMLElement>('button[aria-label^="Unfollow "]') ?? [])];
   update((p) => withoutInterest(p, label));
-  announce?.(`Unfollowed ${label}`);
+  // Card 197: the toast (Sonner's own polite live region) is the one announcement; no second region.
   requestAnimationFrame(() => {
     const left = xs();
     (left[index] ?? left[index - 1] ?? fallback())?.focus();

@@ -13,7 +13,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 }
 
 export type DeviceAccess = { access: string; accessExp: number };
-type Reply = { status: number; body: { access?: string; accessExp?: number; error?: string; message?: string } | null };
+type Reply = { status: number; sealWarning?: string; body: { access?: string; accessExp?: number; error?: string; message?: string } | null };
 
 export function unwrapReply(r: Reply): DeviceAccess {
   if (r.status === 200 && typeof r.body?.access === "string" && typeof r.body.accessExp === "number") return { access: r.body.access, accessExp: r.body.accessExp };
@@ -27,7 +27,17 @@ async function call(cmd: string, args?: Record<string, unknown>): Promise<Device
   } catch (e) {
     throw new CalendarApiError(0, "offline", e instanceof Error ? e.message : String(e));
   }
+  if (r.sealWarning) warnSeal();
   return unwrapReply(r);
+}
+
+/** Card 197: the device couldn't re-seal an old session file. Calendar keeps working; say so once, without blocking. */
+const SEAL_WARNING = "Couldn't secure the saved calendar sign-in on this device. Calendar still works; Atrium will try again next time.";
+let sealWarned = false;
+function warnSeal() {
+  if (sealWarned) return;
+  sealWarned = true;
+  void import("sonner").then(({ toast }) => toast.error(SEAL_WARNING)).catch(() => undefined);
 }
 
 /** Hand-off step 4 done in Rust: the refresh handle is stored there, JS gets the access handle. */

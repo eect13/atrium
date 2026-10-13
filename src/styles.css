@@ -410,3 +410,10 @@ html.light {
   animation-duration: 220ms;
   animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
+
+/* Card 197: toast action/cancel buttons (e.g. "Undo") meet the 44px touch target. */
+[data-sonner-toast] [data-button] {
+  min-height: 44px;
+  min-width: 44px;
+  padding-inline: 0.75rem;
+}

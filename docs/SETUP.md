@@ -64,3 +64,13 @@ cargo test --lib
 ```
 
 On Windows this runs the DPAPI seal/unseal round trip; on other systems the same tests run against the plain-file fallback.
+
+## Android builds on Windows (Card 197)
+
+`tauri android build` links the compiled Rust library (`.so`) into `src-tauri/gen/android/app/src/main/jniLibs/` with a **symlink**. On Windows, creating symlinks needs **Developer Mode** (Settings → System → For developers → Developer Mode: On) or an elevated shell. Without it, the Rust step compiles and then fails while creating the link, and Gradle never packages the library.
+
+- Turn Developer Mode on once, open a new terminal, and rebuild.
+- Workaround if you can't: copy the `.so` from `src-tauri/target/<triple>/debug|release/` into the matching `jniLibs/<abi>/` folder, then run `gradlew assemble<Abi>Debug` in `src-tauri/gen/android`.
+- macOS and Linux need nothing extra.
+
+Calendar on Android needs Android System WebView 117+ before Card 197; from Card 197 the app targets Chrome/WebView 110 (TypeScript `lib` is ES2023, so newer built-ins such as `Object.groupBy` fail typecheck; use `src/lib/group-by.ts`).

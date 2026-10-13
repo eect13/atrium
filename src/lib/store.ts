@@ -44,6 +44,7 @@ import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreen
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { normalizeCalViews, type CalView } from "./cal-view";
 import { asNewsTag, keepNewsChip } from "./headline";
+import { safeLaunchView } from "./view-crash";
 import { DEFAULT_FEED_PREFS, HUB_TOPIC_KEEP_KEY, backfillHubTopics, hubTopicSnapshot, normalizeFeedPrefs, readHubTopicKeep, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { normalizeDashPrefs, type DashPrefs, type WidgetOpts } from "./widget-prefs";
@@ -1312,7 +1313,7 @@ export const useAtrium = create<State>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
-        const view = toViewId((persisted as { view?: unknown } | null)?.view, current.view);
+        const view = safeLaunchView(toViewId((persisted as { view?: unknown } | null)?.view, current.view), "dashboard");
         const demo = demoBooks(p.profile?.name ?? current.profile.name);
         const accounts = (p.accounts ?? current.accounts)
           .map((a, i) => normalizeAccount(a, i))

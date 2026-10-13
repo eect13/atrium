@@ -1,3 +1,4 @@
+import { groupBy } from "./group-by";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { isoDate, manilaParts, deskZone } from "./format";
@@ -207,7 +208,7 @@ function fromMetSeries(series: MetRow[]): WeatherPayload | null {
     ),
   };
 
-  const byDay = Object.groupBy(series, (row) => isoDate(new Date(row.time)));
+  const byDay = groupBy(series, (row) => isoDate(new Date(row.time)));
   const days = Object.keys(byDay).toSorted().slice(0, 7);
   const daily = {
     time: days,

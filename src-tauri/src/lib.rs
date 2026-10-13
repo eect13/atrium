@@ -484,7 +484,14 @@ const BIN: &str = "calendar-session.bin";
 const LEGACY: &str = "calendar-session.secret";
 const MARK: &str = "calendar-session.used";
 
+#[cfg(test)]
 fn store_read(dir: &std::path::Path, s: &dyn Sealer) -> Option<String> {
+    store_read_noting(dir, s, &mut None)
+}
+
+/// store_read, but a failed re-seal of an unsealed/legacy handle is reported in `warn` (Card 197)
+/// instead of being swallowed. The handle is still returned; the next read retries the seal.
+fn store_read_noting(dir: &std::path::Path, s: &dyn Sealer, warn: &mut Option<String>) -> Option<String> {
     if let Ok(b) = std::fs::read(dir.join(BIN)) {
         if s.is_sealed(&b) {
             return s.open(&b).and_then(|v| String::from_utf8(v).ok()).map(|v| v.trim().to_string()).filter(|v| valid_secret(v));
@@ -494,7 +501,9 @@ fn store_read(dir: &std::path::Path, s: &dyn Sealer) -> Option<String> {
         if !valid_secret(&v) {
             return None;
         }
-        let _ = store_write(dir, &v, s);
+        if let Err(e) = store_write(dir, &v, s) {
+            *warn = Some(e);
+        }
         return Some(v);
     }
     let old = dir.join(LEGACY);
@@ -502,8 +511,11 @@ fn store_read(dir: &std::path::Path, s: &dyn Sealer) -> Option<String> {
     if !valid_secret(&v) {
         return None;
     }
-    if store_write(dir, &v, s).is_ok() {
-        let _ = std::fs::remove_file(&old);
+    match store_write(dir, &v, s) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&old);
+        }
+        Err(e) => *warn = Some(e),
     }
     Some(v)
 }
@@ -546,8 +558,16 @@ fn store_adopt(dir: &std::path::Path, v: &str, s: &dyn Sealer) -> Result<(), Str
     store_write(dir, v, s)
 }
 
-fn cal_read(app: &tauri::AppHandle) -> Option<String> {
-    store_read(&cal_dir(app).ok()?, sealer(app).as_ref())
+fn cal_read(app: &tauri::AppHandle) -> (Option<String>, Option<String>) {
+    let mut warn = None;
+    let v = cal_dir(app).ok().and_then(|d| store_read_noting(&d, sealer(app).as_ref(), &mut warn));
+    (v, warn)
+}
+
+/// Card 197: store I/O can wait on the Android Keystore (activity thread, ≤5 s), so it runs on the
+/// blocking pool, never on an async worker.
+async fn off_worker<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
 
 fn cal_write(app: &tauri::AppHandle, v: &str) -> Result<(), String> {
@@ -600,19 +620,25 @@ async fn cal_session_claim(app: tauri::AppHandle, hid: String, verifier: String,
         return Err("invalid value".into());
     }
     let (status, body) = cal_post("/handoff/claim", serde_json::json!({ "hid": hid, "verifier": verifier, "code": code })).await?;
-    keep_pair(&app, status, body)
+    off_worker(move || keep_pair(&app, status, body)).await?
 }
 
 #[tauri::command]
 async fn cal_session_refresh(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let Some(refresh) = cal_read(&app) else {
+    let a = app.clone();
+    let (refresh, warn) = off_worker(move || cal_read(&a)).await?;
+    let Some(refresh) = refresh else {
         return Ok(reply(401, serde_json::json!({ "error": "disconnected" })));
     };
     let (status, body) = cal_post("/session/refresh", serde_json::json!({ "refresh": refresh })).await?;
     if status == 401 {
         cal_clear_files(&app)?;
     }
-    keep_pair(&app, status, body)
+    let mut out = off_worker(move || keep_pair(&app, status, body)).await??;
+    if let (Some(w), Some(o)) = (warn, out.as_object_mut()) {
+        o.insert("sealWarning".into(), serde_json::Value::String(w));
+    }
+    Ok(out)
 }
 
 /// One-time move of a Card 165-era handle that JS still had in localStorage. Write-only, and
@@ -620,7 +646,7 @@ async fn cal_session_refresh(app: tauri::AppHandle) -> Result<serde_json::Value,
 /// Async (Card 195): sealing on Android hops to the activity thread, so this must not run on it.
 #[tauri::command]
 async fn cal_session_adopt(app: tauri::AppHandle, value: String) -> Result<(), String> {
-    store_adopt(&cal_dir(&app)?, &value, sealer(&app).as_ref())
+    off_worker(move || store_adopt(&cal_dir(&app)?, &value, sealer(&app).as_ref())).await?
 }
 
 #[tauri::command]
@@ -630,7 +656,7 @@ fn cal_session_clear(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod secret_tests {
-    use super::{aks_pack, aks_unpack, cal_api_base, reply, store_adopt, store_clear, store_read, store_write, valid_secret, without_refresh, Plain, Sealer, AKS_MAGIC, BIN, LEGACY, MARK};
+    use super::{aks_pack, aks_unpack, cal_api_base, reply, store_adopt, store_clear, store_read, store_read_noting, store_write, valid_secret, without_refresh, Plain, Sealer, AKS_MAGIC, BIN, LEGACY, MARK};
 
     /// Platform sealer under test: DPAPI on Windows, plain elsewhere (Android's Keystore needs a device).
     fn host() -> Box<dyn Sealer> {
@@ -757,6 +783,30 @@ mod secret_tests {
         assert!(aks_pack(&iv, &[0u8; 8]).is_err());
         // The magic can never be a valid handle (starts with NUL), so old plain files are unambiguous.
         assert!(!valid_secret(std::str::from_utf8(AKS_MAGIC).unwrap()));
+    }
+
+    #[test]
+    fn failed_reseal_is_reported_not_swallowed() {
+        struct NoSeal;
+        impl Sealer for NoSeal {
+            fn seal(&self, _p: &[u8]) -> Result<Vec<u8>, String> {
+                Err("keystore timeout".into())
+            }
+            fn open(&self, _s: &[u8]) -> Option<Vec<u8>> {
+                None
+            }
+            fn is_sealed(&self, b: &[u8]) -> bool {
+                b.starts_with(AKS_MAGIC)
+            }
+        }
+        let d = tmp_dir("aks-noseal");
+        std::fs::write(d.join(BIN), b"android_plain_handle_1").unwrap();
+        let mut warn = None;
+        assert_eq!(store_read_noting(&d, &NoSeal, &mut warn).as_deref(), Some("android_plain_handle_1"), "still usable");
+        assert_eq!(warn.as_deref(), Some("keystore timeout"), "the failure is surfaced");
+        let mut ok = None;
+        assert!(store_read_noting(&d, &FakeKeystore, &mut ok).is_some() && ok.is_none(), "a later read retries and seals");
+        assert!(std::fs::read(d.join(BIN)).unwrap().starts_with(AKS_MAGIC));
     }
 
     #[test]

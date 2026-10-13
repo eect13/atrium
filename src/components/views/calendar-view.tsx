@@ -1,5 +1,6 @@
 "use client";
 
+import { groupBy } from "@/lib/group-by";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
@@ -446,7 +447,7 @@ export function CalendarView() {
   }, [shown, cursor]);
 
   const agendaMonth = isoMonth(cursor);
-  const agenda = Object.groupBy(
+  const agenda = groupBy(
     shown
       .flatMap((e) =>
         eventCoverDays(e)
