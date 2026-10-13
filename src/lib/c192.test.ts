@@ -128,8 +128,9 @@ test("Form 191: Other chip last and only with items; Saved Remove / + Add link; 
   assert.match(p, /\{ label: "Remove", destructive: true/);
   assert.match(p, /verb="Remove"\s+detail="It leaves Saved\. The story isn't deleted anywhere\."/);
   assert.match(p, /aria-label="Add a link to Saved"[^>]*>\s*\+ Add link/);
-  assert.match(p, /verb="Unfollow"\s+detail="Stories stay in Latest\."/);
-  assert.match(p, /toast\(`Unfollowed \$\{i\}`\)/);
+  // Card 195 (Form 194 G6) supersedes the Curate ConfirmRow: immediate Unfollow with Undo.
+  assert.match(p, /unfollowWithUndo\(/);
+  assert.match(src("components/views/unfollow-undo.ts"), /toast\(`Unfollowed \$\{label\}`/);
   const t = src("components/views/feed-topics.tsx");
   assert.match(t, /"Saved items that don't match a followed topic\."/);
   assert.match(t, /"Use ⋯ or Alt\+↑\/↓ to reorder\."/);

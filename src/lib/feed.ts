@@ -2,6 +2,7 @@
 
 import { tagStory } from "./headline.ts";
 import { isRelatedStory } from "./news.ts";
+import { looseHit } from "./topic-words.ts";
 
 /** An instrument an interest can resolve to (watch row or catalog entry). */
 export type StockRef = { id?: string; label: string; symbol: string; name?: string; kind: string };
@@ -211,6 +212,15 @@ export function normalizeFeedPrefs(raw: unknown): FeedPrefs {
   };
 }
 
+/** Form 194 G6 Undo: re-follow a topic at its old position (clamped); no-op if already followed. */
+export function withInterestAt(p: FeedPrefs, raw: string, index: number): FeedPrefs {
+  const label = cleanInterest(raw);
+  if (!label || p.interests.some((i) => i.toLowerCase() === label.toLowerCase()) || p.interests.length >= INTEREST_MAX) return p;
+  const interests = [...p.interests];
+  interests.splice(Math.max(0, Math.min(interests.length, index)), 0, label);
+  return { ...p, interests };
+}
+
 /** Move a followed topic by `delta` places (−1 up, +1 down); clamped. Order is the Topics order. */
 export function moveInterest(p: FeedPrefs, label: string, delta: number): FeedPrefs {
   const from = p.interests.findIndex((i) => i.toLowerCase() === label.toLowerCase());
@@ -250,12 +260,36 @@ export function topicFor(s: Story, p: Pick<FeedPrefs, "interests" | "interest">,
  * Versioned migration (v1): saved items with no topic get one by re-matching title + note against
  * the current followed topics, else HUB_TOPIC_OTHER. Items that already have a topic are untouched.
  */
-export function backfillHubTopics(p: FeedPrefs, stockOf?: StockOf): FeedPrefs {
+export function backfillHubTopics(p: FeedPrefs, stockOf?: StockOf, keep?: Record<string, string>): FeedPrefs {
   if (p.hubTopicV >= HUB_TOPIC_V) return p;
+  // Card 195 G5: after a data-version downgrade, prefer the side copy of labels over re-matching.
   const hub = p.hub.map((h) =>
-    h.topic ? h : { ...h, topic: topicFor({ title: h.title, link: h.url, desc: h.note }, { interests: p.interests, interest: FEED_ALL }, stockOf) },
+    h.topic ? h : keep && typeof keep[h.url] === "string" && keep[h.url] ? { ...h, topic: keep[h.url] } : { ...h, topic: topicFor({ title: h.title, link: h.url, desc: h.note }, { interests: p.interests, interest: FEED_ALL }, stockOf) },
   );
   return { ...p, hub, hubTopicV: HUB_TOPIC_V };
+}
+
+/** Card 195 G5: localStorage key for the downgrade-proof side copy of saved-item topics. */
+export const HUB_TOPIC_KEEP_KEY = "atrium.feed.hubTopics.v1";
+
+/** url → topic for every saved item that has one. */
+export function hubTopicSnapshot(p: Pick<FeedPrefs, "hub">): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const h of p.hub) if (h.topic) out[h.url] = h.topic;
+  return out;
+}
+
+export function readHubTopicKeep(raw: string | null): Record<string, string> | undefined {
+  if (!raw) return undefined;
+  try {
+    const o = JSON.parse(raw) as unknown;
+    if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(o)) if (typeof v === "string" && v) out[k] = v;
+    return out;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Saved filter chips: topics present, in Topics order, then any others A–Z, "Other" last. */
@@ -397,8 +431,10 @@ export function matchTopic(s: Story, topic: string, stockOf?: StockOf): TopicHit
   const whole = stockOf?.(k);
   if (whole) return isRelatedStory(s, whole) ? { term: k, field: "title" } : null;
   const terms = topicTerms(k);
-  const title = s.title.toLowerCase();
-  const summary = `${s.desc ?? ""} ${tagStory(s)} ${s.region ?? ""}`.toLowerCase();
+  const rawTitle = s.title;
+  const rawSummary = `${s.desc ?? ""} ${tagStory(s)} ${s.region ?? ""}`;
+  const title = rawTitle.toLowerCase();
+  const summary = rawSummary.toLowerCase();
   for (const pass of [termHit, allWordsHit]) {
     for (const t of terms) {
       const stock = terms.length > 1 ? stockOf?.(t) : null;
@@ -410,6 +446,15 @@ export function matchTopic(s: Story, topic: string, stockOf?: StockOf): TopicHit
       if (pass(title, low)) return { term: t, field: "title" };
       if (pass(summary, low)) return { term: t, field: "summary" };
     }
+  }
+  // Card 195 (Critic 193 G1): stems + place aliases ("PH economy" ≈ "Philippine economic growth").
+  // The term reported is what the story actually says, so the Why line names the real words.
+  for (const t of terms) {
+    if (terms.length > 1 && stockOf?.(t)) continue;
+    const inTitle = looseHit(rawTitle, t);
+    if (inTitle) return { term: inTitle, field: "title" };
+    const inSummary = looseHit(rawSummary, t);
+    if (inSummary) return { term: inSummary, field: "summary" };
   }
   return null;
 }

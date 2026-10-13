@@ -44,7 +44,7 @@ import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreen
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { normalizeCalViews, type CalView } from "./cal-view";
 import { asNewsTag, keepNewsChip } from "./headline";
-import { DEFAULT_FEED_PREFS, backfillHubTopics, normalizeFeedPrefs, type FeedPrefs } from "./feed";
+import { DEFAULT_FEED_PREFS, HUB_TOPIC_KEEP_KEY, backfillHubTopics, hubTopicSnapshot, normalizeFeedPrefs, readHubTopicKeep, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { normalizeDashPrefs, type DashPrefs, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
@@ -1265,7 +1265,8 @@ export const useAtrium = create<State>()(
         if (version < 35) {
           // Card 190 (Form 185 B4): file existing saved items under a followed topic (else "Other").
           const fp = (p as { feedPrefs?: unknown }).feedPrefs;
-          if (fp) p = { ...p, feedPrefs: backfillHubTopics(normalizeFeedPrefs(fp)) };
+          const keep = typeof localStorage !== "undefined" ? readHubTopicKeep(localStorage.getItem(HUB_TOPIC_KEEP_KEY)) : undefined;
+          if (fp) p = { ...p, feedPrefs: backfillHubTopics(normalizeFeedPrefs(fp), undefined, keep) };
         }
         return p as Data;
       },
@@ -1423,6 +1424,24 @@ export const useAtrium = create<State>()(
     },
   ),
 );
+
+// Card 195 G5: keep a side copy of saved-item topics outside the versioned blob, so an older build
+// that drops them (data-version downgrade) can't lose them; the v<35 backfill prefers this copy.
+if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+  let last = "";
+  const write = (s: State) => {
+    const next = JSON.stringify(hubTopicSnapshot(s.feedPrefs));
+    if (next === last) return;
+    last = next;
+    try {
+      localStorage.setItem(HUB_TOPIC_KEEP_KEY, next);
+    } catch {
+      /* quota / private mode: labels just fall back to re-matching */
+    }
+  };
+  useAtrium.subscribe(write);
+  write(useAtrium.getState());
+}
 
 function nextZ(s: { notes: StickyNote[]; windows: FloatWin[] }) {
   return Math.max(1, ...s.notes.map((n) => n.z), ...s.windows.map((w) => w.z)) + 1;

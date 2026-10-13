@@ -518,9 +518,6 @@ function channelTitle(xml: string) {
   return tag(channel.split(/<item[\s>]|<entry[\s>]/i)[0] ?? "", "title");
 }
 
-const FETCH_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
-
 async function pull(url: string) {
   const body = await httpText(url, clientHeaders());
   return { ok: true, status: 200, type: "application/xml", body, finalUrl: url };

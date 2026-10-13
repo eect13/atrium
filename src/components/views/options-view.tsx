@@ -36,8 +36,8 @@ import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
   { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Weather card, and city or ZIP pin." },
-  { id: "clock" as const, label: "Clock", blurb: "World clocks tab, Clock card, and floating clock." },
-  { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
+  { id: "clock" as const, label: "Clock", blurb: "World clocks tab, Clock card, and floating clock.", phone: "World clocks tab and Clock card." },
+  { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand.", phone: "Notes board. Pencil for freehand." },
   { id: "finance" as const, label: "Finance", blurb: "Watcher, tape, cash books, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
   { id: "news" as const, label: "Feed", blurb: "Your interests, daily digest, summary, stories, and Topics." },
@@ -577,7 +577,7 @@ export function OptionsView() {
                 <p id={`opt-module-${m.id}`} className="text-sm">
                   {m.label}
                 </p>
-                <p className="text-xs text-muted-foreground">{m.blurb}</p>
+                <p className="text-xs text-muted-foreground">{!floats && "phone" in m ? m.phone : m.blurb}</p>
               </div>
               <Switch
                 checked={modules[m.id]}

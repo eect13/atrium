@@ -99,5 +99,5 @@ test("migration v1: backfill saves with no topic by re-matching current topics, 
 test("migration wiring: store version 35 runs the backfill", () => {
   const src = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
   assert.match(src, /version: 35,/);
-  assert.match(src, /if \(version < 35\) \{[\s\S]*?backfillHubTopics\(normalizeFeedPrefs\(fp\)\)/);
+  assert.match(src, /if \(version < 35\) \{[\s\S]*?backfillHubTopics\(normalizeFeedPrefs\(fp\), undefined, keep\)/);
 });

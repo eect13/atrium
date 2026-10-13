@@ -269,21 +269,212 @@ mod dpapi {
     }
 }
 
+/// Card 195 (Critic 193 G2): how `calendar-session.bin` is sealed at rest, per platform.
+/// Windows: DPAPI. Android: AES-256-GCM with a non-exportable key in AndroidKeyStore.
+/// Other desktops: the 0600 file in the app's private dir (unchanged).
+trait Sealer {
+    fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String>;
+    fn open(&self, sealed: &[u8]) -> Option<Vec<u8>>;
+    /// False when the bytes predate this sealer (Android before Card 195 wrote plain bytes);
+    /// store_read then re-seals them in place.
+    fn is_sealed(&self, _b: &[u8]) -> bool {
+        true
+    }
+}
+
 #[cfg(windows)]
-fn seal_secret(v: &str) -> Result<Vec<u8>, String> {
-    dpapi::protect(v.as_bytes(), CAL_ENTROPY)
-}
+struct Dpapi;
 #[cfg(windows)]
-fn open_secret(b: &[u8]) -> Option<String> {
-    dpapi::unprotect(b, CAL_ENTROPY).ok().and_then(|v| String::from_utf8(v).ok())
+impl Sealer for Dpapi {
+    fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
+        dpapi::protect(plain, CAL_ENTROPY)
+    }
+    fn open(&self, b: &[u8]) -> Option<Vec<u8>> {
+        dpapi::unprotect(b, CAL_ENTROPY).ok()
+    }
 }
-#[cfg(not(windows))]
-fn seal_secret(v: &str) -> Result<Vec<u8>, String> {
-    Ok(v.as_bytes().to_vec())
+
+#[allow(dead_code)]
+struct Plain;
+impl Sealer for Plain {
+    fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
+        Ok(plain.to_vec())
+    }
+    fn open(&self, b: &[u8]) -> Option<Vec<u8>> {
+        Some(b.to_vec())
+    }
 }
-#[cfg(not(windows))]
-fn open_secret(b: &[u8]) -> Option<String> {
-    String::from_utf8(b.to_vec()).ok()
+
+/// Android at-rest format: MAGIC | iv_len (1 byte) | iv | ciphertext+tag. MAGIC starts with NUL,
+/// so it can never be a valid (alphanumeric) handle written by the old plain path.
+const AKS_MAGIC: &[u8] = b"\0AKS1";
+
+#[allow(dead_code)]
+fn aks_pack(iv: &[u8], ct: &[u8]) -> Result<Vec<u8>, String> {
+    if iv.is_empty() || iv.len() > 32 || ct.len() < 16 {
+        return Err("bad keystore output".into());
+    }
+    let mut out = Vec::with_capacity(AKS_MAGIC.len() + 1 + iv.len() + ct.len());
+    out.extend_from_slice(AKS_MAGIC);
+    out.push(iv.len() as u8);
+    out.extend_from_slice(iv);
+    out.extend_from_slice(ct);
+    Ok(out)
+}
+
+#[allow(dead_code)]
+fn aks_unpack(b: &[u8]) -> Option<(&[u8], &[u8])> {
+    let rest = b.strip_prefix(AKS_MAGIC)?;
+    let (&n, rest) = rest.split_first()?;
+    let n = n as usize;
+    if n == 0 || n > 32 || rest.len() < n + 16 {
+        return None;
+    }
+    Some(rest.split_at(n))
+}
+
+#[cfg(target_os = "android")]
+mod keystore {
+    //! AndroidKeyStore over JNI (Tauri 2 `with_webview` → wry `JniHandle::exec`, jni 0.21 already
+    //! in Cargo.lock via tauri). Key: AES-256, GCM/NoPadding, randomized IV, never leaves the TEE/keystore.
+    use super::{aks_pack, aks_unpack, Sealer};
+    use jni::objects::{JByteArray, JObject, JValue};
+    use jni::JNIEnv;
+    use std::time::Duration;
+    use tauri::Manager;
+
+    const ALIAS: &str = "atrium-calendar-session-v1";
+    const ENCRYPT: i32 = 1;
+    const DECRYPT: i32 = 2;
+    /// KeyProperties.PURPOSE_ENCRYPT | PURPOSE_DECRYPT
+    const PURPOSES: i32 = 3;
+
+    pub struct Keystore(pub tauri::AppHandle);
+
+    fn err(e: jni::errors::Error) -> String {
+        e.to_string()
+    }
+
+    /// Run on the activity's thread and wait (≤5 s). Callers are async commands, never the main thread.
+    fn run<T: Send + 'static>(app: &tauri::AppHandle, f: impl FnOnce(&mut JNIEnv) -> Result<T, String> + Send + 'static) -> Result<T, String> {
+        let win = app.get_webview_window("main").ok_or("no main window")?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        win.with_webview(move |wv| {
+            wv.jni_handle().exec(move |env, _activity, _webview| {
+                let r = f(env);
+                if env.exception_check().unwrap_or(false) {
+                    let _ = env.exception_clear();
+                }
+                let _ = tx.send(r);
+            });
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "keystore timeout".to_string())?
+    }
+
+    fn strings<'a>(env: &mut JNIEnv<'a>, v: &str) -> Result<JObject<'a>, String> {
+        let s = env.new_string(v).map_err(err)?;
+        Ok(env.new_object_array(1, "java/lang/String", &s).map_err(err)?.into())
+    }
+
+    fn key<'a>(env: &mut JNIEnv<'a>) -> Result<JObject<'a>, String> {
+        let provider = env.new_string("AndroidKeyStore").map_err(err)?;
+        let ks = env
+            .call_static_method("java/security/KeyStore", "getInstance", "(Ljava/lang/String;)Ljava/security/KeyStore;", &[JValue::Object(&provider)])
+            .and_then(|v| v.l())
+            .map_err(err)?;
+        env.call_method(&ks, "load", "(Ljava/security/KeyStore$LoadStoreParameter;)V", &[JValue::Object(&JObject::null())]).map_err(err)?;
+        let alias = env.new_string(ALIAS).map_err(err)?;
+        let has = env.call_method(&ks, "containsAlias", "(Ljava/lang/String;)Z", &[JValue::Object(&alias)]).and_then(|v| v.z()).map_err(err)?;
+        if !has {
+            let aes = env.new_string("AES").map_err(err)?;
+            let kg = env
+                .call_static_method("javax/crypto/KeyGenerator", "getInstance", "(Ljava/lang/String;Ljava/lang/String;)Ljavax/crypto/KeyGenerator;", &[JValue::Object(&aes), JValue::Object(&provider)])
+                .and_then(|v| v.l())
+                .map_err(err)?;
+            const B: &str = "android/security/keystore/KeyGenParameterSpec$Builder";
+            const RB: &str = "Landroid/security/keystore/KeyGenParameterSpec$Builder;";
+            let b = env.new_object(B, "(Ljava/lang/String;I)V", &[JValue::Object(&alias), JValue::Int(PURPOSES)]).map_err(err)?;
+            let gcm = strings(env, "GCM")?;
+            env.call_method(&b, "setBlockModes", &format!("([Ljava/lang/String;){RB}"), &[JValue::Object(&gcm)]).map_err(err)?;
+            let pad = strings(env, "NoPadding")?;
+            env.call_method(&b, "setEncryptionPaddings", &format!("([Ljava/lang/String;){RB}"), &[JValue::Object(&pad)]).map_err(err)?;
+            env.call_method(&b, "setKeySize", &format!("(I){RB}"), &[JValue::Int(256)]).map_err(err)?;
+            let spec = env.call_method(&b, "build", "()Landroid/security/keystore/KeyGenParameterSpec;", &[]).and_then(|v| v.l()).map_err(err)?;
+            env.call_method(&kg, "init", "(Ljava/security/spec/AlgorithmParameterSpec;)V", &[JValue::Object(&spec)]).map_err(err)?;
+            env.call_method(&kg, "generateKey", "()Ljavax/crypto/SecretKey;", &[]).map_err(err)?;
+        }
+        let k = env
+            .call_method(&ks, "getKey", "(Ljava/lang/String;[C)Ljava/security/Key;", &[JValue::Object(&alias), JValue::Object(&JObject::null())])
+            .and_then(|v| v.l())
+            .map_err(err)?;
+        if k.is_null() {
+            return Err("keystore key missing".into());
+        }
+        Ok(k)
+    }
+
+    fn cipher<'a>(env: &mut JNIEnv<'a>) -> Result<JObject<'a>, String> {
+        let t = env.new_string("AES/GCM/NoPadding").map_err(err)?;
+        env.call_static_method("javax/crypto/Cipher", "getInstance", "(Ljava/lang/String;)Ljavax/crypto/Cipher;", &[JValue::Object(&t)])
+            .and_then(|v| v.l())
+            .map_err(err)
+    }
+
+    fn bytes(env: &mut JNIEnv, o: JObject) -> Result<Vec<u8>, String> {
+        env.convert_byte_array(JByteArray::from(o)).map_err(err)
+    }
+
+    pub fn seal_in(env: &mut JNIEnv, plain: &[u8]) -> Result<Vec<u8>, String> {
+        let k = key(env)?;
+        let c = cipher(env)?;
+        env.call_method(&c, "init", "(ILjava/security/Key;)V", &[JValue::Int(ENCRYPT), JValue::Object(&k)]).map_err(err)?;
+        let input = env.byte_array_from_slice(plain).map_err(err)?;
+        let ct = env.call_method(&c, "doFinal", "([B)[B", &[JValue::Object(&input)]).and_then(|v| v.l()).map_err(err)?;
+        let iv = env.call_method(&c, "getIV", "()[B", &[]).and_then(|v| v.l()).map_err(err)?;
+        let (iv, ct) = (bytes(env, iv)?, bytes(env, ct)?);
+        aks_pack(&iv, &ct)
+    }
+
+    pub fn open_in(env: &mut JNIEnv, sealed: &[u8]) -> Result<Vec<u8>, String> {
+        let (iv, ct) = aks_unpack(sealed).ok_or("not a keystore blob")?;
+        let k = key(env)?;
+        let c = cipher(env)?;
+        let iv = env.byte_array_from_slice(iv).map_err(err)?;
+        let spec = env.new_object("javax/crypto/spec/GCMParameterSpec", "(I[B)V", &[JValue::Int(128), JValue::Object(&iv)]).map_err(err)?;
+        env.call_method(&c, "init", "(ILjava/security/Key;Ljava/security/spec/AlgorithmParameterSpec;)V", &[JValue::Int(DECRYPT), JValue::Object(&k), JValue::Object(&spec)])
+            .map_err(err)?;
+        let input = env.byte_array_from_slice(ct).map_err(err)?;
+        let pt = env.call_method(&c, "doFinal", "([B)[B", &[JValue::Object(&input)]).and_then(|v| v.l()).map_err(err)?;
+        bytes(env, pt)
+    }
+
+    impl Sealer for Keystore {
+        fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
+            let p = plain.to_vec();
+            run(&self.0, move |env| seal_in(env, &p))
+        }
+        fn open(&self, b: &[u8]) -> Option<Vec<u8>> {
+            let s = b.to_vec();
+            run(&self.0, move |env| open_in(env, &s)).ok()
+        }
+        fn is_sealed(&self, b: &[u8]) -> bool {
+            b.starts_with(super::AKS_MAGIC)
+        }
+    }
+}
+
+#[cfg(windows)]
+fn sealer(_app: &tauri::AppHandle) -> Box<dyn Sealer> {
+    Box::new(Dpapi)
+}
+#[cfg(target_os = "android")]
+fn sealer(app: &tauri::AppHandle) -> Box<dyn Sealer> {
+    Box::new(keystore::Keystore(app.clone()))
+}
+#[cfg(not(any(windows, target_os = "android")))]
+fn sealer(_app: &tauri::AppHandle) -> Box<dyn Sealer> {
+    Box::new(Plain)
 }
 
 /// `calendar-session.bin` (sealed). Card 170's plaintext `calendar-session.secret` is read once,
@@ -293,28 +484,37 @@ const BIN: &str = "calendar-session.bin";
 const LEGACY: &str = "calendar-session.secret";
 const MARK: &str = "calendar-session.used";
 
-fn store_read(dir: &std::path::Path) -> Option<String> {
+fn store_read(dir: &std::path::Path, s: &dyn Sealer) -> Option<String> {
     if let Ok(b) = std::fs::read(dir.join(BIN)) {
-        return open_secret(&b).map(|v| v.trim().to_string()).filter(|v| valid_secret(v));
+        if s.is_sealed(&b) {
+            return s.open(&b).and_then(|v| String::from_utf8(v).ok()).map(|v| v.trim().to_string()).filter(|v| valid_secret(v));
+        }
+        // Card 195: a .bin from before this sealer (Android wrote plain bytes) → seal it in place.
+        let v = String::from_utf8(b).ok()?.trim().to_string();
+        if !valid_secret(&v) {
+            return None;
+        }
+        let _ = store_write(dir, &v, s);
+        return Some(v);
     }
     let old = dir.join(LEGACY);
     let v = std::fs::read_to_string(&old).ok()?.trim().to_string();
     if !valid_secret(&v) {
         return None;
     }
-    if store_write(dir, &v).is_ok() {
+    if store_write(dir, &v, s).is_ok() {
         let _ = std::fs::remove_file(&old);
     }
     Some(v)
 }
 
-fn store_write(dir: &std::path::Path, v: &str) -> Result<(), String> {
+fn store_write(dir: &std::path::Path, v: &str, s: &dyn Sealer) -> Result<(), String> {
     if !valid_secret(v) {
         return Err("invalid value".into());
     }
     let p = dir.join(BIN);
     let tmp = p.with_extension("tmp");
-    std::fs::write(&tmp, seal_secret(v)?).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, s.seal(v.as_bytes())?).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -339,19 +539,19 @@ fn store_clear(dir: &std::path::Path) -> Result<(), String> {
 /// Card 177 L8: adopt only the one-time move of a Card 165-era handle from localStorage — when
 /// this install has never held a Rust-managed session (no .bin, no legacy file, no marker).
 /// Anything else is refused, so a script can't plant a handle later.
-fn store_adopt(dir: &std::path::Path, v: &str) -> Result<(), String> {
+fn store_adopt(dir: &std::path::Path, v: &str, s: &dyn Sealer) -> Result<(), String> {
     if dir.join(MARK).exists() || dir.join(BIN).exists() || dir.join(LEGACY).exists() {
         return Err("refused".into());
     }
-    store_write(dir, v)
+    store_write(dir, v, s)
 }
 
 fn cal_read(app: &tauri::AppHandle) -> Option<String> {
-    store_read(&cal_dir(app).ok()?)
+    store_read(&cal_dir(app).ok()?, sealer(app).as_ref())
 }
 
 fn cal_write(app: &tauri::AppHandle, v: &str) -> Result<(), String> {
-    store_write(&cal_dir(app)?, v)
+    store_write(&cal_dir(app)?, v, sealer(app).as_ref())
 }
 
 fn cal_clear_files(app: &tauri::AppHandle) -> Result<(), String> {
@@ -417,9 +617,10 @@ async fn cal_session_refresh(app: tauri::AppHandle) -> Result<serde_json::Value,
 
 /// One-time move of a Card 165-era handle that JS still had in localStorage. Write-only, and
 /// never replaces a handle that is already stored.
+/// Async (Card 195): sealing on Android hops to the activity thread, so this must not run on it.
 #[tauri::command]
-fn cal_session_adopt(app: tauri::AppHandle, value: String) -> Result<(), String> {
-    store_adopt(&cal_dir(&app)?, &value)
+async fn cal_session_adopt(app: tauri::AppHandle, value: String) -> Result<(), String> {
+    store_adopt(&cal_dir(&app)?, &value, sealer(&app).as_ref())
 }
 
 #[tauri::command]
@@ -429,7 +630,34 @@ fn cal_session_clear(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod secret_tests {
-    use super::{cal_api_base, open_secret, reply, seal_secret, store_adopt, store_clear, store_read, store_write, valid_secret, without_refresh, BIN, LEGACY, MARK};
+    use super::{aks_pack, aks_unpack, cal_api_base, reply, store_adopt, store_clear, store_read, store_write, valid_secret, without_refresh, Plain, Sealer, AKS_MAGIC, BIN, LEGACY, MARK};
+
+    /// Platform sealer under test: DPAPI on Windows, plain elsewhere (Android's Keystore needs a device).
+    fn host() -> Box<dyn Sealer> {
+        #[cfg(windows)]
+        return Box::new(super::Dpapi);
+        #[cfg(not(windows))]
+        return Box::new(Plain);
+    }
+
+    /// Stand-in for the Android Keystore sealer: same at-rest format and is_sealed rule,
+    /// with a toy cipher (XOR) instead of AES-GCM so it runs on the box.
+    struct FakeKeystore;
+    impl Sealer for FakeKeystore {
+        fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
+            let iv = [7u8; 12];
+            let mut ct: Vec<u8> = plain.iter().map(|b| b ^ 0x5a).collect();
+            ct.extend_from_slice(&[0u8; 16]);
+            aks_pack(&iv, &ct)
+        }
+        fn open(&self, b: &[u8]) -> Option<Vec<u8>> {
+            let (_iv, ct) = aks_unpack(b)?;
+            Some(ct[..ct.len() - 16].iter().map(|b| b ^ 0x5a).collect())
+        }
+        fn is_sealed(&self, b: &[u8]) -> bool {
+            b.starts_with(AKS_MAGIC)
+        }
+    }
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("atrium-c177-{}-{}", tag, std::process::id()));
@@ -441,15 +669,15 @@ mod secret_tests {
     #[test]
     fn bin_path_sealed_round_trip_and_clear() {
         let d = tmp_dir("bin");
-        store_write(&d, "mockrefresh1xxxxxxxx").unwrap();
+        store_write(&d, "mockrefresh1xxxxxxxx", host().as_ref()).unwrap();
         let raw = std::fs::read(d.join(BIN)).unwrap();
         #[cfg(windows)]
         assert!(!raw.windows(20).any(|w| w == b"mockrefresh1xxxxxxxx"), "DPAPI: .bin is not plaintext");
         let _ = raw;
-        assert_eq!(store_read(&d).as_deref(), Some("mockrefresh1xxxxxxxx"));
+        assert_eq!(store_read(&d, host().as_ref()).as_deref(), Some("mockrefresh1xxxxxxxx"));
         store_clear(&d).unwrap();
         assert!(!d.join(BIN).exists());
-        assert_eq!(store_read(&d), None);
+        assert_eq!(store_read(&d, host().as_ref()), None);
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -457,29 +685,29 @@ mod secret_tests {
     fn legacy_plaintext_file_is_sealed_then_removed() {
         let d = tmp_dir("legacy");
         std::fs::write(d.join(LEGACY), "oldhandle_123").unwrap();
-        assert_eq!(store_read(&d).as_deref(), Some("oldhandle_123"));
+        assert_eq!(store_read(&d, host().as_ref()).as_deref(), Some("oldhandle_123"));
         assert!(!d.join(LEGACY).exists(), "plaintext file removed");
         assert!(d.join(BIN).exists(), "sealed .bin written");
-        assert_eq!(store_read(&d).as_deref(), Some("oldhandle_123"));
+        assert_eq!(store_read(&d, host().as_ref()).as_deref(), Some("oldhandle_123"));
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn adopt_is_one_time_only() {
         let d = tmp_dir("adopt");
-        store_adopt(&d, "legacy_sid_1").unwrap();
-        assert_eq!(store_read(&d).as_deref(), Some("legacy_sid_1"));
-        assert!(store_adopt(&d, "planted_2").is_err(), "second adopt refused");
+        store_adopt(&d, "legacy_sid_1", host().as_ref()).unwrap();
+        assert_eq!(store_read(&d, host().as_ref()).as_deref(), Some("legacy_sid_1"));
+        assert!(store_adopt(&d, "planted_2", host().as_ref()).is_err(), "second adopt refused");
         store_clear(&d).unwrap();
         assert!(d.join(MARK).exists(), "marker survives sign-out");
-        assert!(store_adopt(&d, "planted_3").is_err(), "refused after sign-out too");
+        assert!(store_adopt(&d, "planted_3", host().as_ref()).is_err(), "refused after sign-out too");
         let d2 = tmp_dir("adopt2");
-        store_write(&d2, "claimed_handle").unwrap();
+        store_write(&d2, "claimed_handle", host().as_ref()).unwrap();
         store_clear(&d2).unwrap();
-        assert!(store_adopt(&d2, "planted_4").is_err(), "refused once a claim ever happened");
+        assert!(store_adopt(&d2, "planted_4", host().as_ref()).is_err(), "refused once a claim ever happened");
         let d3 = tmp_dir("adopt3");
         std::fs::write(d3.join(LEGACY), "x_1").unwrap();
-        assert!(store_adopt(&d3, "planted_5").is_err(), "refused when a legacy file exists");
+        assert!(store_adopt(&d3, "planted_5", host().as_ref()).is_err(), "refused when a legacy file exists");
         for x in [d, d2, d3] {
             let _ = std::fs::remove_dir_all(&x);
         }
@@ -496,8 +724,9 @@ mod secret_tests {
 
     #[test]
     fn seal_round_trip_and_api_base_is_fixed() {
-        let s = seal_secret("abc_DEF-1").unwrap();
-        assert_eq!(open_secret(&s).as_deref(), Some("abc_DEF-1"));
+        let h = host();
+        let s = h.seal(b"abc_DEF-1").unwrap();
+        assert_eq!(h.open(&s).as_deref(), Some(&b"abc_DEF-1"[..]));
         #[cfg(windows)]
         assert!(!s.windows(9).any(|w| w == b"abc_DEF-1"), "DPAPI output is not plaintext");
         let b = cal_api_base();
@@ -512,6 +741,58 @@ mod secret_tests {
         assert!(!valid_secret("a b"));
         assert!(!valid_secret("../x"));
         assert!(!valid_secret(&"a".repeat(513)));
+    }
+
+    #[test]
+    fn android_format_pack_unpack_and_rejects_junk() {
+        let iv = [1u8; 12];
+        let ct = [2u8; 40];
+        let b = aks_pack(&iv, &ct).unwrap();
+        assert!(b.starts_with(AKS_MAGIC));
+        let (i, c) = aks_unpack(&b).unwrap();
+        assert_eq!((i, c), (&iv[..], &ct[..]));
+        assert!(aks_unpack(b"plainhandle_123").is_none(), "plain bytes are not a keystore blob");
+        assert!(aks_unpack(&b[..AKS_MAGIC.len() + 1 + 12 + 15]).is_none(), "too short for a GCM tag");
+        assert!(aks_pack(&[], &ct).is_err());
+        assert!(aks_pack(&iv, &[0u8; 8]).is_err());
+        // The magic can never be a valid handle (starts with NUL), so old plain files are unambiguous.
+        assert!(!valid_secret(std::str::from_utf8(AKS_MAGIC).unwrap()));
+    }
+
+    #[test]
+    fn android_unsealed_bin_is_migrated_to_sealed() {
+        let d = tmp_dir("aks-migrate");
+        // Pre-Card-195 Android: the .bin held the handle as plain bytes.
+        std::fs::write(d.join(BIN), b"android_plain_handle_1").unwrap();
+        let k = FakeKeystore;
+        assert_eq!(store_read(&d, &k).as_deref(), Some("android_plain_handle_1"));
+        let raw = std::fs::read(d.join(BIN)).unwrap();
+        assert!(raw.starts_with(AKS_MAGIC), "re-sealed in place");
+        assert!(!raw.windows(22).any(|w| w == b"android_plain_handle_1"), "no plaintext at rest");
+        assert_eq!(store_read(&d, &k).as_deref(), Some("android_plain_handle_1"), "reads back sealed");
+        // Fresh writes are sealed too; legacy .secret also migrates through the sealer.
+        store_write(&d, "rotated_handle_2", &k).unwrap();
+        assert!(std::fs::read(d.join(BIN)).unwrap().starts_with(AKS_MAGIC));
+        let d2 = tmp_dir("aks-legacy");
+        std::fs::write(d2.join(LEGACY), "legacy_secret_3").unwrap();
+        assert_eq!(store_read(&d2, &k).as_deref(), Some("legacy_secret_3"));
+        assert!(!d2.join(LEGACY).exists());
+        assert!(std::fs::read(d2.join(BIN)).unwrap().starts_with(AKS_MAGIC));
+        for x in [d, d2] {
+            let _ = std::fs::remove_dir_all(&x);
+        }
+    }
+
+    #[test]
+    fn android_corrupt_or_foreign_blob_reads_as_signed_out() {
+        let d = tmp_dir("aks-corrupt");
+        let mut b = aks_pack(&[3u8; 12], &[4u8; 20]).unwrap();
+        b.truncate(b.len() - 10);
+        std::fs::write(d.join(BIN), &b).unwrap();
+        assert_eq!(store_read(&d, &FakeKeystore), None);
+        std::fs::write(d.join(BIN), b"not valid handle!").unwrap();
+        assert_eq!(store_read(&d, &FakeKeystore), None, "junk plain bytes are not adopted");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
 

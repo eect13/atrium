@@ -10,16 +10,19 @@ export function Chip({
   onClick,
   children,
   className,
+  ariaLabel,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={active}
+      aria-label={ariaLabel}
       onClick={onClick}
       className={cn(
         "inline-flex min-h-11 min-w-hit shrink-0 items-center justify-center gap-1.5 rounded-full border px-3 text-xs",

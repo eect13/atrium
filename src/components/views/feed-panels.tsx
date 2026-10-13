@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmRow, ConfirmTrigger } from "@/components/ui/confirm-row";
+import { unfollowWithUndo } from "@/components/views/unfollow-undo";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,7 +25,6 @@ import {
   withHub,
   withInterest,
   withoutHub,
-  withoutInterest,
   patchHub,
   type DigestFreq,
   type DigestLine,
@@ -395,6 +395,11 @@ export function HubAddDialog({ open, setOpen, update }: { open: boolean; setOpen
   );
 }
 
+/** Card 195: a click on the Undo toast must not dismiss the dialog it belongs to. */
+function keepForToast(e: { target: EventTarget | null; preventDefault: () => void }) {
+  if (e.target instanceof Element && e.target.closest("[data-sonner-toaster]")) e.preventDefault();
+}
+
 export function InterestDialog({
   open,
   setOpen,
@@ -409,18 +414,17 @@ export function InterestDialog({
   suggestions: string[];
 }) {
   const [draft, setDraft] = useState("");
-  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const yours = useRef<HTMLUListElement | null>(null);
   const add = (label: string) => {
     update((p) => withInterest(p, label));
     setDraft("");
   };
   function close(next: boolean) {
-    if (!next) setConfirmId(null);
     setOpen(next);
   }
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
+      <DialogContent onPointerDownOutside={keepForToast} onInteractOutside={keepForToast}>
         <DialogHeader>
           <DialogTitle>Interests</DialogTitle>
         </DialogHeader>
@@ -435,7 +439,7 @@ export function InterestDialog({
               add(draft);
             }}
           >
-            <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Interest name" className="h-11" aria-label="Interest name" autoComplete="off" />
+            <Input id="curate-follow-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Interest name" className="h-11" aria-label="Interest name" autoComplete="off" />
             <Button type="submit" className="h-11" disabled={!draft.trim()}>
               Add
             </Button>
@@ -455,30 +459,14 @@ export function InterestDialog({
           <div>
             <p className={`${EYEBROW} mb-2`}>Yours</p>
             {prefs.interests.length ? (
-              <ul className="space-y-2">
-                {prefs.interests.map((i) =>
-                  confirmId === i ? (
-                    <ConfirmRow
-                      key={i}
-                      as="li"
-                      subject={i}
-                      verb="Unfollow"
-                      detail="Stories stay in Latest."
-                      triggerId={i}
-                      onCancel={() => setConfirmId(null)}
-                      onConfirm={() => {
-                        update((p) => withoutInterest(p, i));
-                        setConfirmId(null);
-                        toast(`Unfollowed ${i}`);
-                      }}
-                    />
-                  ) : (
-                    <li key={i} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-border px-2">
-                      <span className="truncate text-sm">{i}</span>
-                      <ConfirmTrigger id={i} label={`Unfollow ${i}`} onClick={() => setConfirmId(i)} />
-                    </li>
-                  ),
-                )}
+              <ul ref={yours} className="space-y-2">
+                {prefs.interests.map((i, n) => (
+                  <li key={i} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-border px-2">
+                    <span className="truncate text-sm">{i}</span>
+                    {/* Form 194 G6: unfollow at once with Undo (nothing is destroyed), same as Options. */}
+                    <ConfirmTrigger id={i} label={`Unfollow ${i}`} onClick={() => unfollowWithUndo({ update, label: i, index: n, list: yours.current, fallback: () => document.getElementById("curate-follow-input") })} />
+                  </li>
+                ))}
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">None yet — All shows every story.</p>

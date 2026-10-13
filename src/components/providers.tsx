@@ -9,7 +9,7 @@ import { useAtrium } from "@/lib/store";
 
 function ThemedToaster() {
   const theme = useAtrium((s) => s.theme);
-  return <Toaster theme={theme} position="top-center" />;
+  return <Toaster theme={theme} position="top-center" style={{ pointerEvents: "auto" }} />;
 }
 
 export function Providers({ children }: { children: ReactNode }) {

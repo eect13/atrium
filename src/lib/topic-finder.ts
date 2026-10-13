@@ -132,14 +132,31 @@ export function whyLine(p: Pick<TopicPick, "hit" | "sources" | "reasons">) {
 }
 
 /**
- * Form 185 R1.1 B6: "Try a shorter word" — the topic's single words (longest first, ≥3 letters),
- * at most 2, never the topic itself. Empty when there are none.
+ * Form 185 R1.1 B6 / Form 194 G1: "Try a shorter word" candidates — every single word of the topic
+ * (longest first, ≥3 letters), never the topic itself. suggestFor() filters and caps them.
  */
 export function shorterWords(topic: string): string[] {
   const terms = topicTerms(topic);
   const words = [...new Set(terms.flatMap((t) => t.split(" ")).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, "")).filter((w) => w.length >= 3))];
   const self = new Set(terms.map((t) => t.toLowerCase()));
-  return words.filter((w) => !self.has(w.toLowerCase())).sort((a, b) => b.length - a.length).slice(0, 2);
+  return words.filter((w) => !self.has(w.toLowerCase())).sort((a, b) => b.length - a.length);
+}
+
+/**
+ * Form 194 G1: shorter-word suggestions that would actually return picks over the same pool:
+ * ≥1 pick, most picks first, then the longer word, then A–Z; at most 2. Empty → hide the row.
+ */
+export function suggestFor<S extends TopicStory>(
+  topic: string,
+  items: readonly S[],
+  prefs: Pick<FeedPrefs, "hidden" | "muted" | "dismissed" | "hub" | "lessLike">,
+  opts: { now?: number; stockOf?: StockOf; hideDismissed?: boolean } = {},
+): { term: string; n: number }[] {
+  return shorterWords(topic)
+    .map((term) => ({ term, n: picksFor(term, items, prefs, opts).picks.length }))
+    .filter((x) => x.n >= 1)
+    .sort((a, b) => b.n - a.n || b.term.length - a.term.length || a.term.localeCompare(b.term))
+    .slice(0, 2);
 }
 
 export const PICK_WINDOW_DAYS = 7;

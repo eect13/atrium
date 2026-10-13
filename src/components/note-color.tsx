@@ -322,7 +322,7 @@ export function AddColorWheel({
           type="button"
           aria-label={title}
           aria-expanded={open}
-          className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex size-11 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={() => setOpen((v) => !v)}
         >
           <Plus className="size-4" />

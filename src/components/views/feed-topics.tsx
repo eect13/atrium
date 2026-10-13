@@ -15,8 +15,9 @@ import { OptionsSwitchRow } from "@/components/ui/options-switch-row";
 import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { Switch } from "@/components/ui/switch";
 import { Hub, HubAddDialog, InterestDialog } from "@/components/views/feed-panels";
+import { unfollowWithUndo } from "@/components/views/unfollow-undo";
 import { HUB_TOPIC_OTHER, cleanInterest, hubTopics, interestStock, interestSuggestions, moveInterest, renameInterest, withHub, withInterest, withoutHub, withoutInterest, type FeedPrefs, type StockRef } from "@/lib/feed";
-import { picksFor, shorterWords, whyLine, withDismissed, withLessLike, withoutDismissed, type TopicPick } from "@/lib/topic-finder";
+import { picksFor, suggestFor, whyLine, withDismissed, withLessLike, withoutDismissed, type TopicPick } from "@/lib/topic-finder";
 import { useAtrium } from "@/lib/store";
 import { uid } from "@/lib/format";
 import { WATCH_CATALOG, type NewsItem } from "@/lib/types";
@@ -111,7 +112,8 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
   const result = useMemo(() => (topic ? picksFor(topic, items, prefs, { stockOf, hideDismissed: prefs.hideDismissed }) : { picks: [], stories: 0, pool: 0 }), [topic, items, prefs, stockOf]);
   const savedUrls = new Set(prefs.hub.map((h) => h.url));
   const suggestions = useMemo(() => interestSuggestions(items, prefs.interests), [items, prefs.interests]);
-  const shorter = useMemo(() => (topic ? shorterWords(topic) : []), [topic]);
+  // Form 194 G1: only words that would return picks, over the same uncapped pool, ≤2.
+  const shorter = useMemo(() => (topic && result.picks.length === 0 ? suggestFor(topic, items, prefs, { stockOf, hideDismissed: prefs.hideDismissed }) : []), [topic, result.picks.length, items, prefs, stockOf]);
 
   function save(p: TopicPick) {
     const url = p.lead.link;
@@ -164,9 +166,9 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
           {shorter.length ? (
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <span className="text-sm text-muted-foreground">Try a shorter word:</span>
-              {shorter.map((w) => (
-                <Chip key={w} active={false} onClick={() => (updateFeed((f) => replaceTopic(f, topic, w)), setSel(w))}>
-                  {w}
+              {shorter.map(({ term: w, n: k }) => (
+                <Chip key={w} active={false} ariaLabel={`Follow ${w} instead, ${k} ${k === 1 ? "pick" : "picks"}`} onClick={() => (updateFeed((f) => replaceTopic(f, topic, w)), setSel(w))}>
+                  {w} · <span className="tabular-nums">{k}</span>
                 </Chip>
               ))}
             </div>
@@ -361,7 +363,7 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           {prefs.interests.length ? (
             <ul ref={list} aria-label="Followed topics, in order">
               {prefs.interests.map((i, n) => (
-                <TopicRow key={i} label={i} index={n} count={prefs.interests.length} onMove={(d) => move(i, d)} onRename={(to) => rename(i, to)} onUnfollow={() => updateFeed((p) => withoutInterest(p, i))} />
+                <TopicRow key={i} label={i} index={n} count={prefs.interests.length} onMove={(d) => move(i, d)} onRename={(to) => rename(i, to)} onUnfollow={() => unfollowWithUndo({ update: updateFeed, label: i, index: n, list: list.current, fallback: () => document.getElementById("feed-follow-input"), announce: setSaid })} />
               ))}
             </ul>
           ) : null}
@@ -374,7 +376,7 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
               setFollow("");
             }}
           >
-            <Input value={follow} onChange={(e) => setFollow(e.target.value)} placeholder="Topic or phrase, e.g. heat pumps" aria-label="Follow a topic" className="h-11 min-w-0 flex-1" />
+            <Input id="feed-follow-input" value={follow} onChange={(e) => setFollow(e.target.value)} placeholder="Topic or phrase, e.g. heat pumps" aria-label="Follow a topic" className="h-11 min-w-0 flex-1" />
             <Button type="submit" variant="outline" className="min-h-11" disabled={!followOk}>
               <Plus className="size-4" aria-hidden />
               Follow
