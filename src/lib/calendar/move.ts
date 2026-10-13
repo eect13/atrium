@@ -8,7 +8,7 @@ import type { CalendarEvent } from "../types.ts";
 
 export function moveBlock(e: CalendarEvent, to: string, writableIds: string[]): string | null {
   // Card 181: leaving Google (to Atrium) deletes it there, so an unknown organiser blocks that too.
-  if (e.source === "google" && e.calId && to !== e.calId && e.organizerSelf === undefined) return "Finish syncing before moving Google events.";
+  if (e.source === "google" && e.calId && to !== e.calId && e.organizerSelf === undefined) return "Can't move yet: Google hasn't confirmed who organizes this event.";
   if (to === "local" || e.source !== "google" || !e.calId || to === e.calId) return null;
   if (e.instanceOf || e.seriesId) return "Only the whole series can move to another calendar.";
   if (e.eventType) return "This kind of Google event can't move to another calendar.";
@@ -43,7 +43,7 @@ export const GUEST_HELPER = "Google emails them a cancellation. If you don't sen
 export function deleteBlock(e: CalendarEvent, lastSync: string | null): string | null {
   if (e.source !== "google") return null;
   // Card 181: unknown stays blocked until resolveOwner learns the organiser from Google.
-  if (ownerUnknown(e)) return "Finish syncing before deleting Google events.";
+  if (ownerUnknown(e)) return "Can't delete yet: Google hasn't confirmed who organizes this event.";
   if (lastSync === null && (e.guestCount ?? 0) > 0) return "Finish syncing before deleting events that have guests.";
   return null;
 }

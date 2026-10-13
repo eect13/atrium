@@ -192,7 +192,7 @@ test("K2: moveBlock — only whole default events you organize, into a writable 
   assert.match(moveBlock(g({ seriesId: "g-a-r0" }), "b", ["b"])!, /whole series/);
   assert.match(moveBlock(g({ eventType: "outOfOffice" }), "b", ["b"])!, /kind of Google event/);
   assert.match(moveBlock(g({ organizerSelf: false }), "b", ["b"])!, /you organize/);
-  assert.match(moveBlock(g({ organizerSelf: undefined }), "b", ["b"])!, /Finish syncing before moving/, "Card 181: unknown is not not-yours");
+  assert.match(moveBlock(g({ organizerSelf: undefined }), "b", ["b"])!, /Can't move yet: Google hasn't confirmed/, "Card 181: unknown is not not-yours");
   assert.match(moveBlock(g(), "team", ["a", "b"])!, /can't add events/);
   assert.equal(moveBlock(g({ organizerSelf: false }), "local", []), null, "to Atrium only is always allowed");
   assert.equal(guestsToTell(g({ guestCount: 3 })), 3);
@@ -240,9 +240,9 @@ test("Card 179 N1 (+181): ownership backfill is one full pull per calendar; left
   for (const id of ["g-c-old", "g-c-noorg", "g-c-new"]) {
     const e = c.events.find((x) => x.id === id)!;
     assert.equal(e.organizerSelf, undefined, `${id} stays unknown (Card 181), not "not yours"`);
-    assert.equal(deleteBlock(e, "2026-10-13T00:00:00Z"), "Finish syncing before deleting Google events.", `${id} delete blocked until Google is asked`);
-    assert.equal(moveBlock(e, "other", ["c", "other"]), "Finish syncing before moving Google events.");
-    assert.equal(moveBlock(e, "local", ["c", "other"]), "Finish syncing before moving Google events.", "leaving Google (delete there) blocked too");
+    assert.equal(deleteBlock(e, "2026-10-13T00:00:00Z"), "Can't delete yet: Google hasn't confirmed who organizes this event.", `${id} delete blocked until Google is asked`);
+    assert.equal(moveBlock(e, "other", ["c", "other"]), "Can't move yet: Google hasn't confirmed who organizes this event.");
+    assert.equal(moveBlock(e, "local", ["c", "other"]), "Can't move yet: Google hasn't confirmed who organizes this event.", "leaving Google (delete there) blocked too");
   }
   assert.equal(c.events.find((x) => x.id === "g-c-in")!.organizerSelf, true);
 });
@@ -268,8 +268,8 @@ test("Card 181: unknown organiser → events.get → normal rules; fetch fails �
   // fetch fails / no organiser in the answer → null → stays unknown and blocked
   assert.equal(await resolveOwner(unknown, async () => { throw new Error("offline"); }), null);
   assert.equal(await resolveOwner(unknown, async () => ev("x", { organizerSelf: undefined })), null);
-  assert.equal(deleteBlock(unknown, synced), "Finish syncing before deleting Google events.");
-  assert.equal(moveBlock(unknown, "local", ["c"]), "Finish syncing before moving Google events.");
+  assert.equal(deleteBlock(unknown, synced), "Can't delete yet: Google hasn't confirmed who organizes this event.");
+  assert.equal(moveBlock(unknown, "local", ["c"]), "Can't move yet: Google hasn't confirmed who organizes this event.");
   // not-yours (false) unchanged: no fetch, no block, no prompt, move blocked with the not-yours reason
   const notYours = ev("n", { organizerSelf: false, guestCount: 2 });
   let fetched = false;

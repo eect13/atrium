@@ -172,7 +172,7 @@ ok(`pulled ${pulled.events.length} events; Planning: organiserSelf=${e1.organize
 
 step(6, "Guest prompt + pre-sync block (client rules)");
 assert.equal(deleteBlock(e1, null), "Finish syncing before deleting events that have guests.");
-assert.equal(deleteBlock({ ...e1, organizerSelf: undefined }, "2026-10-13T00:00:00Z"), "Finish syncing before deleting Google events.");
+assert.equal(deleteBlock({ ...e1, organizerSelf: undefined }, "2026-10-13T00:00:00Z"), "Can't delete yet: Google hasn't confirmed who organizes this event.");
 assert.equal(deleteBlock(e1, "2026-10-13T00:00:00Z"), null);
 ok(`before first sync: Delete blocked; after: allowed`);
 assert.equal(guestsToTell(e1), 2);
@@ -181,7 +181,7 @@ ok(`repeating (all): "${seriesGuestQuestion("all", guestsToTell(s1))}"`);
 
 step(6.5, "Card 181: unknown organiser (old cache) → events.get → normal rules; missing event → stays blocked");
 const unknownE1 = { ...e1, organizerSelf: undefined, guestCount: undefined };
-assert.equal(deleteBlock(unknownE1, "2026-10-13T00:00:00Z"), "Finish syncing before deleting Google events.");
+assert.equal(deleteBlock(unknownE1, "2026-10-13T00:00:00Z"), "Can't delete yet: Google hasn't confirmed who organizes this event.");
 const own = await resolveOwner(unknownE1, (cal, rid) => src.getEvent(cal, rid));
 assert.deepEqual({ o: own?.organizerSelf, g: own?.guestCount }, { o: true, g: 2 });
 assert.ok(log.some((l) => l.method === "GET" && /\/events\/e1$/.test(new URL(l.url).pathname)), "Google events.get called");

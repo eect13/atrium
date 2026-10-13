@@ -654,14 +654,14 @@ export function CalendarView() {
                 <select id="ev-cal" className={FIELD_SELECT} value={target} aria-describedby={editId && target !== sourceCal ? "ev-cal-move" : undefined} onChange={(e) => setTarget(e.target.value)}>
                   {editId && fromGoogle && !writable.some((c) => c.id === sourceCal) ? <option value={sourceCal}>{gcalCals.find((c) => c.id === sourceCal)?.label ?? "Google"}</option> : null}
                   {writable.map((c) => (
-                    <option key={c.id} value={c.id} disabled={Boolean(editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)))}>
+                    <option key={c.id} value={c.id} disabled={Boolean(editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)))} aria-describedby={editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)) ? "ev-cal-block" : undefined}>
                       {c.primary ? (email ?? c.label) : c.label} · Google
                     </option>
                   ))}
-                  <option value="local" disabled={Boolean(editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)))}>Atrium only</option>
+                  <option value="local" disabled={Boolean(editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)))} aria-describedby={editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)) ? "ev-cal-block" : undefined}>Atrium only</option>
                 </select>
                 {editId && moveSrc && target === sourceCal && writable.some((c) => c.id !== sourceCal) && moveSrc.source === "google" && moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id)) ? (
-                  <p className="text-xs text-muted-foreground">{moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id))}</p>
+                  <p id="ev-cal-block" className="text-xs text-muted-foreground">{moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id))}</p>
                 ) : null}
                 {editId && target !== sourceCal ? (
                   <p id="ev-cal-move" className="text-xs text-muted-foreground">
@@ -1099,15 +1099,18 @@ export function CalendarView() {
                 Save
               </Button>}
             {editId && !viewOnly && delBlock && !seriesAsk ? (
-              <p id="ev-del-block" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
+              <p id="ev-del-block" aria-live="polite" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
                 <span>{delBlock}</span>
                 {moveSrc && ownerUnknown(moveSrc) ? (
                   ownerCheck === "checking" ? (
                     <span>Checking…</span>
                   ) : (
-                    <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => editId && runOwnerCheck(editId)}>
-                      Check again
-                    </button>
+                    <>
+                      {ownerCheck === "failed" ? <span>Couldn&apos;t reach Google.</span> : null}
+                      <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => editId && runOwnerCheck(editId)}>
+                        Check again
+                      </button>
+                    </>
                   )
                 ) : syncingNow ? (
                   <span>Syncing…</span>

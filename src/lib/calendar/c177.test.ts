@@ -44,7 +44,7 @@ const ev = (p: Partial<CalendarEvent>): CalendarEvent => ({ id: "x", title: "t",
 
 test("Card 177 (b): pre-sync delete block", () => {
   assert.equal(deleteBlock(ev({}), null), null, "Atrium-only never blocked");
-  assert.equal(deleteBlock(ev({ source: "google" }), "2026-10-13T00:00:00Z"), "Finish syncing before deleting Google events.", "unknown ownership");
+  assert.equal(deleteBlock(ev({ source: "google" }), "2026-10-13T00:00:00Z"), "Can't delete yet: Google hasn't confirmed who organizes this event.", "unknown ownership");
   assert.equal(deleteBlock(ev({ source: "google", organizerSelf: true, guestCount: 2 }), null), "Finish syncing before deleting events that have guests.");
   assert.equal(deleteBlock(ev({ source: "google", organizerSelf: true, guestCount: 0 }), null), null, "no guests not blocked");
   assert.equal(deleteBlock(ev({ source: "google", organizerSelf: true, guestCount: 2 }), "2026-10-13T00:00:00Z"), null, "re-enabled after sync");
