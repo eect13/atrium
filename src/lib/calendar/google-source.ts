@@ -94,8 +94,8 @@ export class GoogleSource implements CalendarSource {
     return { ...fromGoogleList(r.items, calendarId), nextSyncToken: r.nextSyncToken, truncated: r.truncated };
   }
 
-  private async one(path: string, method: string, ev: EventWrite, calendarId: string): Promise<CalendarEvent> {
-    const r = await api<{ item: GCalEvent }>(this.client, path, { method, body: JSON.stringify({ cal: calendarId, etag: ev.etag, body: toGoogleBody(ev) }) });
+  private async one(path: string, method: string, ev: EventWrite, calendarId: string, notify?: "all" | "none"): Promise<CalendarEvent> {
+    const r = await api<{ item: GCalEvent }>(this.client, path, { method, body: JSON.stringify({ cal: calendarId, etag: ev.etag, body: toGoogleBody(ev), ...(notify ? { notify } : {}) }) });
     const mapped = fromGoogleList([r.item], calendarId).events[0];
     if (!mapped) throw new CalendarApiError(502, "bad_event");
     return mapped;
@@ -105,8 +105,8 @@ export class GoogleSource implements CalendarSource {
     return this.one("/events", "POST", ev, calendarId);
   }
 
-  updateEvent(calendarId: string, remoteId: string, ev: EventWrite) {
-    return this.one(`/events/${encodeURIComponent(remoteId)}`, "PATCH", ev, calendarId);
+  updateEvent(calendarId: string, remoteId: string, ev: EventWrite, notify: "all" | "none" = "none") {
+    return this.one(`/events/${encodeURIComponent(remoteId)}`, "PATCH", ev, calendarId, notify);
   }
 
   async deleteEvent(calendarId: string, remoteId: string, etag?: string, notify: "all" | "none" = "none") {

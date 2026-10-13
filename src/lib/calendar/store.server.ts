@@ -184,7 +184,8 @@ export async function handoffBound(sql: Sql, hid: string, now = Date.now()) {
   return Boolean(r && r.state === "browser_bound" && ms(r.expires_at)! > now);
 }
 
-export type ClaimResult = { pair: SessionPair } | "pending" | "bad" | "gone";
+/** Card 177: "used" (claimed already) vs "gone" (expired, burned or unknown) so the app can say which. */
+export type ClaimResult = { pair: SessionPair } | "pending" | "bad" | "gone" | "used";
 
 /**
  * Step 4: the app claims with its verifier and the code the user typed. Both must match, the
@@ -205,7 +206,8 @@ export async function claimHandoff(sql: Sql, key: Buffer, hid: string, verifier:
       await sql.query("update calendar_handoff set state = 'burned', session_enc = null, final_at = $2 where hid = $1 and state = 'consented'", [hid, iso(now)]);
       return "gone";
     }
-    if (r.state === "claimed" || r.state === "burned" || r.state === "expired" || ms(r.expires_at)! <= now) {
+    if (r.state === "claimed") return "used";
+    if (r.state === "burned" || r.state === "expired" || ms(r.expires_at)! <= now) {
       if (r.state !== "claimed" && r.state !== "burned") await sql.query("update calendar_handoff set state = 'expired', session_enc = null, final_at = $2 where hid = $1", [hid, iso(now)]);
       return "gone";
     }
@@ -222,7 +224,7 @@ export async function claimHandoff(sql: Sql, key: Buffer, hid: string, verifier:
     "update calendar_handoff set state = 'claimed', session_enc = null, final_at = $2 where hid = $1 and state = 'consented' returning hid",
     [hid, iso(now)],
   );
-  if (!won.length || !g.session_enc) return "gone";
+  if (!won.length || !g.session_enc) return "used";
   const { connectionId } = JSON.parse(open(g.session_enc, key, `handoff:${hid}`)) as { connectionId: string };
   return { pair: await newSession(sql, connectionId, now) };
 }

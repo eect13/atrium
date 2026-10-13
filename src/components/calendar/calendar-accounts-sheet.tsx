@@ -17,6 +17,7 @@ import { parseICSAsync } from "@/lib/parse-ics-async";
 import { useAtrium } from "@/lib/store";
 import { calendarColourOf, isWritableRole } from "@/lib/calendar/source";
 import { LEGACY_ICS, maskIcsUrl, type IcsSourceMeta } from "@/lib/calendar/ics-source";
+import { retryLabel } from "@/lib/calendar/claim-errors";
 import {
   addIcsSource,
   cancelConnect,
@@ -113,15 +114,34 @@ export function SyncBanner({ kind, at, pending = 0, onRetry, onSignIn, onAllow }
   );
 }
 
-/** Card 167 B2 / Card 168: the browser shows a code; the user types it here. */
+/** Card 167 B2 / Card 168: the browser shows a code; the user types it here. Card 176 L7 messages. */
 function HandoffCode() {
   const h = useCalAccounts((s) => s.handoff);
+  const email = useCalAccounts((s) => s.email);
   const [code, setCode] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const input = useRef<HTMLInputElement | null>(null);
+  const waiting = Boolean(h?.retryAt && h.retryAt > now);
+  useEffect(() => {
+    if (!h?.retryAt) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [h?.retryAt]);
+  useEffect(() => {
+    if (h?.fail === "bad_code") input.current?.select();
+  }, [h?.fail, h?.error]);
   if (!h) return null;
   const submit = async () => {
     const err = await submitHandoffCode(code);
     if (!err) toast("Google connected");
   };
+  const startAgain = () => {
+    setCode("");
+    void connectGoogle({ loginHint: email ?? undefined }).catch(() => toast("Couldn't start Google sign-in"));
+  };
+  const restart = h.fail === "expired" || h.fail === "used" || h.fail === "unknown";
+  const retry = h.fail === "offline" || h.fail === "unknown";
   return (
     <div className="rounded-2xl bg-muted p-3" role="group" aria-labelledby="handoff-title">
       <p id="handoff-title" className="text-sm font-semibold">
@@ -132,10 +152,11 @@ function HandoffCode() {
         className="mt-3 flex flex-col gap-2 sm:flex-row"
         onSubmit={(e) => {
           e.preventDefault();
-          void submit();
+          if (!waiting) void submit();
         }}
       >
         <Input
+          ref={input}
           className="h-14 font-mono text-[28px] uppercase tracking-[0.3em] sm:max-w-[14rem]"
           aria-label="Code from your browser"
           autoComplete="one-time-code"
@@ -146,10 +167,10 @@ function HandoffCode() {
           value={code}
           onChange={(e) => setCode(e.target.value)}
           aria-invalid={Boolean(h.error)}
-          aria-describedby={h.error ? "handoff-error" : undefined}
+          aria-describedby={[h.error ? "handoff-error" : "", waiting ? "handoff-wait" : ""].filter(Boolean).join(" ") || undefined}
         />
         <div className="flex gap-2">
-          <Button type="submit" className="h-11 flex-1" disabled={h.busy || code.replace(/[\s-]/g, "").length !== 6}>
+          <Button type="submit" className="h-11 flex-1" disabled={h.busy || waiting || code.replace(/[\s-]/g, "").length !== 6} aria-describedby={waiting ? "handoff-wait" : undefined}>
             {h.busy ? <Spinner /> : null}
             Connect
           </Button>
@@ -162,6 +183,25 @@ function HandoffCode() {
         <p id="handoff-error" role="alert" className="mt-2 text-xs text-destructive">
           {h.error}
         </p>
+      ) : null}
+      {waiting && h.retryAt ? (
+        <p id="handoff-wait" className="mt-1 text-xs tabular-nums text-muted-foreground">
+          {retryLabel(h.retryAt - now)}
+        </p>
+      ) : null}
+      {retry || restart ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {retry ? (
+            <Button type="button" className="h-11" disabled={h.busy} onClick={() => void submit()}>
+              Try again
+            </Button>
+          ) : null}
+          {restart ? (
+            <Button type="button" variant={h.fail === "unknown" ? "outline" : "default"} className="h-11" onClick={startAgain}>
+              Start again
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

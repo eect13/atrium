@@ -49,7 +49,7 @@ import { DEFAULT_SERIES_SCOPE, planSeriesDelete, planSeriesSave, repeatPhrase, t
 import { isNarrow } from "@/lib/desk";
 import { EMPTY_DAY } from "@/lib/cal-view";
 import { calendarColourOf } from "@/lib/calendar/source";
-import { guestsToTell, moveBlock, tellGuestsQuestion } from "@/lib/calendar/move";
+import { deleteBlock, GUEST_HELPER, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "@/lib/calendar/move";
 import { usableFocus } from "@/components/ui/focus-return";
 import { addIcsSource, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
 import { fmtTime } from "@/lib/format";
@@ -166,11 +166,14 @@ export function CalendarView() {
   const [occurDay, setOccurDay] = useState<string | null>(null);
   const [fromGoogle, setFromGoogle] = useState(false);
   const moveSrc = editId ? events.find((x) => x.id === editId) : undefined;
+  const syncingNow = useCalAccounts((s) => s.syncing);
+  /** Card 176: no Google delete until we know who'd be told. */
+  const delBlock = moveSrc ? deleteBlock(moveSrc, lastSync) : null;
   /** Clicked occurrence of a repeating event (its own start), for Card 168 (a). */
   const [occurStart, setOccurStart] = useState<string | null>(null);
   /** Where the edited event lives now ("local" or a Google calendar id), for moves (d). */
   const [sourceCal, setSourceCal] = useState("local");
-  const [seriesAsk, setSeriesAsk] = useState<{ kind: "save" | "delete"; payload?: Partial<CalendarEvent> } | null>(null);
+  const [seriesAsk, setSeriesAsk] = useState<{ kind: "save" | "delete"; payload?: Partial<CalendarEvent>; step?: "guests" } | null>(null);
   const [seriesScope, setSeriesScope] = useState<SeriesScope>(DEFAULT_SERIES_SCOPE);
   /** Card 168 (e): phone day tap opens this day's agenda sheet. */
   const [daySheet, setDaySheet] = useState<string | null>(null);
@@ -344,11 +347,11 @@ export function CalendarView() {
     }
   }
 
-  function applyPlan(plan: SeriesPlan) {
+  function applyPlan(plan: SeriesPlan, notify: "all" | "none" = "none") {
     if (plan.update) updateEvent(plan.update.id, plan.update.patch);
     if (plan.remove) removeEvent(plan.remove);
     if (plan.add) addEvent(plan.add);
-    if (plan.google.length) void queueGoogleWrites(plan.google);
+    if (plan.google.length) void queueGoogleWrites(plan.google.map((g) => ({ ...g, notify })));
   }
 
   /**
@@ -615,6 +618,12 @@ export function CalendarView() {
 
       <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : requestClose())}>
         <DialogContent
+          onEscapeKeyDown={(e) => {
+            // Card 176 (a): Esc steps back from the guest step, then cancels the scope step.
+            if (!seriesAsk) return;
+            e.preventDefault();
+            setSeriesAsk(seriesAsk.step ? { ...seriesAsk, step: undefined } : null);
+          }}
           onCloseAutoFocus={(e) => {
             const el = usableFocus(returnFocus.current);
             if (!el) return; // shared fallback in DialogContent (Form 173 §1)
@@ -844,9 +853,35 @@ export function CalendarView() {
               </div>
             </div>
             </fieldset>
-            {seriesAsk ? (
+            {seriesAsk?.step === "guests" && moveSrc ? (
+              <div role="group" aria-labelledby="series-guests-q" className="space-y-2 rounded-md border border-border p-3">
+                <p id="series-guests-q" className="text-sm font-semibold">{seriesGuestQuestion(seriesScope, guestsToTell(moveSrc))}</p>
+                <p className="text-xs text-muted-foreground">{GUEST_HELPER}</p>
+                <div className="flex flex-wrap justify-end gap-2 pt-1">
+                  <Button variant="outline" onClick={() => setSeriesAsk({ ...seriesAsk, step: undefined })}>
+                    Back
+                  </Button>
+                  {(["none", "all"] as const).map((n) => (
+                    <Button
+                      key={n}
+                      variant={n === "all" ? "destructive" : "outline"}
+                      autoFocus={n === "all"}
+                      onClick={() => {
+                        if (!occurStart || !occurDay) return setSeriesAsk(null);
+                        applyPlan(planSeriesDelete(seriesScope, moveSrc, occurStart, occurDay), n);
+                        toast("Event removed");
+                        setSeriesAsk(null);
+                        setOpen(false);
+                      }}
+                    >
+                      {n === "all" ? "Send cancellation" : "Don't send"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : seriesAsk ? (
               <div role="radiogroup" aria-labelledby="series-q" className="space-y-2 rounded-md border border-border p-3">
-                <p id="series-q" className="text-sm font-semibold">Change a repeating event</p>
+                <p id="series-q" className="text-sm font-semibold">{seriesAsk.kind === "delete" ? "Delete a repeating event" : "Change a repeating event"}</p>
                 <p className="text-xs text-muted-foreground">“{title.trim() || "Event"}” {repeatPhrase({ repeat: repeat === "none" ? undefined : repeat, repeatInterval: Number(repeatEvery) || 1, start: events.find((x) => x.id === editId)?.start ?? new Date().toISOString() })}. Which events should {seriesAsk.kind === "delete" ? "go" : "change"}?</p>
                 {(
                   [
@@ -876,6 +911,7 @@ export function CalendarView() {
                     onClick={() => {
                       const master = events.find((x) => x.id === editId);
                       if (!master || !occurStart || !occurDay) return setSeriesAsk(null);
+                      if (seriesAsk.kind === "delete" && guestsToTell(master) > 0) return setSeriesAsk({ ...seriesAsk, step: "guests" });
                       if (seriesAsk.kind === "delete") applyPlan(planSeriesDelete(seriesScope, master, occurStart, occurDay));
                       else applyPlan(planSeriesSave(seriesScope, master, seriesAsk.payload ?? {}, occurStart, occurDay, uid));
                       toast(seriesAsk.kind === "delete" ? "Event removed" : "Event updated");
@@ -883,7 +919,7 @@ export function CalendarView() {
                       setOpen(false);
                     }}
                   >
-                    {seriesAsk.kind === "delete" ? "Delete" : "Save changes"}
+                    {seriesAsk.kind === "delete" ? (moveSrc && guestsToTell(moveSrc) > 0 ? "Next" : "Delete") : "Save changes"}
                   </Button>
                 </div>
               </div>
@@ -935,7 +971,7 @@ export function CalendarView() {
                         setOpen(false);
                       }}
                     >
-                      {n === "all" ? "Tell guests" : "Don't tell"}
+                      {n === "all" ? "Send cancellation" : "Don't send"}
                     </Button>
                   ))}
                 </div>
@@ -955,12 +991,13 @@ export function CalendarView() {
                 }}
               />
             ) : (
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => requestClose()}>
                 {viewOnly ? "Close" : "Cancel"}
               </Button>
               {editId && !viewOnly ? (
-                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => {
+                <Button variant="outline" data-confirm-trigger="event-delete" aria-disabled={delBlock ? true : undefined} aria-describedby={delBlock ? "ev-del-block" : undefined} className={delBlock ? "opacity-50" : undefined} onClick={() => {
+                  if (delBlock) return;
                   const cur = events.find((x) => x.id === editId);
                   if (occurStart && cur?.repeat) setSeriesAsk({ kind: "delete" });
                   else if (cur && guestsToTell(cur)) setTellAsk({ kind: "delete" });
@@ -1050,6 +1087,18 @@ export function CalendarView() {
               >
                 Save
               </Button>}
+            {editId && !viewOnly && delBlock && !seriesAsk ? (
+              <p id="ev-del-block" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
+                <span>{delBlock}</span>
+                {syncingNow ? (
+                  <span>Syncing…</span>
+                ) : (
+                  <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => void syncNow()}>
+                    Sync now
+                  </button>
+                )}
+              </p>
+            ) : null}
             </div>
             )}
           </div>

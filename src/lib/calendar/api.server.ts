@@ -271,7 +271,8 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
     if (r === "bad") await noteClaimFail(sql, ipHash, now);
     if (r === "pending") return json(req, { error: "pending", message: "Finish signing in to Google in your browser first." }, 409);
     if (r === "bad") return json(req, { error: "bad_code", message: "That code doesn't match. Check the code in your browser." }, 401);
-    if (r === "gone") return json(req, { error: "gone", message: "This sign-in expired. Start again." }, 410);
+    if (r === "used") return json(req, { error: "used", message: "This code has already been used. Start again to get a new one." }, 410);
+    if (r === "gone") return json(req, { error: "expired", message: "This code has expired. Codes last 2 minutes." }, 410);
     return json(req, pairBody(r.pair));
   }
 
@@ -354,7 +355,7 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
       const body = (await req.json().catch(() => ({}))) as { cal?: string; etag?: string; body?: GEvent; notify?: string };
       if (!body.cal) return json(req, { error: "bad_request" }, 400);
       if (method === "POST" && !id && body.body) return json(req, { item: trimEvent(await insertEvent(f, token, body.cal, body.body)) }, 200, cookies);
-      if (method === "PATCH" && id && body.body) return json(req, { item: trimEvent(await patchEvent(f, token, body.cal, id, body.body, body.etag)) }, 200, cookies);
+      if (method === "PATCH" && id && body.body) return json(req, { item: trimEvent(await patchEvent(f, token, body.cal, id, body.body, body.etag, sendUpdatesOf(body.notify))) }, 200, cookies);
       if (method === "DELETE" && id) {
         await deleteEvent(f, token, body.cal, id, body.etag, sendUpdatesOf(body.notify));
         return json(req, { ok: true }, 200, cookies);

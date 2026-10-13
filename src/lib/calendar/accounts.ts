@@ -12,6 +12,7 @@ import { uid } from "../format.ts";
 import { useAtrium } from "../store.ts";
 import type { CalendarEvent, GCalDesk } from "../types.ts";
 import { gcalLane } from "../google-cal.ts";
+import { CLAIM_COPY, claimFailKind, RATE_LIMIT_WAIT_MS, type ClaimFail } from "./claim-errors.ts";
 import { adoptLegacy, claimOnDevice, clearRefresh, refreshOnDevice, type DeviceAccess } from "./device-secret.ts";
 import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus } from "./google-source.ts";
 import { LEGACY_ICS, withoutSource, type IcsSourceMeta } from "./ics-source.ts";
@@ -21,7 +22,7 @@ import { applyFlush, applyPull, bannerFor, enqueue, flushPending, pullCalendar, 
 export type Banner = "failed" | "expired" | "disconnected" | "offline" | "partial" | null;
 
 /** Desktop hand-off in progress: the browser shows a code the user types here. */
-export type Handoff = { hid: string; startedAt: number; error?: string; busy?: boolean };
+export type Handoff = { hid: string; startedAt: number; error?: string; busy?: boolean; fail?: ClaimFail; retryAt?: number };
 
 type State = {
   status: ConnStatus | null;
@@ -225,22 +226,19 @@ export async function connectGoogle(opts: { loginHint?: string } = {}) {
 export async function submitHandoffCode(code: string): Promise<string | null> {
   const h = get().handoff;
   if (!h || !verifier) return "Start again: choose Sign in with Google.";
-  set({ handoff: { ...h, busy: true, error: undefined } });
+  set({ handoff: { ...h, busy: true, error: undefined, fail: undefined } });
   try {
     keepAccess(await claimOnDevice(h.hid, verifier, code));
-    cancelFlow?.();
-    await afterConnect();
-    return null;
   } catch (e) {
-    const err = e instanceof CalendarApiError ? e : null;
-    if (err?.status === 410) {
-      cancelFlow?.();
-      return err.message || "This sign-in expired. Start again.";
-    }
-    const msg = err?.message || "Couldn't reach Atrium's calendar service";
-    set({ handoff: { ...h, busy: false, error: msg } });
+    // Card 176 L7: fixed copy per failure kind; the hand-off stays so the next action shows.
+    const fail = claimFailKind(e);
+    const msg = CLAIM_COPY[fail];
+    set({ handoff: { ...h, busy: false, error: msg, fail, retryAt: fail === "rate_limited" ? Date.now() + RATE_LIMIT_WAIT_MS : undefined } });
     return msg;
   }
+  cancelFlow?.();
+  await afterConnect().catch(() => undefined);
+  return null;
 }
 
 export function cancelConnect() {
@@ -319,7 +317,10 @@ export function syncNow(): Promise<void> {
       const pendingIds = new Set(get().pending.map((p) => p.localId));
       for (const c of cals) {
         if (off.has(c.id)) continue;
-        const r = await pullCalendar(src, c.id, tokens[c.id]);
+        // Card 177 (b): events cached before Card 174 lack organiser info, and an incremental
+        // pull would never refill them; a full pull does, which lifts the pre-sync delete block.
+        const stale = useAtrium.getState().events.some((e) => e.source === "google" && e.calId === c.id && e.organizerSelf === undefined);
+        const r = await pullCalendar(src, c.id, stale ? undefined : tokens[c.id]);
         useAtrium.setState((s) => ({ events: applyPull(s.events, c.id, r, pendingIds) }));
         if (r.nextSyncToken) tokens[c.id] = r.nextSyncToken;
         else delete tokens[c.id];

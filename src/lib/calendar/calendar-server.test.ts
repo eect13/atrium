@@ -546,3 +546,44 @@ test("K2 (Scout 172): POST /events/{id}/move → Google events.move with destina
     assert.match(calls.filter((c) => c.init?.method === "DELETE").at(-1)!.url, new RegExp(`/events/e1\\?sendUpdates=${want}$`));
   }
 });
+
+test("Card 177 L7: second claim → 410 {error:'used'}; late claim → 410 {error:'expired'}; bodies are fixed copy", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 12_000_000 };
+  const a = await desktopConsent(sql, [], clock);
+  assert.equal((await claim(a.d, a.hid, a.verifier, a.code)).status, 200);
+  const used = await claim(a.d, a.hid, a.verifier, a.code);
+  assert.equal(used.status, 410);
+  assert.deepEqual(await used.json(), { error: "used", message: "This code has already been used. Start again to get a new one." });
+  const b = await desktopConsent(sql, [], clock);
+  clock.t += 2 * 60_000 + 1_000;
+  const late = await claim(b.d, b.hid, b.verifier, b.code);
+  assert.equal(late.status, 410);
+  assert.deepEqual(await late.json(), { error: "expired", message: "This code has expired. Codes last 2 minutes." });
+});
+
+test("Card 177 (a): PATCH sends explicit sendUpdates (default none; 'all' when asked) for 'these dates are cancelled'", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 13_000_000 };
+  const calls: Call[] = [];
+  const { d, pair } = await desktopPair(sql, clock, calls);
+  const base = d.fetch!;
+  const d2 = {
+    ...d,
+    fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/events/e1") && init?.method === "PATCH") {
+        calls.push({ url, init });
+        return new Response(JSON.stringify({ id: "e1", etag: '"8"', summary: "S", start: { dateTime: "2026-10-13T01:00:00Z" }, end: { dateTime: "2026-10-13T01:30:00Z" } }), { status: 200 });
+      }
+      return base(input, init);
+    }) as typeof fetch,
+  };
+  for (const [notify, want] of [[undefined, "none"], ["bogus", "none"], ["all", "all"]] as const) {
+    const r = await handleCalendar(bearerReq("events/e1", pair.access, { method: "PATCH", body: JSON.stringify({ cal: "alex@example.com", body: { recurrence: ["RRULE:FREQ=DAILY;UNTIL=20261020"] }, notify }) }), "events/e1", d2);
+    assert.equal(r.status, 200);
+    assert.match(calls.filter((c) => c.init?.method === "PATCH").at(-1)!.url, new RegExp(`/events/e1\\?sendUpdates=${want}$`));
+  }
+});

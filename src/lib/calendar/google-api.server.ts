@@ -86,8 +86,8 @@ const evPath = (cal: string, id?: string) => `/calendars/${encodeURIComponent(ca
 export const insertEvent = (f: Fetch, t: string, cal: string, body: GEvent) => gcal<GEvent>(f, t, evPath(cal), { method: "POST", body: JSON.stringify(body) }, 2);
 
 /** If-Match makes a stale write fail with 412 instead of overwriting a newer Google copy. */
-export const patchEvent = (f: Fetch, t: string, cal: string, id: string, body: GEvent, etag?: string) =>
-  gcal<GEvent>(f, t, evPath(cal, id), { method: "PATCH", body: JSON.stringify(body), headers: etag ? { "if-match": etag } : {} }, 2);
+export const patchEvent = (f: Fetch, t: string, cal: string, id: string, body: GEvent, etag?: string, send: SendUpdates = "none") =>
+  gcal<GEvent>(f, t, `${evPath(cal, id)}?sendUpdates=${send}`, { method: "PATCH", body: JSON.stringify(body), headers: etag ? { "if-match": etag } : {} }, 2);
 
 export type SendUpdates = "all" | "externalOnly" | "none";
 export const sendUpdatesOf = (v: unknown): SendUpdates => (v === "all" || v === "externalOnly" ? v : "none");

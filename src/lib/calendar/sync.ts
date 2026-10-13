@@ -108,7 +108,7 @@ export async function flushPending(src: CalendarSource, queue: PendingOp[]): Pro
     const op = queue[i]!;
     try {
       if (op.kind === "create") res.done.push({ op, event: await src.createEvent!(op.calId, op.write!) });
-      else if (op.kind === "update") res.done.push({ op, event: await src.updateEvent!(op.calId, op.remoteId!, { ...op.write!, etag: op.etag }) });
+      else if (op.kind === "update") res.done.push({ op, event: await src.updateEvent!(op.calId, op.remoteId!, { ...op.write!, etag: op.etag }, op.notify ?? "none") });
       else if (op.kind === "move") res.done.push({ op, event: await src.moveEvent!(op.calId, op.remoteId!, op.moveTo!, op.notify ?? "none") });
       else {
         await src.deleteEvent!(op.calId, op.remoteId!, op.etag, op.notify ?? "none");
