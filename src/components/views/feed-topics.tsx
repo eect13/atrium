@@ -25,12 +25,9 @@ import { Chip } from "./finance-chip";
 
 /** Options › "Show helper text" (Form 185: off by default). */
 const HELP = {
-  topics: "Picks rank this week's stories from your sources: more sources, a title match and things you save rank higher.",
-  saved: "Each saved story is filed under the followed topic it matched. Anything else is under Other.",
-  topicsCard: "Order here is the order on Topics. Use ⋯, or Alt+↑ / Alt+↓ on a topic, to move it.",
-  why: "One line under each pick saying why it was chosen.",
-  hide: "Dismissed stories stay out of Topics for 30 days.",
-  helper: "Short explanations like this one.",
+  other: "Saved items that don't match a followed topic.",
+  reorder: "Use ⋯ or Alt+↑/↓ to reorder.",
+  dismissed: "Kept for 30 days.",
 } as const;
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
@@ -152,7 +149,6 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
     <section aria-labelledby="topic-head">
       <h3 id="topic-head" className="font-display text-xl font-medium tracking-tight">{topic}</h3>
       <p className="mb-3 text-xs text-muted-foreground">{count}</p>
-      {prefs.showHelper ? <p className="mb-3 text-sm text-muted-foreground">{HELP.topics}</p> : null}
       {n === 0 ? (
         <div role="status" className="rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
           <p className="font-display text-lg font-medium tracking-tight">No stories on “{topic}” yet</p>
@@ -237,7 +233,7 @@ export function FeedSaved() {
   const shown = active ? prefs.hub.filter((h) => (h.topic ?? HUB_TOPIC_OTHER) === active) : prefs.hub;
   return (
     <div className="max-w-3xl">
-      {prefs.showHelper ? <p className="mb-3 text-sm text-muted-foreground">{HELP.saved}</p> : null}
+      {prefs.showHelper && active === HUB_TOPIC_OTHER ? <p className="mb-3 text-sm text-muted-foreground">{HELP.other}</p> : null}
       {topics.some((t) => t !== HUB_TOPIC_OTHER) ? (
         <div className="-mx-3 mb-3 flex gap-2 overflow-x-auto px-3 pb-1" role="group" aria-label="Filter saved by topic">
           <Chip active={!active} onClick={() => setPick(null)} className="shrink-0">
@@ -358,7 +354,7 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           <CardTitle>Followed topics</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
-          {help ? <p className="text-sm text-muted-foreground">{HELP.topicsCard}</p> : null}
+          {help ? <p className="text-sm text-muted-foreground">{HELP.reorder}</p> : null}
           <p className="sr-only" aria-live="polite">
             {said}
           </p>
@@ -391,13 +387,13 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           <CardTitle>Picks</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
-          <OptionsSwitchRow title="Show why lines" hint={help ? HELP.why : null} className="border-b border-border">
+          <OptionsSwitchRow title="Show why lines" hint={null} className="border-b border-border">
             <Switch checked={prefs.showWhy} onCheckedChange={(v) => updateFeed((p) => ({ ...p, showWhy: v }))} aria-label="Show why lines" />
           </OptionsSwitchRow>
-          <OptionsSwitchRow title="Hide stories I dismissed" hint={help ? HELP.hide : null} className="border-b border-border">
+          <OptionsSwitchRow title="Hide stories I dismissed" hint={null} className="border-b border-border">
             <Switch checked={prefs.hideDismissed} onCheckedChange={(v) => updateFeed((p) => ({ ...p, hideDismissed: v }))} aria-label="Hide stories I dismissed" />
           </OptionsSwitchRow>
-          <OptionsSwitchRow title="Show helper text" hint={help ? HELP.helper : null} className="border-b border-border">
+          <OptionsSwitchRow title="Show helper text" hint={null} className="border-b border-border">
             <Switch checked={prefs.showHelper} onCheckedChange={(v) => updateFeed((p) => ({ ...p, showHelper: v }))} aria-label="Show helper text" />
           </OptionsSwitchRow>
           <div className="flex min-h-11 items-center gap-2 border-b border-border py-1">
@@ -430,9 +426,9 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
               Review
             </Button>
           </div>
+          {help ? <p className="text-xs text-muted-foreground">{HELP.dismissed}</p> : null}
           {review ? (
             <section aria-label="Dismissed">
-              <p className="text-xs text-muted-foreground">Kept for 30 days.</p>
               <ul className="mt-1">
                 {prefs.dismissed.map((d) => (
                   <li key={d.id} className="flex min-h-11 items-center gap-2 border-b border-border py-1.5">

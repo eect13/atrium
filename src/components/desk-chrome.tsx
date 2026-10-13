@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type WidgetKind } from "@/lib/types";
+import { useFloatsAllowed } from "@/lib/use-platform";
 import { cn } from "@/lib/utils";
 
 /** Shared look for the page-header Float buttons (44×44, desktop only). */
@@ -16,7 +17,9 @@ const FLOAT_BTN =
 export function FloatBtn({ kind }: { kind: WidgetKind }) {
   const openWindow = useAtrium((s) => s.openWindow);
   const on = useAtrium((s) => s.windows.some((w) => w.kind === kind));
+  const floats = useFloatsAllowed();
   const label = on ? "On desk" : "Float";
+  if (!floats) return null;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -46,7 +49,9 @@ export function NotesFloatBtn() {
     })),
   );
   const on = notes.some((n) => n.pinned);
+  const floats = useFloatsAllowed();
   const label = on ? "On desk" : "Float";
+  if (!floats) return null;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -70,6 +75,7 @@ export function NotesFloatBtn() {
 export function DeskMenu() {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const floats = useFloatsAllowed();
   const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinAllNotes, unpinAllNotes } =
     useAtrium(
       useShallow((s) => ({
@@ -139,8 +145,10 @@ export function DeskMenu() {
     );
   }
 
+  // Card 187/192: the float layer is lg-only on the web and absent in the mobile app.
+  if (!floats) return null;
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className="relative hidden lg:block">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button

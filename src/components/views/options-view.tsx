@@ -1,5 +1,6 @@
 "use client";
 
+import { useFloatsAllowed } from "@/lib/use-platform";
 import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
 import { setNewEventsTo, useCalAccounts } from "@/lib/calendar/accounts";
 import { APP_LABEL } from "@/lib/version";
@@ -370,6 +371,7 @@ function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: 
 }
 
 export function OptionsView() {
+  const floats = useFloatsAllowed();
   const {
     modules,
     toggleModule,
@@ -456,7 +458,7 @@ export function OptionsView() {
         <p className="text-xs text-muted-foreground">{APP_LABEL}</p>
       </div>
       <nav className="flex flex-wrap gap-2" aria-label="Jump to section">
-        {JUMP.filter((s) => (s.id !== "opt-news" || modules.news) && (s.id !== "opt-markets" || modules.finance)).map((s) => (
+        {JUMP.filter((s) => (s.id !== "opt-news" || modules.news) && (s.id !== "opt-markets" || modules.finance) && (s.id !== "opt-desk" || floats)).map((s) => (
           <button
             key={s.id}
             type="button"
@@ -480,6 +482,7 @@ export function OptionsView() {
         </CardContent>
       </Card>
 
+      {floats ? (
       <Card id="opt-desk" className="scroll-mt-4">
         <CardHeader>
           <CardTitle>Floating desk</CardTitle>
@@ -513,6 +516,7 @@ export function OptionsView() {
           ) : null}
         </CardContent>
       </Card>
+      ) : null}
 
       <Card id="opt-dash" className="scroll-mt-4">
         <CardHeader>

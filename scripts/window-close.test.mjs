@@ -22,7 +22,10 @@ function sources(dir, out = []) {
 test("windows that listen for close-requested may destroy themselves", () => {
   const listens = sources(join(root, "src")).filter((p) => readFileSync(p, "utf8").includes("onCloseRequested("));
   assert.ok(listens.length > 0, "expected a close-requested listener in src/");
-  const cap = JSON.parse(readFileSync(join(root, "src-tauri/capabilities/default.json"), "utf8"));
+  // Card 192: window permissions live in the desktop-only capability; the listeners are desktop-gated
+  // (nativeWindows() in native-float / native-session), and mobile.json grants no window permissions.
+  const cap = JSON.parse(readFileSync(join(root, "src-tauri/capabilities/desktop.json"), "utf8"));
+  assert.deepEqual(cap.platforms, ["linux", "macOS", "windows"]);
   assert.ok(cap.windows.includes("*") || cap.windows.includes("main"), "capability must cover the main window");
   assert.ok(
     cap.permissions.includes("core:window:allow-destroy"),

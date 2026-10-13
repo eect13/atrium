@@ -223,7 +223,7 @@ function HubCard({
                 toast("Exported .md");
               },
             },
-            { label: "Delete", destructive: true, onSelect: () => setConfirm(true) },
+            { label: "Remove", destructive: true, onSelect: () => setConfirm(true) },
           ]}
         />
       </div>
@@ -231,7 +231,8 @@ function HubCard({
         <ConfirmRow
           className="mt-2"
           subject={item.title}
-          verb="Delete"
+          verb="Remove"
+          detail="It leaves Saved. The story isn't deleted anywhere."
           onCancel={() => setConfirm(false)}
           onConfirm={remove}
         />
@@ -317,8 +318,8 @@ export function Hub({ prefs, items, update, onAdd, layout, title = "Saved" }: { 
           </div>
         ) : null}
       </div>
-      <Button variant="ghost" size="sm" className="min-h-11" onClick={onAdd}>
-        + Add
+      <Button variant="ghost" size="sm" className="min-h-11" aria-label="Add a link to Saved" onClick={onAdd}>
+        + Add link
       </Button>
     </div>
   );
@@ -461,20 +462,20 @@ export function InterestDialog({
                       key={i}
                       as="li"
                       subject={i}
-                      verb="Delete"
-                      detail="Stories stay; the tab goes."
+                      verb="Unfollow"
+                      detail="Stories stay in Latest."
                       triggerId={i}
                       onCancel={() => setConfirmId(null)}
                       onConfirm={() => {
                         update((p) => withoutInterest(p, i));
                         setConfirmId(null);
-                        toast(`Removed ${i}`);
+                        toast(`Unfollowed ${i}`);
                       }}
                     />
                   ) : (
                     <li key={i} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-border px-2">
                       <span className="truncate text-sm">{i}</span>
-                      <ConfirmTrigger id={i} label={`Delete ${i}`} onClick={() => setConfirmId(i)} />
+                      <ConfirmTrigger id={i} label={`Unfollow ${i}`} onClick={() => setConfirmId(i)} />
                     </li>
                   ),
                 )}

@@ -37,7 +37,6 @@ export function CalendarToolbar({
   onNew: () => void;
 }) {
   const file = useRef<HTMLInputElement | null>(null);
-  const openWindow = useAtrium((s) => s.openWindow);
   const unit = mode === "agenda" ? "month" : mode;
   const nav = (
     <div className="flex shrink-0 items-center rounded-xl border border-border">
@@ -112,7 +111,6 @@ export function CalendarToolbar({
               { label: "Import ICS", onSelect: () => file.current?.click() },
               { label: "Export", onSelect: onExport },
               { label: "Calendar accounts…", onSelect: onAccounts },
-              { label: "Float", onSelect: () => openWindow("calendar") },
             ]}
           />
         </div>

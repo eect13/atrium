@@ -1,4 +1,5 @@
 import { isTauri } from "./http.ts";
+import { nativeWindows } from "./platform.ts";
 
 export { isTauri };
 
@@ -75,7 +76,7 @@ export async function openNativeFloat(
   opts: { x: number; y: number; w: number; h: number; title: string; pinned?: boolean },
   onGone?: () => void,
 ) {
-  if (!isTauri()) return false;
+  if (!nativeWindows()) return false;
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   const label = labelFor(kind, id);
   const existing = await WebviewWindow.getByLabel(label);
@@ -106,7 +107,7 @@ export async function openNativeFloat(
 }
 
 export async function closeNativeFloat(kind: "note" | "widget", id: string) {
-  if (!isTauri()) return;
+  if (!nativeWindows()) return;
   beginFloatKeep();
   try {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -119,7 +120,7 @@ export async function closeNativeFloat(kind: "note" | "widget", id: string) {
 
 /** Close every child float. The store keeps which pads were up so the next open restores them. */
 export async function closeAllNativeFloats() {
-  if (!isTauri()) return;
+  if (!nativeWindows()) return;
   beginFloatKeep();
   try {
     const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -146,7 +147,7 @@ export async function closeAllNativeFloats() {
  * left `atrium.float.keep` stuck in localStorage for every later session.
  */
 export async function closeAllNativeFloatsForExit(timeoutMs = 1500) {
-  if (!isTauri()) return;
+  if (!nativeWindows()) return;
   closingAll = true;
   await closeAllNativeFloats();
   try {
@@ -169,20 +170,20 @@ export async function closeAllNativeFloatsForExit(timeoutMs = 1500) {
 }
 
 export async function closeThisWindow() {
-  if (!isTauri()) return;
+  if (!nativeWindows()) return;
   const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   await getCurrentWebviewWindow().close();
 }
 
 export async function setNativeAlwaysOnTop(on: boolean) {
-  if (!isTauri()) return;
+  if (!nativeWindows()) return;
   const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   await getCurrentWebviewWindow().setAlwaysOnTop(on);
 }
 
 /** Persist the last box then dock/close in the store when the OS chrome dismisses the window. */
 export function watchNativeClose(onClose: () => void) {
-  if (!isTauri()) return () => {};
+  if (!nativeWindows()) return () => {};
   let un: (() => void) | undefined;
   let dead = false;
   void (async () => {
@@ -202,7 +203,7 @@ export function watchNativeClose(onClose: () => void) {
 }
 
 export function watchNativeBounds(onBox: (box: { x: number; y: number; w: number; h: number }) => void) {
-  if (!isTauri()) return () => {};
+  if (!nativeWindows()) return () => {};
   let dead = false;
   let timer = 0;
   let un1: (() => void) | undefined;

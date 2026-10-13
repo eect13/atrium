@@ -820,7 +820,7 @@ export function FinancePeek() {
         <p className="mt-2 text-xs text-muted-foreground">{markets.data.gaps.join(" · ")} didn’t answer.</p>
       ) : null}
       {marketsOn && (markets.isError || markets.data?.failed || markets.data?.gaps?.length) ? (
-        <button type="button" className="mt-2 text-xs underline" onClick={() => void markets.refetch()}>
+        <button type="button" className="mt-2 inline-flex min-h-11 items-center text-xs underline" onClick={() => void markets.refetch()}>
           Retry prices
         </button>
       ) : null}
@@ -909,7 +909,7 @@ export function NewsPeek({
         {!feedOn ? (
           <button
             type="button"
-            className="text-sm text-foreground underline-offset-2 hover:underline"
+            className="inline-flex min-h-11 items-center text-sm text-foreground underline-offset-2 hover:underline"
             onClick={() => {
               enableStarterFeeds();
               toast("Starter sources on");

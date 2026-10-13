@@ -72,6 +72,7 @@ import { useAtrium } from "@/lib/store";
 import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { rememberMainWindow } from "@/lib/native-session";
+import { useFloatsAllowed } from "@/lib/use-platform";
 import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
 import { cn } from "@/lib/utils";
@@ -297,6 +298,7 @@ function RailFoot({
 }
 
 export function AtriumApp() {
+  const floats = useFloatsAllowed();
   // Main window only (floats render FloatShell): new launch → new session quote, shared with floats.
   useState(() => {
     markQuoteLaunch();
@@ -826,11 +828,13 @@ export function AtriumApp() {
         </main>
       </div>
 
-      <div role="region" aria-label="Floating windows" className={cn("pointer-events-none fixed inset-0 hidden lg:block", floatsUnder ? "-z-10" : "z-40")}>
-        <Suspense fallback={null}>
-          <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />
-        </Suspense>
-      </div>
+      {floats ? (
+        <div role="region" aria-label="Floating windows" className={cn("pointer-events-none fixed inset-0 hidden lg:block", floatsUnder ? "-z-10" : "z-40")}>
+          <Suspense fallback={null}>
+            <DesktopLayer headlines={headlines} newsLoading={newsLoading} newsError={news.isError} newsMissed={newsMissed} />
+          </Suspense>
+        </div>
+      ) : null}
     </div>
   );
 }

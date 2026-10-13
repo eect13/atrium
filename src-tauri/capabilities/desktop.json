@@ -1,7 +1,15 @@
 {
-  "identifier": "default",
-  "description": "Main and float window capabilities",
-  "windows": ["*"],
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop only (Card 192): main + native float windows. Multi-window permissions never ship to Android / iOS.",
+  "windows": [
+    "*"
+  ],
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-create",

@@ -172,6 +172,18 @@ export function CalendarView() {
   /** Card 181: unknown organiser → ask Google for this one event when it opens; blocked until known. */
   const [ownerCheck, setOwnerCheck] = useState<"checking" | "failed" | null>(null);
   const unknownOwner = Boolean(open && moveSrc && ownerUnknown(moveSrc));
+  /** Card 189 A1: describedby names the reason (+ the failure), never buttons or "Checking…" / "Syncing…". */
+  const delFailed = Boolean(moveSrc && ownerUnknown(moveSrc) && ownerCheck === "failed");
+  const delDescribedBy = delBlock ? (delFailed ? "ev-del-reason ev-del-fail" : "ev-del-reason") : undefined;
+  /** Card 189 A3: always-mounted live region; filled one tick after open so it is announced once. */
+  const [delLive, setDelLive] = useState("");
+  const delLiveText = open && editId && delBlock ? `${delBlock}${delFailed ? " Couldn't reach Google." : ""}` : "";
+  useEffect(() => {
+    setDelLive("");
+    if (!delLiveText) return;
+    const t = window.setTimeout(() => setDelLive(delLiveText), 0);
+    return () => window.clearTimeout(t);
+  }, [delLiveText]);
   const runOwnerCheck = useCallback((id: string) => {
     setOwnerCheck("checking");
     void checkOwner(id).then((ok) => setOwnerCheck(ok ? null : "failed"));
@@ -184,6 +196,9 @@ export function CalendarView() {
   const [occurStart, setOccurStart] = useState<string | null>(null);
   /** Where the edited event lives now ("local" or a Google calendar id), for moves (d). */
   const [sourceCal, setSourceCal] = useState("local");
+  /** Card 189 A2: the move reason when any target in the Calendar select is blocked. */
+  const moveTargets = editId && moveSrc ? [...writable.map((c) => c.id), "local"].filter((id) => id !== sourceCal) : [];
+  const calBlock = moveSrc ? (moveTargets.map((id) => moveBlock(moveSrc, id, writable.map((w) => w.id))).find(Boolean) ?? null) : null;
   const [seriesAsk, setSeriesAsk] = useState<{ kind: "save" | "delete"; payload?: Partial<CalendarEvent>; step?: "guests" } | null>(null);
   const [seriesScope, setSeriesScope] = useState<SeriesScope>(DEFAULT_SERIES_SCOPE);
   /** Card 168 (e): phone day tap opens this day's agenda sheet. */
@@ -651,7 +666,7 @@ export function CalendarView() {
             {!viewOnly && (writable.length || (editId && fromGoogle)) ? (
               <div className="space-y-1">
                 <Label htmlFor="ev-cal">Calendar</Label>
-                <select id="ev-cal" className={FIELD_SELECT} value={target} aria-describedby={editId && target !== sourceCal ? "ev-cal-move" : undefined} onChange={(e) => setTarget(e.target.value)}>
+                <select id="ev-cal" className={FIELD_SELECT} value={target} aria-describedby={[editId && target !== sourceCal ? "ev-cal-move" : "", calBlock ? "ev-cal-block" : ""].filter(Boolean).join(" ") || undefined} onChange={(e) => setTarget(e.target.value)}>
                   {editId && fromGoogle && !writable.some((c) => c.id === sourceCal) ? <option value={sourceCal}>{gcalCals.find((c) => c.id === sourceCal)?.label ?? "Google"}</option> : null}
                   {writable.map((c) => (
                     <option key={c.id} value={c.id} disabled={Boolean(editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)))} aria-describedby={editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)) ? "ev-cal-block" : undefined}>
@@ -660,9 +675,7 @@ export function CalendarView() {
                   ))}
                   <option value="local" disabled={Boolean(editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)))} aria-describedby={editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)) ? "ev-cal-block" : undefined}>Atrium only</option>
                 </select>
-                {editId && moveSrc && target === sourceCal && writable.some((c) => c.id !== sourceCal) && moveSrc.source === "google" && moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id)) ? (
-                  <p id="ev-cal-block" className="text-xs text-muted-foreground">{moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id))}</p>
-                ) : null}
+                {calBlock ? <p id="ev-cal-block" className="text-xs text-muted-foreground">{calBlock}</p> : null}
                 {editId && target !== sourceCal ? (
                   <p id="ev-cal-move" className="text-xs text-muted-foreground">
                     {target === "local"
@@ -1007,7 +1020,7 @@ export function CalendarView() {
                 {viewOnly ? "Close" : "Cancel"}
               </Button>
               {editId && !viewOnly ? (
-                <Button variant="outline" data-confirm-trigger="event-delete" aria-disabled={delBlock ? true : undefined} aria-describedby={delBlock ? "ev-del-block" : undefined} className={delBlock ? "opacity-50" : undefined} onClick={() => {
+                <Button variant="outline" data-confirm-trigger="event-delete" aria-disabled={delBlock ? true : undefined} aria-describedby={delDescribedBy} className={delBlock ? "opacity-50" : undefined} onClick={() => {
                   if (delBlock) return;
                   const cur = events.find((x) => x.id === editId);
                   if (occurStart && cur?.repeat) setSeriesAsk({ kind: "delete" });
@@ -1099,14 +1112,14 @@ export function CalendarView() {
                 Save
               </Button>}
             {editId && !viewOnly && delBlock && !seriesAsk ? (
-              <p id="ev-del-block" aria-live="polite" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
-                <span>{delBlock}</span>
+              <p id="ev-del-block" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
+                <span id="ev-del-reason">{delBlock}</span>
                 {moveSrc && ownerUnknown(moveSrc) ? (
                   ownerCheck === "checking" ? (
                     <span>Checking…</span>
                   ) : (
                     <>
-                      {ownerCheck === "failed" ? <span>Couldn&apos;t reach Google.</span> : null}
+                      {ownerCheck === "failed" ? <span id="ev-del-fail">Couldn&apos;t reach Google.</span> : null}
                       <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => editId && runOwnerCheck(editId)}>
                         Check again
                       </button>
@@ -1124,6 +1137,9 @@ export function CalendarView() {
             </div>
             )}
           </div>
+          <p id="ev-del-live" className="sr-only" aria-live="polite" aria-atomic="true">
+            {delLive}
+          </p>
         </DialogContent>
       </Dialog>
       <Sheet open={Boolean(daySheet)} onOpenChange={(o) => !o && setDaySheet(null)}>

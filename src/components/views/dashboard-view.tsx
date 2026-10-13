@@ -1,5 +1,6 @@
 "use client";
 
+import { useFloatsAllowed } from "@/lib/use-platform";
 import { WidgetOptionsMenu } from "@/components/widget-options";
 import { hasWidgetOptions } from "@/lib/widget-prefs";
 import { useRef, useState, type ReactNode } from "react";
@@ -36,6 +37,7 @@ export function DashboardView({
   newsError?: boolean;
   newsMissed?: string[];
 }) {
+  const floats = useFloatsAllowed();
   const { profile, notes, modules, dashOrder, dashLocked, dashSpan, setDashOrder, setDashLocked, setDashSpan, resetDash, setView } =
     useAtrium(
       useShallow((s) => ({
@@ -106,7 +108,7 @@ export function DashboardView({
       return (
         <>
           <NotesPeek />
-          {notes.some((n) => n.pinned) ? (
+          {floats && notes.some((n) => n.pinned) ? (
             <p className="mt-3 hidden text-xs text-muted-foreground lg:block">
               Pinned notes float over every screen on desktop.
             </p>

@@ -179,6 +179,8 @@ export default defineConfig(({ command, isPreview }) => {
       root: projectRoot,
       clearScreen: false,
       base: "./",
+      // Card 192: lets src/lib/platform.ts know an Android / iOS build at runtime (no plugin-os in deps).
+      define: { __ATRIUM_TAURI_PLATFORM__: JSON.stringify(process.env.TAURI_ENV_PLATFORM ?? "") },
       plugins: [tailwindcss(), viteReact(), tauriIndexPlugin()],
       resolve: {
         tsconfigPaths: true,

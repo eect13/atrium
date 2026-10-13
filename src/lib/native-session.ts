@@ -1,4 +1,4 @@
-import { isTauri } from "@/lib/http";
+import { nativeWindows } from "@/lib/platform";
 import { writeLocal } from "@/lib/quota";
 import { closeAllNativeFloatsForExit } from "@/lib/native-float";
 
@@ -24,7 +24,7 @@ function readBox(): Box | null {
 
 /** Restore the last main-window size/spot, then keep writing it. */
 export function rememberMainWindow() {
-  if (!isTauri()) return () => {};
+  if (!nativeWindows()) return () => {};
   let dead = false;
   let timer = 0;
   let un1: (() => void) | undefined;

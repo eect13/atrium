@@ -1174,7 +1174,7 @@ export function FinanceMarkets() {
             </p>
           ) : null}
           {markets.isError || markets.data?.failed || markets.data?.gaps?.length ? (
-            <button type="button" className="mt-2 px-5 text-xs underline" onClick={() => void markets.refetch()}>
+            <button type="button" className="mt-2 inline-flex min-h-11 items-center px-5 text-xs underline" onClick={() => void markets.refetch()}>
               Retry prices
             </button>
           ) : null}

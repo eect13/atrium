@@ -1,5 +1,6 @@
 "use client";
 
+import { useFloatsAllowed } from "@/lib/use-platform";
 import { useRef, useState } from "react";
 import { LayoutGrid, LayoutList, PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -36,8 +37,10 @@ export function NotesView() {
   const board = useRef<HTMLDivElement>(null);
   const [inkId, setInkId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ from: string; to: string } | null>(null);
-  const boardNotes = notes.filter((n) => !n.pinned);
-  const pinned = notes.filter((n) => n.pinned);
+  // Card 192: the mobile app has no floats, so pinned notes stay on the board and the pin is hidden.
+  const floats = useFloatsAllowed();
+  const boardNotes = floats ? notes.filter((n) => !n.pinned) : notes;
+  const pinned = floats ? notes.filter((n) => n.pinned) : [];
   const layout = notesLayout === "list" ? "list" : "board";
   const ordered = [...boardNotes].sort((a, b) => a.y - b.y || a.x - b.x);
   let shown = ordered;
@@ -83,8 +86,8 @@ export function NotesView() {
       <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-2 bg-background/95 py-2 backdrop-blur">
         <h2 className="font-display text-2xl font-medium tracking-tight">Sticky notes</h2>
         <p className="text-sm text-muted-foreground">
-          <span className="lg:hidden">Board or list. Pin floats on the desk.</span>
-          <span className="hidden lg:inline">Scroll the board. Drag a title to reorder. Pin floats on the desk.</span>
+          <span className="lg:hidden">{floats ? "Board or list. Pin floats on the desk." : "Board or list."}</span>
+          <span className="hidden lg:inline">{floats ? "Scroll the board. Drag a title to reorder. Pin floats on the desk." : "Scroll the board. Drag a title to reorder."}</span>
         </p>
         <div className="grow" />
         <NotesFloatBtn />
@@ -101,7 +104,7 @@ export function NotesView() {
             key={c}
             type="button"
             aria-label="Add note"
-            className="size-10 rounded-md border border-border"
+            className="size-11 rounded-md border border-border"
             style={{ background: c }}
             onClick={() => spawn(c)}
           />
@@ -124,7 +127,7 @@ export function NotesView() {
             onDragOver={(over) => setDrag((d) => (d?.from === n.id ? { from: n.id, to: over } : d))}
             onDragEnd={finishDrag}
             onUpdate={(patch) => updateNote(n.id, patch)}
-            onPin={() => pinNote(n.id)}
+            onPin={floats ? () => pinNote(n.id) : undefined}
             onDelete={() => removeNote(n.id)}
           />
         ))}
@@ -193,7 +196,7 @@ function BoardNote({
   onDragOver: (overId: string) => void;
   onDragEnd: () => void;
   onUpdate: (patch: Partial<StickyNote>) => void;
-  onPin: () => void;
+  onPin?: () => void;
   onDelete: () => void;
 }) {
   const ink = inkOnPaper(note.color);

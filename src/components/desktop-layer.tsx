@@ -12,6 +12,7 @@ import { inkOnPaper, noteTitle } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
 import { closeNativeFloat, isTauri, openNativeFloat } from "@/lib/native-float";
+import { floatsAllowed, nativeWindows } from "@/lib/platform";
 
 function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean; weather?: boolean; clock?: boolean }) {
   if (kind === "finance") return modules.finance;
@@ -71,7 +72,8 @@ export function DesktopLayer({
   boxesRef.current = { pinned, floating };
 
   useEffect(() => {
-    if (!isTauri()) return;
+    // Card 192: never on Android / iOS (single window); web + desktop Tauri unchanged.
+    if (!nativeWindows()) return;
     const { pinned: liveNotes, floating: liveWins } = boxesRef.current;
     const noteIds = new Set(liveNotes.map((n) => n.id));
     const winIds = new Set(liveWins.map((w) => w.id));
@@ -112,7 +114,7 @@ export function DesktopLayer({
   }, [unpinNote, closeWindow]);
 
   useEffect(() => {
-    if (isTauri()) return;
+    if (isTauri() || !floatsAllowed()) return;
     const clampAll = () => {
       const { pinned: liveNotes, floating: liveWins } = boxesRef.current;
       for (const w of liveWins) {
@@ -131,7 +133,7 @@ export function DesktopLayer({
     return () => window.removeEventListener("resize", clampAll);
   }, [updateWindow, updateNote]);
 
-  if (isTauri()) return null;
+  if (isTauri() || !floatsAllowed()) return null;
   return (
     <div className="pointer-events-none fixed inset-0 z-40">
       {floating.map((win) => (
