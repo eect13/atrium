@@ -36,7 +36,26 @@ export type FeedPrefs = {
   showHub: boolean;
   /** Layout: roomy story rows when on; compact when off. Default on. */
   comfortableDensity: boolean;
+  /** Topic Finder: dismissed story clusters, kept 30 days (Card 161 §3). */
+  dismissed: DismissedPick[];
+  /** Topic Finder "Less like this": title keywords that rank lower. */
+  lessLike: string[];
 };
+
+export type DismissedPick = { id: string; at: string; title?: string; link?: string };
+
+/** Card 161 Needs Eric #4: dismissed picks are forgotten after 30 days. */
+export const DISMISS_DAYS = 30;
+const DISMISS_MAX = 500;
+const LESS_MAX = 60;
+
+export function pruneDismissed(list: readonly DismissedPick[], now = Date.now(), days = DISMISS_DAYS): DismissedPick[] {
+  const cut = now - days * 86_400_000;
+  return list.filter((d) => {
+    const t = Date.parse(d.at);
+    return Number.isFinite(t) && t >= cut;
+  });
+}
 
 export const DIGEST_FREQS: { id: DigestFreq; label: string }[] = [
   { id: "daily", label: "Daily" },
@@ -56,6 +75,8 @@ export const DEFAULT_FEED_PREFS: FeedPrefs = {
   digestTime: "07:00",
   digestFreq: "daily",
   hub: [],
+  dismissed: [],
+  lessLike: [],
   pinned: [],
   hidden: [],
   muted: [],
@@ -157,6 +178,12 @@ export function normalizeFeedPrefs(raw: unknown): FeedPrefs {
     showSummary: r.showSummary !== false,
     showHub: r.showHub !== false,
     comfortableDensity: r.comfortableDensity !== false,
+    dismissed: pruneDismissed(
+      (Array.isArray(r.dismissed) ? r.dismissed : [])
+        .filter((d): d is DismissedPick => Boolean(d) && typeof (d as DismissedPick).id === "string" && typeof (d as DismissedPick).at === "string")
+        .map((d) => ({ id: d.id, at: d.at, ...(typeof d.title === "string" ? { title: d.title.slice(0, 300) } : {}), ...(typeof d.link === "string" ? { link: d.link } : {}) })),
+    ).slice(0, DISMISS_MAX),
+    lessLike: strList(r.lessLike, LESS_MAX),
   };
 }
 

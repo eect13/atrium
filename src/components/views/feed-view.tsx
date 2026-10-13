@@ -20,7 +20,6 @@ import {
   CurateDialog,
   DigestDialog,
   DigestHero,
-  Hub,
   HubAddDialog,
   InterestDialog,
   SourceLine,
@@ -207,7 +206,7 @@ export function FeedView({
         </p>
       ) : null}
 
-      <div className={`grid gap-4 lg:items-start ${prefs.showHub ? "lg:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
+      <div className="grid gap-4 lg:items-start">
         <div className="min-w-0 space-y-4">
           {!onCount && !items.length ? (
             <section className="rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
@@ -240,12 +239,6 @@ export function FeedView({
               ) : null}
             </>
           )}
-
-          {prefs.showHub ? (
-            <div className="lg:hidden">
-              <Hub prefs={prefs} update={updateFeed} onAdd={() => open("hub")} layout="strip" />
-            </div>
-          ) : null}
 
           <section aria-labelledby="feed-stories">
             <div className="mb-2 flex items-center gap-2">
@@ -374,11 +367,6 @@ export function FeedView({
           </section>
         </div>
 
-        {prefs.showHub ? (
-          <aside className="hidden lg:block" aria-label="Resource hub rail">
-            <Hub prefs={prefs} update={updateFeed} onAdd={() => open("hub")} layout="rail" />
-          </aside>
-        ) : null}
       </div>
 
       <FeedSources

@@ -1,4 +1,4 @@
-/** Resource hub .md / PDF export — titles from items; context-neutral. */
+/** Saved (Topic Finder, was Resource hub) .md / PDF export — titles from items; context-neutral. */
 
 import { downloadText } from "./books.ts";
 import { deskPdf, downloadPdf, wrapPdfText, type DeskPdfLine } from "./desk-pdf.ts";
@@ -6,7 +6,7 @@ import { hostOf, type HubItem } from "./feed.ts";
 import { isoDate } from "./format.ts";
 
 export function hubMarkdown(items: HubItem[]): string {
-  const lines = ["# Resource hub", ""];
+  const lines = ["# Saved", ""];
   if (!items.length) {
     lines.push("_Empty hub._", "");
     return lines.join("\n");
@@ -28,7 +28,7 @@ export function hubMarkdown(items: HubItem[]): string {
 
 export function hubPdfBytes(items: HubItem[]): Uint8Array {
   const lines: DeskPdfLine[] = [
-    { text: "Resource hub", size: 18, bold: true, gap: 18 },
+    { text: "Saved", size: 18, bold: true, gap: 18 },
     { text: `${items.length} item${items.length === 1 ? "" : "s"}`, size: 10, gap: 16, gray: true },
   ];
   if (!items.length) {

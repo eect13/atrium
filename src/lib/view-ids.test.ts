@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MODULE_IDS, VIEW_IDS, toViewId } from "./types.ts";
 
-test("every module is a persisted view, plus dashboard and options", () => {
+test("every module is a persisted view, plus dashboard, Topic Finder and options", () => {
   for (const id of MODULE_IDS) assert.equal(toViewId(id, "dashboard"), id);
   assert.equal(toViewId("dashboard", "calendar"), "dashboard");
   assert.equal(toViewId("options", "dashboard"), "options");
-  assert.equal(VIEW_IDS.length, MODULE_IDS.length + 2);
+  assert.equal(VIEW_IDS.length, MODULE_IDS.length + 3);
+  assert.equal(toViewId("topics", "dashboard"), "topics", "Topic Finder (Card 165)");
 });
 
 test("clock survives a reload (Card 134 regression)", () => {

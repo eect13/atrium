@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
+  Compass,
   Clock,
   CloudSun,
   LayoutGrid,
@@ -38,6 +39,9 @@ const CalendarView = lazy(() =>
 );
 const NotesView = lazy(() =>
   import("@/components/views/notes-view").then((m) => ({ default: m.NotesView })),
+);
+const TopicFinderView = lazy(() =>
+  import("@/components/views/topic-finder-view").then((m) => ({ default: m.TopicFinderView })),
 );
 const OptionsView = lazy(() =>
   import("@/components/views/options-view").then((m) => ({ default: m.OptionsView })),
@@ -138,6 +142,7 @@ const NAV: {
   { id: "finance", label: "Finance", icon: Wallet, module: "finance" },
   { id: "quotes", label: "Quotes", icon: Quote, module: "quotes" },
   { id: "news", label: "Feed", icon: Newspaper, module: "news" },
+  { id: "topics", label: "Topic Finder", icon: Compass, module: "news" },
 ];
 
 type Briefing = { items: NewsItem[]; missed: string[] };
@@ -807,6 +812,11 @@ export function AtriumApp() {
               missed={newsMissed}
               onRefresh={() => void news.refetch()}
             />
+            </Suspense>
+          )}
+          {view === "topics" && modules.news && (
+            <Suspense fallback={<ViewFallback />}>
+              <TopicFinderView items={headlines} />
             </Suspense>
           )}
           {view === "options" && (

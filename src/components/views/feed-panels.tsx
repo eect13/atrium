@@ -251,7 +251,7 @@ function HubCard({
 }
 
 /** B · resource hub. `rail` = desktop 320px column; `strip` = phone horizontal scroller. */
-export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update: Update; onAdd: () => void; layout: "rail" | "strip" }) {
+export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: FeedPrefs; update: Update; onAdd: () => void; layout: "rail" | "strip"; title?: string }) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -269,7 +269,7 @@ export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update
 
   const head = (
     <div className="mb-2 flex flex-wrap items-center gap-2">
-      <h3 className={EYEBROW}>Resource hub</h3>
+      <h3 className={EYEBROW}>{title}</h3>
       <div className="grow" />
       <div className="relative" ref={exportRef}>
         <Button
@@ -281,7 +281,7 @@ export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update
           onClick={() => setExportOpen((v) => !v)}
           disabled={!prefs.hub.length}
         >
-          Export hub
+          Export
         </Button>
         {exportOpen ? (
           <div role="menu" className="absolute right-0 top-12 z-30 w-44 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]">
@@ -292,7 +292,7 @@ export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update
               onClick={() => {
                 downloadHubMarkdown(prefs.hub);
                 setExportOpen(false);
-                toast("Exported hub .md");
+                toast("Exported saved .md");
               }}
             >
               Export .md
@@ -304,7 +304,7 @@ export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update
               onClick={() => {
                 downloadHubPdf(prefs.hub);
                 setExportOpen(false);
-                toast("Exported hub PDF");
+                toast("Exported saved PDF");
               }}
             >
               Export PDF
@@ -320,16 +320,16 @@ export function Hub({ prefs, update, onAdd, layout }: { prefs: FeedPrefs; update
 
   if (!prefs.hub.length) {
     return (
-      <section aria-label="Resource hub">
+      <section aria-label={title}>
         {head}
         <div className={`${CARD} p-4 text-sm text-muted-foreground`}>
-          Save links, videos, or docs here. Add one, or save a story from Curate.
+          Nothing saved yet.
         </div>
       </section>
     );
   }
   return (
-    <section aria-label="Resource hub">
+    <section aria-label={title}>
       {head}
       {layout === "rail" ? (
         <div className="space-y-3">
@@ -356,7 +356,7 @@ export function HubAddDialog({ open, setOpen, update }: { open: boolean; setOpen
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add to hub</DialogTitle>
+          <DialogTitle>Save a link</DialogTitle>
         </DialogHeader>
         <form
           className="space-y-3"
@@ -364,7 +364,7 @@ export function HubAddDialog({ open, setOpen, update }: { open: boolean; setOpen
             e.preventDefault();
             if (!ok) return;
             update((p) => withHub(p, { id: uid(), url: url.trim(), title, at: new Date().toISOString() }));
-            toast("Saved to hub");
+            toast("Saved");
             setUrl("");
             setTitle("");
             setOpen(false);
@@ -611,10 +611,10 @@ export function CurateDialog({
                         disabled={inHub.has(s.link)}
                         onClick={() => {
                           update((p) => withHub(p, { id: uid(), url: s.link, title: s.title, src: s.src, at: new Date().toISOString() }));
-                          toast("Saved to hub");
+                          toast("Saved");
                         }}
                       >
-                        {inHub.has(s.link) ? "In hub" : "Save to hub"}
+                        {inHub.has(s.link) ? "Saved" : "Save"}
                       </Button>
                     </div>
                   </li>
