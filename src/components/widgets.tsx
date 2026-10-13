@@ -82,7 +82,7 @@ export function WeatherBody() {
 }
 
 export function AgendaBody() {
-  const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
+  const stored = useAtrium(useShallow((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals))));
   const eventCats = useAtrium((s) => s.eventCats);
   const setView = useAtrium((s) => s.setView);
   const todayStart = manilaAt(isoDate(new Date()), 0);
@@ -281,7 +281,7 @@ export function CalendarPeek({
   /** Key the Today | Week | Month pick is remembered under. */
   widgetId?: string;
 }) {
-  const stored = useAtrium((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals)));
+  const stored = useAtrium(useShallow((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals))));
   const eventCats = useAtrium((s) => s.eventCats);
   const setView = useAtrium((s) => s.setView);
   const view = useAtrium((s) => calViewFor(s.calViews, widgetId));
