@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Lock, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, Lock, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
@@ -16,16 +16,18 @@ import { fetchIcsUrl } from "@/lib/feeds";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { useAtrium } from "@/lib/store";
 import { calendarColourOf, isWritableRole } from "@/lib/calendar/source";
-import { LEGACY_ICS, type IcsSourceMeta } from "@/lib/calendar/ics-source";
+import { LEGACY_ICS, maskIcsUrl, type IcsSourceMeta } from "@/lib/calendar/ics-source";
 import {
   addIcsSource,
   cancelConnect,
   refreshStatus,
   connectGoogle,
+  discardPending,
   disconnectGoogle,
   icsSourcesWithLegacy,
   refreshIcsSource,
   removeIcsSource,
+  submitHandoffCode,
   setCalendarColour,
   syncNow,
   toggleGoogleCalendar,
@@ -52,29 +54,145 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-export function SyncBanner({ kind, at, onRetry, onSignIn, onAllow }: { kind: Exclude<Banner, null>; at: string; onRetry: () => void; onSignIn: () => void; onAllow: () => void }) {
-  const copy = {
+/**
+ * Card 164 §6 + Card 168 B3. Disconnected/expired keep Google events visible, read-only, "as of"
+ * the last sync; queued changes are kept until the user reconnects or discards them (confirmed).
+ */
+export function SyncBanner({ kind, at, pending = 0, onRetry, onSignIn, onAllow }: { kind: Exclude<Banner, null>; at: string; pending?: number; onRetry: () => void; onSignIn: () => void; onAllow: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const waiting = pending ? ` ${pending} change${pending === 1 ? " is" : "s are"} waiting and will sync after you reconnect.` : "";
+  const copy: Record<Exclude<Banner, null>, [string, string]> = {
     failed: ["Couldn't sync with Google", "Your changes are saved here and will sync when it works."],
-    expired: ["Google sign-in expired", `Calendars show as of ${at}. Sign in again to keep syncing.`],
+    expired: ["Google sign-in expired", `Calendars show as of ${at} and can't be edited. Sign in again to keep syncing.${waiting}`],
+    disconnected: ["Google disconnected", `Calendars show as of ${at} and can't be edited.${waiting}`],
     offline: ["You're offline", `Showing calendars as of ${at}. Edits sync when you're back online.`],
     partial: ["Atrium can see your calendars but not change them", "Two-way sync needs permission to edit. Google asks once."],
-  }[kind];
-  const alert = kind === "failed" || kind === "expired";
+  };
+  const [title, body] = copy[kind];
+  const alert = kind === "failed" || kind === "expired" || kind === "disconnected";
+  const paused = kind === "expired" || kind === "disconnected";
   return (
     <div role={alert ? "alert" : "status"} className={cn("mb-3 rounded-2xl bg-muted p-3", alert && "shadow-[inset_3px_0_0_var(--color-destructive)]")}>
-      <p className={cn("text-sm font-semibold", alert && "text-destructive")}>{copy[0]}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{copy[1]}</p>
+      <p className={cn("text-sm font-semibold", alert && "text-destructive")}>{title}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{body}</p>
       {kind === "failed" ? (
         <Button variant="outline" className="mt-2 h-11" onClick={onRetry}>
           Retry
         </Button>
-      ) : kind === "expired" ? (
-        <GoogleSignInButton className="mt-2" onClick={onSignIn} />
+      ) : paused ? (
+        confirming ? (
+          <ConfirmRow
+            className="mt-2"
+            subject={`${pending} queued change${pending === 1 ? "" : "s"}`}
+            verb="Discard"
+            detail="They won't reach Google. Events go back to how Google has them after you reconnect."
+            triggerId="discard-pending"
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              setConfirming(false);
+              discardPending();
+              toast("Changes discarded");
+            }}
+          />
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <GoogleSignInButton label={kind === "disconnected" ? "Reconnect with Google" : "Sign in with Google"} onClick={onSignIn} />
+            {pending ? (
+              <Button variant="outline" className="h-11" data-confirm-trigger="discard-pending" onClick={() => setConfirming(true)}>
+                Discard changes
+              </Button>
+            ) : null}
+          </div>
+        )
       ) : kind === "partial" ? (
         <Button className="mt-2 h-11" onClick={onAllow}>
           Allow editing
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+/** Card 167 B2 / Card 168: the browser shows a code; the user types it here. */
+function HandoffCode() {
+  const h = useCalAccounts((s) => s.handoff);
+  const [code, setCode] = useState("");
+  if (!h) return null;
+  const submit = async () => {
+    const err = await submitHandoffCode(code);
+    if (!err) toast("Google connected");
+  };
+  return (
+    <div className="rounded-2xl bg-muted p-3" role="group" aria-labelledby="handoff-title">
+      <p id="handoff-title" className="text-sm font-semibold">
+        Enter the code shown in your browser
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">Sign in to Google in the browser window. It shows a 6-character code like K7Q-4M2. Only type a code from a sign-in you started here.</p>
+      <form
+        className="mt-3 flex flex-col gap-2 sm:flex-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <Input
+          className="h-14 font-mono text-[28px] uppercase tracking-[0.3em] sm:max-w-[14rem]"
+          aria-label="Code from your browser"
+          autoComplete="one-time-code"
+          autoCapitalize="characters"
+          spellCheck={false}
+          maxLength={8}
+          placeholder="•••-•••"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          aria-invalid={Boolean(h.error)}
+          aria-describedby={h.error ? "handoff-error" : undefined}
+        />
+        <div className="flex gap-2">
+          <Button type="submit" className="h-11 flex-1" disabled={h.busy || code.replace(/[\s-]/g, "").length !== 6}>
+            {h.busy ? <Spinner /> : null}
+            Connect
+          </Button>
+          <Button type="button" variant="outline" className="h-11 flex-1" onClick={cancelConnect}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+      {h.error ? (
+        <p id="handoff-error" role="alert" className="mt-2 text-xs text-destructive">
+          {h.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Card 168 ICS copy: a saved secret address is masked unless the user asks. */
+function SecretAddress({ url }: { url: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="mt-1 flex min-h-11 items-center gap-1 rounded-md bg-muted pl-2">
+      <code className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={shown ? url : undefined}>
+        {shown ? url : maskIcsUrl(url)}
+      </code>
+      <Button type="button" variant="ghost" className="h-11 px-3 text-xs" aria-pressed={shown} onClick={() => setShown((v) => !v)}>
+        {shown ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+        {shown ? "Hide" : "Show"}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-11 px-3 text-xs"
+        onClick={() =>
+          void navigator.clipboard?.writeText(url).then(
+            () => toast("Address copied"),
+            () => toast("Couldn't copy"),
+          )
+        }
+      >
+        <Copy className="size-4" aria-hidden />
+        Copy
+      </Button>
     </div>
   );
 }
@@ -106,7 +224,7 @@ function ColourPicker({ name, value, onChange }: { name: string; value: string; 
 }
 
 /** One 56px row shared by Google calendars and ICS sources. */
-export function CalendarSourceRow({ name, colour, shown, readOnly, badge, meta, onShown, onColour, actions }: { name: string; colour: string; shown: boolean; readOnly: boolean; badge?: string; meta: string; onShown: (on: boolean) => void; onColour: (key: string) => void; actions?: ReactNode }) {
+export function CalendarSourceRow({ name, colour, shown, readOnly, badge, meta, onShown, onColour, actions, extra }: { name: string; colour: string; shown: boolean; readOnly: boolean; badge?: string; meta: string; onShown: (on: boolean) => void; onColour: (key: string) => void; actions?: ReactNode; extra?: ReactNode }) {
   const [picking, setPicking] = useState(false);
   return (
     <li className="py-1">
@@ -131,6 +249,7 @@ export function CalendarSourceRow({ name, colour, shown, readOnly, badge, meta, 
           <Switch checked={shown} onCheckedChange={(v) => onShown(v === true)} aria-label={`Show ${name}`} />
         </span>
       </div>
+      {extra}
       {picking ? <ColourPicker name={name} value={colour} onChange={(k) => { onColour(k); setPicking(false); }} /> : null}
     </li>
   );
@@ -157,7 +276,8 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
     if (open) void refreshStatus();
   }, [open]);
   const status = acc.status;
-  const connected = Boolean(acc.email) && status?.state !== "disconnected";
+  // B3: a server "disconnected" keeps the account (and its events) visible with the banner.
+  const connected = Boolean(acc.email);
   const at = acc.lastSync ? fmtTime(acc.lastSync) : "—";
   const banner: Banner = connected ? (acc.banner ?? (!acc.canEdit && status?.state === "connected" ? "partial" : null)) : null;
   const statusLine = !connected
@@ -170,6 +290,8 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
           ? `Offline · Last synced ${at}`
           : banner === "expired"
             ? `Sign-in expired · Last synced ${at}`
+            : banner === "disconnected"
+              ? `Disconnected · Last synced ${at}`
             : !acc.canEdit
               ? `Read-only sync · Last synced ${at}`
               : `Two-way sync · Last synced ${at}`;
@@ -239,7 +361,8 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
         </div>
         <div className="px-5 py-4">
           <Section title="Google">
-            {banner ? <SyncBanner kind={banner} at={at} onRetry={() => void syncNow()} onSignIn={() => void signIn(acc.email ?? undefined)} onAllow={() => void signIn(acc.email ?? undefined)} /> : null}
+            {banner ? <SyncBanner kind={banner} at={at} pending={acc.pending.length} onRetry={() => void syncNow()} onSignIn={() => void signIn(acc.email ?? undefined)} onAllow={() => void signIn(acc.email ?? undefined)} /> : null}
+            {connected && acc.handoff ? <div className="mb-3"><HandoffCode /></div> : null}
             {connected ? (
               <div>
                 <div className="flex items-center gap-3">
@@ -249,7 +372,7 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                   <div className="min-w-0">
                     <p className="truncate text-[15px] font-semibold">{acc.email}</p>
                     <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <span aria-hidden className={cn("size-2 rounded-full", banner === "failed" || banner === "expired" ? "bg-destructive" : "bg-ok")} />
+                      <span aria-hidden className={cn("size-2 rounded-full", banner === "failed" || banner === "expired" || banner === "disconnected" ? "bg-destructive" : "bg-ok")} />
                       {statusLine}
                     </p>
                   </div>
@@ -259,7 +382,7 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                     className="mt-3"
                     subject={acc.email ?? "this account"}
                     verb="Disconnect"
-                    detail="Its calendars leave Atrium. Nothing is deleted in Google."
+                    detail={acc.pending.length ? `Its calendars leave Atrium and ${acc.pending.length} unsynced change${acc.pending.length === 1 ? "" : "s"} are discarded. Nothing is deleted in Google.` : "Its calendars leave Atrium. Nothing is deleted in Google."}
                     triggerId="google-disconnect"
                     onCancel={() => setConfirm(null)}
                     onConfirm={() => {
@@ -269,7 +392,7 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                   />
                 ) : (
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Button variant="outline" className="h-11" disabled={acc.syncing} onClick={() => void syncNow()}>
+                    <Button variant="outline" className="h-11" disabled={acc.syncing || banner === "disconnected" || banner === "expired"} onClick={() => void syncNow()}>
                       {acc.syncing ? <Spinner /> : null}
                       Sync now
                     </Button>
@@ -279,6 +402,8 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                   </div>
                 )}
               </div>
+            ) : acc.handoff ? (
+              <HandoffCode />
             ) : acc.connecting ? (
               <div className="flex items-center gap-3 rounded-2xl bg-muted p-3" role="status">
                 <Spinner className="size-5" />
@@ -351,11 +476,12 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                   ) : (
                     <CalendarSourceRow
                       key={s.id}
+                      extra={s.kind === "ical" && s.url ? <SecretAddress url={s.url} /> : undefined}
                       name={s.name}
                       colour={calendarColourOf(s.id, s.colour)}
                       shown={s.shown !== false}
                       readOnly
-                      badge={s.kind === "ical" ? "Read-only · iCal URL" : "Read-only · ICS"}
+                      badge={s.kind === "ical" ? "Read-only · Secret address" : "Read-only · ICS"}
                       meta={s.kind === "ical" && s.refreshedAt ? `Refreshed ${fmtTime(s.refreshedAt)}` : s.importedAt ? `Imported ${new Date(s.importedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : s.id === LEGACY_ICS ? "Imported before accounts" : ""}
                       onShown={(on) => updateIcsSource(s.id, { shown: on })}
                       onColour={(k) => updateIcsSource(s.id, { colour: k })}
@@ -376,8 +502,9 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                 )}
               </ul>
             ) : null}
+            <h4 className="mt-3 text-xs font-medium text-muted-foreground">Add a calendar by address</h4>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <Input className="h-11" placeholder="Paste a public iCal URL" aria-label="Public iCal URL" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void subscribe()} />
+              <Input className="h-11" type="password" autoComplete="off" spellCheck={false} placeholder="Paste a private secret address (.ics)" aria-label="Private secret address" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void subscribe()} />
               <div className="flex gap-2">
                 <Button variant="secondary" className="h-11 flex-1" disabled={busy === "subscribe"} onClick={() => void subscribe()}>
                   Subscribe
@@ -398,6 +525,7 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
                 }}
               />
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">Treat it like a password: anyone with the address can see the calendar. Atrium keeps it on this device and never shows it in full unless you ask.</p>
           </Section>
         </div>
       </SheetContent>

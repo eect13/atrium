@@ -63,7 +63,7 @@ export function ConfirmTrigger({
 type Props = {
   /** The item being removed, shown in bold. */
   subject: string;
-  verb: "Delete" | "Remove" | "Disconnect";
+  verb: "Delete" | "Remove" | "Disconnect" | "Discard";
   /** One neutral consequence sentence. */
   detail?: string;
   onConfirm: () => void;

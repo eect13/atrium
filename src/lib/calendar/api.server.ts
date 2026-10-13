@@ -1,25 +1,49 @@
 /**
- * `/api/calendar/*` (Card 163). Tokens live here only: the refresh token sealed in Postgres,
- * access tokens in memory for their lifetime. Devices hold an opaque session secret.
+ * `/api/calendar/*` (Card 163, hardened in Card 170 per Card 167). Google tokens live here only:
+ * the refresh token sealed in Postgres, access tokens in memory. Devices hold opaque handles:
+ * a 1 h access handle and a rotating refresh handle (14 d idle, 90 d absolute), hashed in the DB.
  *
- * Web:     cookie `atrium_cal` (httpOnly, Secure, SameSite=Lax, path /api/calendar).
- * Desktop: system browser → /connect?handoff=<challenge> → OAuth → parked session;
- *          the app claims it with the verifier only it holds (POST /handoff) and sends
- *          `Authorization: Bearer <session>`.
+ * Web:     same-origin HttpOnly cookies `atrium_cal` (access) + `atrium_cal_r` (refresh);
+ *          the server rotates transparently when the access handle has expired.
+ * Desktop/Android: POST /handoff/start {challenge} → {hid}; system browser → /connect?hid= →
+ *          OAuth → the page shows a 6-character code; the app sends POST /handoff/claim
+ *          {hid, verifier, code} and then `Authorization: Bearer <access>` with
+ *          `credentials: "omit"`. CORS: exact Tauri origins, never `*`, never Allow-Credentials.
  */
-import { CALLBACK_PATH, EDIT_SCOPE, publicOrigin, readCalendarConfig, type CalendarConfig } from "./config.server.ts";
-import { open as unseal, randomToken, seal, SealError } from "./crypto.server.ts";
+import { CALLBACK_PATH, EDIT_SCOPE, readCalendarConfig, type CalendarConfig } from "./config.server.ts";
+import { open as unseal, randomToken, seal, SealError, sha256 } from "./crypto.server.ts";
 import { deleteEvent, GoogleApiError, insertEvent, listCalendarList, listEventsPage, patchEvent, type GEvent } from "./google-api.server.ts";
 import { authUrl, exchangeCode, OAuthError, refreshAccess, revoke, userInfo, type Fetch } from "./oauth.server.ts";
-import { claimHandoff, createConnection, deleteConnection, findBySid, parkHandoff, updateConnection, type Connection, type Sql } from "./store.server.ts";
+import {
+  bindHandoff,
+  claimHandoff,
+  consentHandoff,
+  deleteConnection,
+  findConnection,
+  handoffBound,
+  newSession,
+  REFRESH_IDLE_MS,
+  revokeFamily,
+  rotateSession,
+  sessionFor,
+  showCode,
+  startHandoff,
+  updateConnection,
+  upsertConnection,
+  type Connection,
+  type SessionPair,
+  type Sql,
+} from "./store.server.ts";
 import type { CalendarMeta } from "./source.ts";
 
 export type Deps = { env?: Record<string, string | undefined>; sql: () => Promise<Sql>; fetch?: Fetch; now?: () => number };
 
-const SESSION_COOKIE = "atrium_cal";
+const ACCESS_COOKIE = "atrium_cal";
+const REFRESH_COOKIE = "atrium_cal_r";
 const FLOW_COOKIE = "atrium_cal_flow";
-const FLOW_TTL_MS = 10 * 60_000;
-const TAURI_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
+const FLOW_TTL_MS = 5 * 60_000;
+const COOKIE_MAX_AGE_S = REFRESH_IDLE_MS / 1000;
+export const TAURI_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
 
 const accessCache = new Map<string, { token: string; exp: number; scopes?: string[] }>();
 export const _resetAccessCache = () => accessCache.clear();
@@ -27,16 +51,26 @@ export const _resetAccessCache = () => accessCache.clear();
 function cors(req: Request): Record<string, string> {
   const o = req.headers.get("origin");
   if (!o || !TAURI_ORIGINS.has(o)) return {};
+  // No Access-Control-Allow-Credentials: Tauri sends `credentials: "omit"` + Bearer (Card 167 B1).
   return { "access-control-allow-origin": o, "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS", "access-control-max-age": "600", vary: "origin" };
 }
 
-const json = (req: Request, body: unknown, status = 200, extra: Record<string, string> = {}) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...cors(req), ...extra } });
+type Extra = Record<string, string> | [string, string][];
+function headersOf(req: Request, base: Record<string, string>, extra: Extra = {}) {
+  const h = new Headers({ ...base, ...cors(req) });
+  for (const [k, v] of Array.isArray(extra) ? extra : Object.entries(extra)) h.append(k, v);
+  return h;
+}
 
-function page(title: string, text: string, status = 200, extra: Record<string, string> = {}) {
-  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><body style="font:16px system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1 style="font-size:1.25rem">${esc(title)}</h1><p>${esc(text)}</p></body>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...extra } });
+const json = (req: Request, body: unknown, status = 200, extra: Extra = {}) =>
+  new Response(JSON.stringify(body), { status, headers: headersOf(req, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }, extra) });
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+function page(title: string, text: string, status = 200, extra: Extra = {}, extraHtml = "") {
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${esc(title)}</title><body style="font:16px system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;line-height:1.5"><h1 style="font-size:1.25rem">${esc(title)}</h1>${extraHtml}<p>${esc(text)}</p></body>`;
+  const h = new Headers({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'" });
+  for (const [k, v] of Array.isArray(extra) ? extra : Object.entries(extra)) h.append(k, v);
+  return new Response(html, { status, headers: h });
 }
 
 function cookie(req: Request, name: string) {
@@ -49,14 +83,28 @@ function cookie(req: Request, name: string) {
 }
 
 function setCookie(name: string, value: string, maxAgeS: number, path = "/api/calendar") {
-  return `${name}=${encodeURIComponent(value)}; Path=${path}; Max-Age=${maxAgeS}; HttpOnly; Secure; SameSite=Lax`;
+  return `${name}=${encodeURIComponent(value)}; Path=${path}; Max-Age=${Math.floor(maxAgeS)}; HttpOnly; Secure; SameSite=Lax`;
 }
 
-function sessionOf(req: Request) {
+const sessionCookies = (p: SessionPair): [string, string][] => [
+  ["set-cookie", setCookie(ACCESS_COOKIE, p.access, COOKIE_MAX_AGE_S)],
+  ["set-cookie", setCookie(REFRESH_COOKIE, p.refresh, COOKIE_MAX_AGE_S)],
+];
+const clearSession: [string, string][] = [
+  ["set-cookie", setCookie(ACCESS_COOKIE, "", 0)],
+  ["set-cookie", setCookie(REFRESH_COOKIE, "", 0)],
+];
+
+function bearer(req: Request) {
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) return auth.slice(7).trim() || null;
-  return cookie(req, SESSION_COOKIE);
+  return auth?.startsWith("Bearer ") ? auth.slice(7).trim() || null : null;
 }
+
+function clientIp(req: Request) {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+const pairBody = (p: SessionPair) => ({ access: p.access, refresh: p.refresh, accessExp: p.accessExp, refreshExp: p.refreshExp });
 
 type Ready = Extract<CalendarConfig, { ready: true }>;
 
@@ -94,6 +142,35 @@ function googleError(req: Request, e: unknown) {
   return json(req, { error: "server", message: "Calendar request failed" }, 500);
 }
 
+type Auth = { conn: Connection; familyId: string; cookies: [string, string][] } | { error: "expired" | "disconnected"; cookies: [string, string][] };
+
+/**
+ * Who is calling. Bearer (desktop): an expired access handle → `session_expired` (the app
+ * refreshes). Cookies (web): an expired access handle rotates here using the refresh cookie.
+ */
+async function authOf(req: Request, sql: Sql, cfg: Ready, now: number): Promise<Auth> {
+  const b = bearer(req);
+  const access = b ?? cookie(req, ACCESS_COOKIE);
+  let s = await sessionFor(sql, access, now);
+  let cookies: [string, string][] = [];
+  if (!b && s !== null && typeof s === "object") {
+    /* live cookie session */
+  } else if (!b) {
+    const refresh = cookie(req, REFRESH_COOKIE);
+    if (!refresh) return { error: "disconnected", cookies: access ? clearSession : [] };
+    const r = await rotateSession(sql, refresh, now);
+    if (r === "retry") return { error: "expired", cookies: [] };
+    if (typeof r === "string") return { error: "disconnected", cookies: clearSession };
+    s = { connectionId: r.connectionId, familyId: r.familyId };
+    cookies = sessionCookies(r.pair);
+  }
+  if (s === "expired") return { error: "expired", cookies };
+  if (!s) return { error: "disconnected", cookies };
+  const conn = await findConnection(sql, cfg.key, s.connectionId);
+  if (!conn) return { error: "disconnected", cookies: b ? [] : clearSession };
+  return { conn, familyId: s.familyId, cookies };
+}
+
 export async function handleCalendar(req: Request, subpath: string, d: Deps): Promise<Response> {
   const method = req.method.toUpperCase();
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: cors(req) });
@@ -114,13 +191,24 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
   } catch {
     return json(req, { error: "db", message: "Calendar storage is unavailable" }, 503);
   }
-  const redirectUri = publicOrigin(cfg, req) + CALLBACK_PATH;
+  // M1: only the configured origin, never request headers.
+  const redirectUri = cfg.origin + CALLBACK_PATH;
+
+  if (path === "/handoff/start" && method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { challenge?: string };
+    if (!body.challenge || !/^[A-Za-z0-9_-]{43}$/.test(body.challenge)) return json(req, { error: "bad_request" }, 400);
+    const r = await startHandoff(sql, body.challenge, sha256(`ip:${clientIp(req)}`), now);
+    if (r === "limited") return json(req, { error: "rate_limited", message: "Too many sign-in attempts. Wait a few minutes and try again." }, 429, { "retry-after": "600" });
+    return json(req, { hid: r.hid });
+  }
 
   if (path === "/connect" && method === "GET") {
     const u = new URL(req.url);
-    const handoff = u.searchParams.get("handoff") ?? "";
-    if (handoff && !/^[A-Za-z0-9_-]{43}$/.test(handoff)) return page("Couldn't start Google sign-in", "The link from Atrium was not valid. Go back to Atrium and try again.", 400);
-    const flow = { state: randomToken(16), verifier: randomToken(48), handoff: handoff || undefined, exp: now + FLOW_TTL_MS, sid: sessionOf(req) ?? undefined };
+    const hid = u.searchParams.get("hid") ?? "";
+    const bad = () => page("Couldn't start Google sign-in", "This link didn't come from Atrium, or it expired. Go back to Atrium and choose Sign in with Google again.", 400);
+    if (u.searchParams.has("handoff")) return bad();
+    if (hid && (!/^[A-Za-z0-9_-]{16,64}$/.test(hid) || !(await bindHandoff(sql, hid, now)))) return bad();
+    const flow = { state: randomToken(16), verifier: randomToken(48), hid: hid || undefined, exp: now + FLOW_TTL_MS };
     const loginHint = u.searchParams.get("login_hint")?.slice(0, 200) || undefined;
     const location = authUrl({ clientId: cfg.clientId, redirectUri, state: flow.state, verifier: flow.verifier, loginHint });
     return new Response(null, { status: 302, headers: { location, "cache-control": "no-store", "set-cookie": setCookie(FLOW_COOKIE, seal(JSON.stringify(flow), cfg.key, "flow"), FLOW_TTL_MS / 1000) } });
@@ -128,8 +216,8 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
 
   if (path === "/oauth/callback" && method === "GET") {
     const u = new URL(req.url);
-    const clear = { "set-cookie": setCookie(FLOW_COOKIE, "", 0) };
-    let flow: { state: string; verifier: string; handoff?: string; exp: number; sid?: string } | null = null;
+    const clear: [string, string][] = [["set-cookie", setCookie(FLOW_COOKIE, "", 0)]];
+    let flow: { state: string; verifier: string; hid?: string; exp: number } | null = null;
     try {
       const raw = cookie(req, FLOW_COOKIE);
       flow = raw ? JSON.parse(unseal(raw, cfg.key, "flow")) : null;
@@ -138,69 +226,93 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
     }
     if (u.searchParams.get("error")) return page("Google sign-in was cancelled", "Nothing changed. Go back to Atrium to try again.", 200, clear);
     if (!flow || flow.exp < now || flow.state !== u.searchParams.get("state")) return page("This sign-in link expired", "Go back to Atrium and choose Sign in with Google again.", 400, clear);
+    if (flow.hid && !(await handoffBound(sql, flow.hid, now))) return page("This sign-in link expired", "Go back to Atrium and choose Sign in with Google again.", 400, clear);
     try {
       const tokens = await exchangeCode(f, { clientId: cfg.clientId, clientSecret: cfg.clientSecret, code: u.searchParams.get("code") ?? "", redirectUri, verifier: flow.verifier });
       const scopes = (tokens.scope ?? "").split(/\s+/).filter(Boolean);
       const me = await userInfo(f, tokens.access_token);
-      const existing = await findBySid(sql, cfg.key, flow.sid).catch(() => null);
-      let sid: string;
-      if (existing) {
-        await updateConnection(sql, cfg.key, existing.id, { refreshToken: tokens.refresh_token, scopes });
-        accessCache.delete(existing.id);
-        sid = flow.sid!;
-      } else {
-        if (!tokens.refresh_token) return page("Google didn't allow offline access", "Remove Atrium from your Google Account's third-party access, then sign in again.", 400, clear);
-        sid = (await createConnection(sql, cfg.key, { email: me.email, sub: me.sub, scopes, refreshToken: tokens.refresh_token })).sid;
+      const conn = await upsertConnection(sql, cfg.key, { email: me.email, sub: me.sub, scopes, refreshToken: tokens.refresh_token });
+      if (!conn) return page("Google didn't allow offline access", "Remove Atrium from your Google Account's third-party access, then sign in again.", 400, clear);
+      accessCache.delete(conn.id);
+      if (flow.hid) {
+        const code = await consentHandoff(sql, cfg.key, flow.hid, conn.id, now);
+        if (!code) return page("This sign-in link expired", "Go back to Atrium and choose Sign in with Google again.", 400, clear);
+        const shown = showCode(code);
+        const codeHtml = `<p style="font:600 2.25rem/1.2 ui-monospace,monospace;letter-spacing:.2em;margin:1.5rem 0">${esc(shown)}</p>${me.email ? `<p>Google account: ${esc(me.email)}</p>` : ""}`;
+        return page(
+          "Type this code into Atrium",
+          `Type this code into Atrium on the device you're connecting: ${shown}. If you didn't just click Connect in Atrium, close this page — nothing is shared until the code is entered. The code works for 2 minutes.`,
+          200,
+          clear,
+          codeHtml,
+        );
       }
-      if (flow.handoff) {
-        await parkHandoff(sql, cfg.key, flow.handoff, sid, now);
-        return page("Signed in to Google", "You can close this window and go back to Atrium.", 200, clear);
-      }
-      const origin = publicOrigin(cfg, req);
-      return new Response(null, { status: 302, headers: [["location", `${origin}/calendar?accounts=1`], ["cache-control", "no-store"], ["set-cookie", clear["set-cookie"]], ["set-cookie", setCookie(SESSION_COOKIE, sid, 400 * 86_400)]] });
+      const pair = await newSession(sql, conn.id, now);
+      return new Response(null, { status: 302, headers: headersOf(req, { location: `${cfg.origin}/calendar?accounts=1`, "cache-control": "no-store" }, [...clear, ...sessionCookies(pair)]) });
     } catch {
       return page("Couldn't finish Google sign-in", "Nothing was saved. Go back to Atrium and try again.", 502, clear);
     }
   }
 
-  if (path === "/handoff" && method === "POST") {
-    const body = (await req.json().catch(() => ({}))) as { verifier?: string };
-    if (!body.verifier || body.verifier.length < 43 || body.verifier.length > 128) return json(req, { error: "bad_request" }, 400);
-    const r = await claimHandoff(sql, cfg.key, body.verifier, now);
-    if (r === "pending") return json(req, { state: "pending" }, 202);
-    if (!r) return json(req, { error: "gone" }, 410);
-    return json(req, { session: r.sid });
+  if (path === "/handoff/claim" && method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { hid?: string; verifier?: string; code?: string };
+    if (!body.hid || !body.verifier || body.verifier.length < 43 || body.verifier.length > 128 || typeof body.code !== "string" || body.code.length > 16) return json(req, { error: "bad_request" }, 400);
+    const r = await claimHandoff(sql, cfg.key, body.hid, body.verifier, body.code, now);
+    if (r === "pending") return json(req, { error: "pending", message: "Finish signing in to Google in your browser first." }, 409);
+    if (r === "bad") return json(req, { error: "bad_code", message: "That code doesn't match. Check the code in your browser." }, 401);
+    if (r === "gone") return json(req, { error: "gone", message: "This sign-in expired. Start again." }, 410);
+    return json(req, pairBody(r.pair));
   }
 
-  let conn: Connection | null;
+  if (path === "/session/refresh" && method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { refresh?: string };
+    if (!body.refresh) return json(req, { error: "bad_request" }, 400);
+    const r = await rotateSession(sql, body.refresh, now);
+    if (r === "retry") return json(req, { error: "retry" }, 409);
+    if (r === "reuse") {
+      console.warn("[calendar] refresh handle reused after rotation; session family revoked");
+      return json(req, { error: "disconnected" }, 401);
+    }
+    if (r === "ended") return json(req, { error: "disconnected" }, 401);
+    return json(req, pairBody(r.pair));
+  }
+
+  let auth: Auth;
   try {
-    conn = await findBySid(sql, cfg.key, sessionOf(req));
+    auth = await authOf(req, sql, cfg, now);
   } catch (e) {
     if (path === "/status") return json(req, { state: "expired", email: null });
     return googleError(req, e);
   }
+  if ("error" in auth) {
+    if (auth.error === "expired") return json(req, { error: "session_expired" }, 401, auth.cookies);
+    if (path === "/status") return json(req, { state: "disconnected" }, 200, auth.cookies);
+    return json(req, { error: "disconnected" }, 401, auth.cookies);
+  }
+  const { conn, familyId, cookies } = auth;
 
   if (path === "/status" && method === "GET") {
-    if (!conn) return json(req, { state: "disconnected" });
     try {
       await accessFor(d, cfg, sql, conn);
     } catch (e) {
-      if (e instanceof OAuthError && e.code === "invalid_grant") return json(req, { state: "expired", email: conn.email });
+      if (e instanceof OAuthError && e.code === "invalid_grant") return json(req, { state: "expired", email: conn.email }, 200, cookies);
       return googleError(req, e);
     }
-    const scopes = (await findBySid(sql, cfg.key, sessionOf(req)))?.scopes ?? conn.scopes;
-    return json(req, { state: "connected", email: conn.email, canEdit: scopes.includes(EDIT_SCOPE) });
+    const scopes = (await findConnection(sql, cfg.key, conn.id))?.scopes ?? conn.scopes;
+    return json(req, { state: "connected", email: conn.email, canEdit: scopes.includes(EDIT_SCOPE) }, 200, cookies);
   }
 
-  if (!conn) return json(req, { error: "disconnected" }, 401);
+  if (path === "/signout" && method === "POST") {
+    await revokeFamily(sql, familyId, now);
+    return json(req, { ok: true }, 200, clearSession);
+  }
 
   if (path === "/disconnect" && method === "POST") {
-    // `keepGrant`: a device replacing its own older session (re-consent) must not revoke the new grant.
     const body = (await req.json().catch(() => ({}))) as { keepGrant?: boolean };
     if (!body.keepGrant) await revoke(f, conn.refreshToken);
     await deleteConnection(sql, conn.id);
     accessCache.delete(conn.id);
-    return json(req, { ok: true }, 200, { "set-cookie": setCookie(SESSION_COOKIE, "", 0) });
+    return json(req, { ok: true }, 200, clearSession);
   }
 
   try {
@@ -208,7 +320,7 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
     if (path === "/calendars" && method === "GET") {
       const list = await listCalendarList(f, token);
       const calendars: CalendarMeta[] = list.map((c) => ({ id: c.id, name: (c.summaryOverride || c.summary || c.id).trim(), accessRole: (c.accessRole as CalendarMeta["accessRole"]) ?? "reader", primary: c.primary || undefined, googleColor: c.backgroundColor }));
-      return json(req, { calendars, canEdit: conn.scopes.includes(EDIT_SCOPE) });
+      return json(req, { calendars, canEdit: conn.scopes.includes(EDIT_SCOPE) }, 200, cookies);
     }
     const evMatch = /^\/events(?:\/([^/]+))?$/.exec(path);
     if (evMatch) {
@@ -219,16 +331,16 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
         if (!cal) return json(req, { error: "bad_request" }, 400);
         const syncToken = u.searchParams.get("syncToken") || undefined;
         const r = await listEventsPage(f, token, cal, syncToken ? { syncToken } : { timeMin: u.searchParams.get("timeMin") ?? undefined, timeMax: u.searchParams.get("timeMax") ?? undefined });
-        if ("gone" in r) return json(req, { items: [], gone: true });
-        return json(req, { items: r.items.map(trimEvent), nextSyncToken: r.nextSyncToken, truncated: r.truncated || undefined });
+        if ("gone" in r) return json(req, { items: [], gone: true }, 200, cookies);
+        return json(req, { items: r.items.map(trimEvent), nextSyncToken: r.nextSyncToken, truncated: r.truncated || undefined }, 200, cookies);
       }
       const body = (await req.json().catch(() => ({}))) as { cal?: string; etag?: string; body?: GEvent };
       if (!body.cal) return json(req, { error: "bad_request" }, 400);
-      if (method === "POST" && !id && body.body) return json(req, { item: trimEvent(await insertEvent(f, token, body.cal, body.body)) });
-      if (method === "PATCH" && id && body.body) return json(req, { item: trimEvent(await patchEvent(f, token, body.cal, id, body.body, body.etag)) });
+      if (method === "POST" && !id && body.body) return json(req, { item: trimEvent(await insertEvent(f, token, body.cal, body.body)) }, 200, cookies);
+      if (method === "PATCH" && id && body.body) return json(req, { item: trimEvent(await patchEvent(f, token, body.cal, id, body.body, body.etag)) }, 200, cookies);
       if (method === "DELETE" && id) {
         await deleteEvent(f, token, body.cal, id, body.etag);
-        return json(req, { ok: true });
+        return json(req, { ok: true }, 200, cookies);
       }
     }
   } catch (e) {

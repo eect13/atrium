@@ -1,7 +1,9 @@
 /**
  * Calendar accounts (Card 164): the Google connection, its sync state and the read-only
  * "Other calendars" (ICS / iCal). Persisted separately from the desk (`atrium.calendar.v1`).
- * The desktop session secret is an opaque, revocable handle; Google tokens never reach here.
+ * Google tokens never reach here. Desktop/Android: a 1 h access handle in memory and a rotating
+ * refresh handle in the Tauri app-data store (Card 170 / Card 167 M2); nothing in localStorage.
+ * Card 166 B3: a server "disconnected" never wipes Google events or queued changes.
  */
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -10,15 +12,18 @@ import { uid } from "../format.ts";
 import { useAtrium } from "../store.ts";
 import type { CalendarEvent, GCalDesk } from "../types.ts";
 import { gcalLane } from "../google-cal.ts";
-import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus } from "./google-source.ts";
+import { clearRefresh, readRefresh, saveRefresh } from "./device-secret.ts";
+import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus, type SessionPair } from "./google-source.ts";
 import { LEGACY_ICS, withoutSource, type IcsSourceMeta } from "./ics-source.ts";
 import { isWritableRole } from "./source.ts";
 import { applyFlush, applyPull, bannerFor, enqueue, flushPending, pullCalendar, writeOf, type PendingOp } from "./sync.ts";
 
-export type Banner = "failed" | "expired" | "offline" | "partial" | null;
+export type Banner = "failed" | "expired" | "disconnected" | "offline" | "partial" | null;
+
+/** Desktop hand-off in progress: the browser shows a code the user types here. */
+export type Handoff = { hid: string; startedAt: number; error?: string; busy?: boolean };
 
 type State = {
-  session: string | null;
   status: ConnStatus | null;
   email: string | null;
   canEdit: boolean;
@@ -29,16 +34,27 @@ type State = {
   icsSources: IcsSourceMeta[];
   connecting: boolean;
   syncing: boolean;
+  handoff: Handoff | null;
 };
 
-const initial: State = { session: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [], icsSources: [], connecting: false, syncing: false };
+const initial: State = { handoff: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [], icsSources: [], connecting: false, syncing: false };
+
+let legacyRefresh: string | null = null;
 
 export const useCalAccounts = create<State>()(
   persist(() => initial, {
     name: "atrium.calendar.v1",
-    version: 1,
+    version: 2,
     storage: createJSONStorage(() => (typeof localStorage === "undefined" ? (undefined as unknown as Storage) : localStorage)),
-    partialize: ({ connecting: _c, syncing: _s, status: _st, ...keep }) => keep,
+    partialize: ({ connecting: _c, syncing: _s, status: _st, handoff: _h, ...keep }) => keep,
+    // v1 kept a long-lived Bearer sid in localStorage. Migration 0003 turned it into a refresh
+    // handle on the server; move it to the device store and drop it from localStorage.
+    migrate: (persisted, version) => {
+      const p = { ...(persisted as Record<string, unknown>) };
+      if (version < 2 && typeof p.session === "string") legacyRefresh = p.session;
+      delete p.session;
+      return p as unknown as State;
+    },
   }),
 );
 
@@ -52,20 +68,90 @@ export function calendarApiBase() {
   return (env?.VITE_CALENDAR_API_ORIGIN || "https://atrium-swart-seven.vercel.app").replace(/\/+$/, "");
 }
 
-const client = (): ApiClient => ({ base: calendarApiBase(), session: get().session });
-const source = () => new GoogleSource(client());
+let access: { token: string; exp: number } | null = null;
+let renewing: Promise<string | null> | null = null;
+const RENEW_EARLY_MS = 5 * 60_000;
+
+function keepPair(p: SessionPair) {
+  access = { token: p.access, exp: p.accessExp };
+  return saveRefresh(p.refresh);
+}
+
+async function forgetDevice() {
+  access = null;
+  legacyRefresh = null;
+  await clearRefresh();
+}
+
+/** Rotate the refresh handle (Card 167 M2). 409 = another request just rotated: reread once. */
+function renew(): Promise<string | null> {
+  if (renewing) return renewing;
+  renewing = (async () => {
+    try {
+      for (let i = 0; i < 2; i++) {
+        const refresh = await readRefresh();
+        if (!refresh) return null;
+        try {
+          const p = await api<SessionPair>({ base: calendarApiBase(), native: true }, "/session/refresh", { method: "POST", body: JSON.stringify({ refresh }) });
+          await keepPair(p);
+          return p.access;
+        } catch (e) {
+          if (e instanceof CalendarApiError && e.status === 409) {
+            await new Promise((r) => setTimeout(r, 400));
+            continue;
+          }
+          if (e instanceof CalendarApiError && e.status === 401) await forgetDevice();
+          return null;
+        }
+      }
+      return null;
+    } finally {
+      renewing = null;
+    }
+  })();
+  return renewing;
+}
+
+async function accessToken() {
+  if (legacyRefresh) {
+    await saveRefresh(legacyRefresh).catch(() => undefined);
+    legacyRefresh = null;
+  }
+  if (access && access.exp - Date.now() > RENEW_EARLY_MS) return access.token;
+  return renew();
+}
+
+async function client(): Promise<ApiClient> {
+  if (!isTauri()) return { base: "" };
+  return { base: calendarApiBase(), native: true, session: await accessToken(), renew };
+}
+const source = async () => new GoogleSource(await client());
 const online = () => (typeof navigator === "undefined" ? true : navigator.onLine !== false);
 
 export async function refreshStatus() {
-  const s = await fetchStatus(client());
-  if (s.state === "connected") set({ status: s, email: s.email, canEdit: s.canEdit, banner: get().banner === "expired" ? null : get().banner });
+  const s = await fetchStatus(await client());
+  if (s.state === "connected") set({ status: s, email: s.email, canEdit: s.canEdit, banner: get().banner === "expired" || get().banner === "disconnected" ? null : get().banner });
   else if (s.state === "expired") set({ status: s, banner: "expired" });
   else if (s.state === "disconnected" && get().email) {
-    // Server no longer knows this device (revoked elsewhere): show as signed out, keep nothing.
-    dropGoogleLocal();
-    set({ status: s });
+    // B3: revoked elsewhere, DB reset or row deleted. Keep events (read-only, "as of" last sync)
+    // and the pending queue until the user reconnects or chooses to discard; forget the session.
+    await forgetDevice();
+    set({ status: s, banner: "disconnected" });
   } else set({ status: s, ...(s.state === "unreachable" && get().email ? { banner: online() ? "failed" : "offline" } : {}) });
   return s;
+}
+
+/** True while Google is linked but this device can't write (expired or disconnected): view only. */
+export function googleWritesPaused(st: Pick<State, "banner" | "status"> = get()) {
+  return st.banner === "disconnected" || st.banner === "expired" || st.status?.state === "expired" || st.status?.state === "disconnected";
+}
+
+/** Card 168 B3 "Discard changes" (after ConfirmRow): drop queued writes; local-only creates go too. */
+export function discardPending() {
+  const ops = get().pending;
+  const created = new Set(ops.filter((o) => o.kind === "create").map((o) => o.localId));
+  useAtrium.setState((s) => ({ events: s.events.filter((e) => !(e.source === "google" && created.has(e.id) && !e.remoteId)) }));
+  set({ pending: [], syncTokens: {} });
 }
 
 function b64url(bytes: Uint8Array) {
@@ -75,10 +161,12 @@ function b64url(bytes: Uint8Array) {
 }
 
 let cancelFlow: (() => void) | null = null;
+let verifier: string | null = null;
 
 /**
- * Card 164 state 2. Web: a Google popup on this origin (cookie session). Desktop: the system
- * browser + a one-time hand-off claimed with a verifier only this app holds.
+ * Card 164 state 2. Web: a Google popup on this origin (cookie session). Desktop/Android
+ * (Card 167 B2): the server issues a hand-off id for our challenge, the system browser signs in
+ * and shows a 6-character code, and the user types it here; the claim needs code + verifier.
  */
 export async function connectGoogle(opts: { loginHint?: string } = {}) {
   cancelFlow?.();
@@ -88,38 +176,28 @@ export async function connectGoogle(opts: { loginHint?: string } = {}) {
   cancelFlow = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
-    set({ connecting: false });
+    verifier = null;
+    set({ connecting: false, handoff: null });
     cancelFlow = null;
   };
   const hint = opts.loginHint ? `login_hint=${encodeURIComponent(opts.loginHint)}` : "";
   const deadline = Date.now() + 10 * 60_000;
   if (isTauri()) {
-    const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-    const ok = await openExternal(`${calendarApiBase()}/api/calendar/connect?handoff=${challenge}${hint ? `&${hint}` : ""}`);
+    let hid: string;
+    try {
+      hid = (await api<{ hid: string }>({ base: calendarApiBase(), native: true }, "/handoff/start", { method: "POST", body: JSON.stringify({ challenge }) })).hid;
+    } catch (e) {
+      cancelFlow?.();
+      throw e instanceof CalendarApiError && e.status === 429 ? new Error(e.message) : new Error("Couldn't reach Atrium's calendar service");
+    }
+    const ok = await openExternal(`${calendarApiBase()}/api/calendar/connect?hid=${encodeURIComponent(hid)}${hint ? `&${hint}` : ""}`);
     if (!ok) {
       cancelFlow?.();
       throw new Error("Couldn't open the browser");
     }
-    const poll = async () => {
-      if (stopped) return;
-      if (Date.now() > deadline) return cancelFlow?.();
-      try {
-        const r = await api<{ session?: string; state?: string }>({ base: calendarApiBase() }, "/handoff", { method: "POST", body: JSON.stringify({ verifier }) });
-        if (r.session) {
-          const old = get().session;
-          if (old && old !== r.session) await api({ base: calendarApiBase(), session: old }, "/disconnect", { method: "POST", body: JSON.stringify({ keepGrant: true }) }).catch(() => undefined);
-          set({ session: r.session });
-          cancelFlow?.();
-          await afterConnect();
-          return;
-        }
-      } catch (e) {
-        if (e instanceof CalendarApiError && e.status === 410) return cancelFlow?.();
-      }
-      timer = setTimeout(() => void poll(), 2000);
-    };
-    timer = setTimeout(() => void poll(), 2000);
+    set({ handoff: { hid, startedAt: Date.now() } });
     return;
   }
   const url = `/api/calendar/connect${hint ? `?${hint}` : ""}`;
@@ -131,7 +209,7 @@ export async function connectGoogle(opts: { loginHint?: string } = {}) {
   const poll = async () => {
     if (stopped) return;
     if (Date.now() > deadline) return cancelFlow?.();
-    const s = await fetchStatus(client());
+    const s = await fetchStatus(await client());
     if (s.state === "connected") {
       cancelFlow?.();
       await afterConnect();
@@ -140,6 +218,29 @@ export async function connectGoogle(opts: { loginHint?: string } = {}) {
     timer = setTimeout(() => void poll(), 2000);
   };
   timer = setTimeout(() => void poll(), 2000);
+}
+
+/** The user typed the code from the browser page. Returns an error message, or null when connected. */
+export async function submitHandoffCode(code: string): Promise<string | null> {
+  const h = get().handoff;
+  if (!h || !verifier) return "Start again: choose Sign in with Google.";
+  set({ handoff: { ...h, busy: true, error: undefined } });
+  try {
+    const p = await api<SessionPair>({ base: calendarApiBase(), native: true }, "/handoff/claim", { method: "POST", body: JSON.stringify({ hid: h.hid, verifier, code }) });
+    await keepPair(p);
+    cancelFlow?.();
+    await afterConnect();
+    return null;
+  } catch (e) {
+    const err = e instanceof CalendarApiError ? e : null;
+    if (err?.status === 410) {
+      cancelFlow?.();
+      return err.message || "This sign-in expired. Start again.";
+    }
+    const msg = err?.message || "Couldn't reach Atrium's calendar service";
+    set({ handoff: { ...h, busy: false, error: msg } });
+    return msg;
+  }
 }
 
 export function cancelConnect() {
@@ -155,12 +256,13 @@ async function afterConnect() {
 /** Disconnect keeps nothing locally and deletes nothing in Google (Card 164 Q3). */
 export async function disconnectGoogle() {
   try {
-    await api(client(), "/disconnect", { method: "POST" });
+    await api(await client(), "/disconnect", { method: "POST" });
   } catch {
     /* already gone on the server: still forget locally */
   }
+  await forgetDevice();
   dropGoogleLocal();
-  set({ session: null, status: { state: "disconnected" } });
+  set({ status: { state: "disconnected" } });
 }
 
 function dropGoogleLocal() {
@@ -170,13 +272,14 @@ function dropGoogleLocal() {
 
 /** Calendars the user can write to, primary first (Card 164 Q2: new events default to primary). */
 export function writableGoogleCalendars(cals: GCalDesk[] = useAtrium.getState().gcalCals, canEdit = get().canEdit) {
-  if (!canEdit) return [];
+  if (!canEdit || googleWritesPaused()) return [];
   return cals.filter((c) => isWritableRole(c.accessRole)).sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
 }
 
 export function isReadOnlyEvent(e: CalendarEvent, cals: GCalDesk[] = useAtrium.getState().gcalCals, canEdit = get().canEdit) {
   if (e.source === "ics") return true;
   if (e.source !== "google") return false;
+  if (googleWritesPaused()) return true;
   const cal = cals.find((c) => c.id === e.calId);
   return !canEdit || !cal || !isWritableRole(cal.accessRole);
 }
@@ -190,7 +293,7 @@ export function syncNow(): Promise<void> {
     set({ syncing: true });
     try {
       if (get().status?.state !== "connected" && (await refreshStatus()).state !== "connected") return;
-      const src = source();
+      const src = await source();
       if (get().pending.length) {
         const r = await flushPending(src, get().pending);
         useAtrium.setState((s) => ({ events: applyFlush(s.events, r) }));

@@ -3,16 +3,16 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { _resetAccessCache, handleCalendar } from "./api.server.ts";
-import { CALENDAR_ENV, readCalendarConfig } from "./config.server.ts";
+import { CALENDAR_ENV, checkOrigin, readCalendarConfig } from "./config.server.ts";
 import { open, parseSealKey, pkceChallenge, randomToken, seal, SealError, sha256 } from "./crypto.server.ts";
-import { claimHandoff, createConnection, findBySid, parkHandoff, type Sql } from "./store.server.ts";
+import { findConnection, newSession, normCode, sessionFor, upsertConnection, type Sql } from "./store.server.ts";
 
 const KEY = Buffer.alloc(32, 7);
 const KEY_B64 = KEY.toString("base64");
 
 async function db(): Promise<Sql> {
   const pg = new PGlite();
-  await pg.exec(readFileSync(new URL("../../../migrations/0002_calendar_connections.sql", import.meta.url), "utf8"));
+  for (const m of ["0002_calendar_connections.sql", "0003_calendar_sessions.sql"]) await pg.exec(readFileSync(new URL(`../../../migrations/${m}`, import.meta.url), "utf8"));
   return { query: async (text, params) => (await pg.query(text, params as unknown[])).rows as never };
 }
 
@@ -42,44 +42,36 @@ test("config: reports missing names, never values", () => {
   const none = readCalendarConfig({});
   assert.equal(none.ready, false);
   assert.deepEqual(none.missing, [...CALENDAR_ENV]);
-  const bad = readCalendarConfig({ GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s3cret-value", CALENDAR_TOKEN_ENC_KEY: "tooshort", DATABASE_URL: "postgres://x" });
+  const bad = readCalendarConfig({ GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s3cret-value", CALENDAR_TOKEN_ENC_KEY: "tooshort", DATABASE_URL: "postgres://x", CALENDAR_PUBLIC_ORIGIN: "https://a.test" });
   assert.equal(bad.ready, false);
   assert.ok(!JSON.stringify(bad).includes("s3cret-value"));
   assert.ok(!JSON.stringify(bad).includes("tooshort"));
   assert.match(bad.missing.join(), /CALENDAR_TOKEN_ENC_KEY/);
-  const ok = readCalendarConfig({ GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s", CALENDAR_TOKEN_ENC_KEY: KEY_B64, DATABASE_URL: "postgres://x" });
+  const ok = readCalendarConfig({ GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s", CALENDAR_TOKEN_ENC_KEY: KEY_B64, DATABASE_URL: "postgres://x", CALENDAR_PUBLIC_ORIGIN: "https://a.test" });
   assert.equal(ok.ready, true);
 });
 
-test("store: session secret and refresh token never stored in plain text", async () => {
+test("store: handles and refresh token never stored in plain text", async () => {
   const sql = await db();
-  const { id, sid } = await createConnection(sql, KEY, { email: "a@example.com", sub: "1", scopes: ["openid"], refreshToken: "1//rt-plain" });
-  const raw = JSON.stringify(await sql.query("select * from calendar_connection"));
-  assert.ok(!raw.includes(sid));
+  const c = (await upsertConnection(sql, KEY, { email: "a@example.com", sub: "1", scopes: ["openid"], refreshToken: "1//rt-plain" }))!;
+  const pair = await newSession(sql, c.id, 1_000);
+  const raw = JSON.stringify([await sql.query("select * from calendar_connection"), await sql.query("select * from calendar_session")]);
+  assert.ok(!raw.includes(pair.access) && !raw.includes(pair.refresh));
   assert.ok(!raw.includes("1//rt-plain"));
-  assert.ok(raw.includes(sha256(sid)));
-  const found = await findBySid(sql, KEY, sid);
-  assert.equal(found?.id, id);
-  assert.equal(found?.refreshToken, "1//rt-plain");
-  assert.equal(await findBySid(sql, KEY, "wrong"), null);
-  await assert.rejects(findBySid(sql, Buffer.alloc(32, 1), sid), SealError);
+  assert.ok(raw.includes(sha256(pair.access)));
+  assert.deepEqual(await sessionFor(sql, pair.access, 2_000), { connectionId: c.id, familyId: (await sql.query<{ family_id: string }>("select family_id from calendar_session"))[0]!.family_id });
+  assert.equal((await findConnection(sql, KEY, c.id))?.refreshToken, "1//rt-plain");
+  assert.equal(await sessionFor(sql, "wrong", 2_000), null);
+  await assert.rejects(findConnection(sql, Buffer.alloc(32, 1), c.id), SealError);
+  assert.equal((await upsertConnection(sql, KEY, { sub: "1", scopes: ["openid", "email"] }))?.id, c.id, "same Google account → same row");
 });
 
-test("hand-off: claimed once with the verifier, pending before, gone after expiry", async () => {
-  const sql = await db();
-  const verifier = randomToken(32);
-  const challenge = pkceChallenge(verifier);
-  assert.equal(await claimHandoff(sql, KEY, verifier), "pending");
-  await parkHandoff(sql, KEY, challenge, "sid-123", 1_000);
-  assert.equal(await claimHandoff(sql, KEY, randomToken(32), 2_000), "pending", "another verifier learns nothing");
-  assert.deepEqual(await claimHandoff(sql, KEY, verifier, 2_000), { sid: "sid-123" });
-  assert.equal(await claimHandoff(sql, KEY, verifier, 3_000), null, "second claim fails");
-  const v2 = randomToken(32);
-  await parkHandoff(sql, KEY, pkceChallenge(v2), "sid-9", 0);
-  assert.equal(await claimHandoff(sql, KEY, v2, 11 * 60_000), null, "expired");
+test("normCode: case, dashes, O/I/L lookalikes", () => {
+  assert.equal(normCode("k7q-4m2"), "K7Q4M2");
+  assert.equal(normCode(" o1 l-i "), "0111");
 });
 
-const ENV = { GOOGLE_CLIENT_ID: "cid.apps.googleusercontent.com", GOOGLE_CLIENT_SECRET: "csecret", CALENDAR_TOKEN_ENC_KEY: KEY_B64, DATABASE_URL: "postgres://unused" };
+const ENV = { GOOGLE_CLIENT_ID: "cid.apps.googleusercontent.com", GOOGLE_CLIENT_SECRET: "csecret", CALENDAR_TOKEN_ENC_KEY: KEY_B64, DATABASE_URL: "postgres://unused", CALENDAR_PUBLIC_ORIGIN: "https://a.test" };
 
 test("not connected: unconfigured server says which settings are missing, nothing else", async () => {
   const res = await handleCalendar(new Request("https://a.test/api/calendar/status"), "status", { env: {}, sql: async () => assert.fail("no db without config") });
@@ -125,9 +117,9 @@ function google(calls: Call[], opts: { eventsStatus?: number; patchStatus?: numb
   }) as typeof fetch;
 }
 
-async function connectedSession(sql: Sql, calls: Call[], handoff?: string) {
-  const d = { env: ENV, sql: async () => sql, fetch: google(calls) };
-  const start = await handleCalendar(new Request(`https://a.test/api/calendar/connect${handoff ? `?handoff=${handoff}` : ""}`), "connect", d);
+async function connectedSession(sql: Sql, calls: Call[], hid?: string, now?: () => number) {
+  const d = { env: ENV, sql: async () => sql, fetch: google(calls), ...(now ? { now } : {}) };
+  const start = await handleCalendar(new Request(`https://a.test/api/calendar/connect${hid ? `?hid=${hid}` : ""}`), "connect", d);
   assert.equal(start.status, 302);
   const loc = new URL(start.headers.get("location")!);
   assert.equal(loc.origin + loc.pathname, "https://accounts.google.com/o/oauth2/v2/auth");
@@ -152,9 +144,10 @@ test("web flow: callback sets an httpOnly session cookie; calendars + events wor
   const { d, cb } = await connectedSession(sql, calls);
   assert.equal(cb.status, 302);
   assert.equal(cb.headers.get("location"), "https://a.test/calendar?accounts=1");
-  const sessionCookie = cb.headers.getSetCookie().find((c) => c.startsWith("atrium_cal="))!;
-  assert.match(sessionCookie, /HttpOnly/);
-  const cookie = sessionCookie.split(";")[0]!;
+  const set = cb.headers.getSetCookie();
+  const sessionCookie = set.find((c) => c.startsWith("atrium_cal="))!;
+  assert.match(sessionCookie, /HttpOnly; Secure/);
+  const cookie = set.filter((c) => /^atrium_cal(_r)?=/.test(c)).map((c) => c.split(";")[0]).join("; ");
   const status = await (await handleCalendar(new Request("https://a.test/api/calendar/status", { headers: { cookie } }), "status", d)).json();
   assert.deepEqual(status, { state: "connected", email: "alex@example.com", canEdit: true });
   const cals = await (await handleCalendar(new Request("https://a.test/api/calendar/calendars", { headers: { cookie } }), "calendars", d)).text();
@@ -168,33 +161,286 @@ test("web flow: callback sets an httpOnly session cookie; calendars + events wor
   assert.ok(!body.includes("1//rt") && !body.includes("at-1") && !body.includes("at-2"));
 });
 
-test("desktop hand-off flow + CORS, 410 → gone, 412 → conflict, disconnect revokes", async () => {
+// ---------- Card 170: Card 167 acceptance tests ----------
+
+type Clock = { t: number };
+const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+  new Request(`https://a.test/api/calendar/${path}`, { method: "POST", body: JSON.stringify(body), headers: { origin: "http://tauri.localhost", "x-forwarded-for": "203.0.113.7", ...headers } });
+
+async function startDesktop(sql: Sql, calls: Call[], clock: Clock, ip = "203.0.113.7") {
+  const d = { env: ENV, sql: async () => sql, fetch: google(calls), now: () => clock.t };
+  const verifier = randomToken(32);
+  const res = await handleCalendar(post("handoff/start", { challenge: pkceChallenge(verifier) }, { "x-forwarded-for": ip }), "handoff/start", d);
+  return { d, verifier, res };
+}
+
+/** start → connect → Google → callback; returns the code the browser page shows. */
+async function desktopConsent(sql: Sql, calls: Call[], clock: Clock) {
+  const { d, verifier, res } = await startDesktop(sql, calls, clock);
+  assert.equal(res.status, 200);
+  const { hid } = (await res.json()) as { hid: string };
+  const { cb } = await connectedSession(sql, calls, hid, () => clock.t);
+  assert.equal(cb.status, 200);
+  const html = await cb.text();
+  const code = /(\w{3}-\w{3})/.exec(html.match(/letter-spacing[^>]*>([^<]+)</)?.[1] ?? "")?.[1];
+  assert.ok(code, "callback page shows a 6-character code");
+  return { d, hid, verifier, code: code!, html, cb };
+}
+
+const claim = (d: Parameters<typeof handleCalendar>[2], hid: string, verifier: string, code: string) => handleCalendar(post("handoff/claim", { hid, verifier, code }), "handoff/claim", d);
+
+test("B2 T1: old ?handoff=, unknown hid and expired hid are refused at /connect", async () => {
+  const sql = await db();
+  const clock = { t: 1_000_000 };
+  const d = { env: ENV, sql: async () => sql, now: () => clock.t };
+  const old = await handleCalendar(new Request(`https://a.test/api/calendar/connect?handoff=${pkceChallenge(randomToken(32))}`), "connect", d);
+  assert.equal(old.status, 400);
+  assert.equal((await handleCalendar(new Request("https://a.test/api/calendar/connect?hid=unknownunknownunknown"), "connect", d)).status, 400);
+  const { res } = await startDesktop(sql, [], clock);
+  const { hid } = (await res.json()) as { hid: string };
+  clock.t += 6 * 60_000;
+  assert.equal((await handleCalendar(new Request(`https://a.test/api/calendar/connect?hid=${hid}`), "connect", d)).status, 400);
+});
+
+test("B2 T2 (Critic C2): attacker-started hand-off, victim consents → attacker's claim without the code fails; 5 tries burn the row", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 2_000_000 };
+  const { d, hid, verifier } = await desktopConsent(sql, [], clock);
+  for (let i = 0; i < 4; i++) assert.equal((await claim(d, hid, verifier, "000000")).status, 401);
+  assert.equal((await claim(d, hid, verifier, "")).status, 401);
+  const after = await sql.query<{ state: string; session_enc: string | null }>("select state, session_enc from calendar_handoff where hid = $1", [hid]);
+  assert.equal(after[0]!.state, "burned");
+  assert.equal(after[0]!.session_enc, null);
+  assert.equal((await sql.query("select * from calendar_session")).length, 0, "no session ever issued");
+});
+
+test("B2 T3: happy path start → connect → callback code → claim 200 + session; second claim 410", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 3_000_000 };
+  const { d, hid, verifier, code } = await desktopConsent(sql, [], clock);
+  const ok = await claim(d, hid, verifier, code.toLowerCase());
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get("access-control-allow-origin"), "http://tauri.localhost");
+  const pair = (await ok.json()) as { access: string; refresh: string };
+  assert.ok(pair.access.length >= 40 && pair.refresh.length >= 40);
+  const st = await handleCalendar(new Request("https://a.test/api/calendar/status", { headers: { authorization: `Bearer ${pair.access}` } }), "status", d);
+  assert.deepEqual(await st.json(), { state: "connected", email: "alex@example.com", canEdit: true });
+  assert.equal((await claim(d, hid, verifier, code)).status, 410);
+});
+
+test("B2 T4: right code + wrong verifier → 401 and attempts+1; right verifier + wrong code → 401", async () => {
+  const sql = await db();
+  const clock = { t: 4_000_000 };
+  const { d, hid, verifier, code } = await desktopConsent(sql, [], clock);
+  assert.equal((await claim(d, hid, randomToken(32), code)).status, 401);
+  assert.equal((await sql.query<{ attempts: number }>("select attempts from calendar_handoff where hid = $1", [hid]))[0]!.attempts, 1);
+  const wrong = code.startsWith("Z") ? "Y" + code.slice(1) : "Z" + code.slice(1);
+  assert.equal((await claim(d, hid, verifier, wrong)).status, 401);
+  assert.equal((await claim(d, hid, verifier, code)).status, 200, "still claimable before the 5th failure");
+});
+
+test("B2 T5: claim 2 min 1 s after consent → 410", async () => {
+  const sql = await db();
+  const clock = { t: 5_000_000 };
+  const { d, hid, verifier, code } = await desktopConsent(sql, [], clock);
+  clock.t += 2 * 60_000 + 1_000;
+  assert.equal((await claim(d, hid, verifier, code)).status, 410);
+});
+
+test("B2 T6: callback page holds only the code; DB stores only the code hash", async () => {
+  const sql = await db();
+  const clock = { t: 6_000_000 };
+  const calls: Call[] = [];
+  const { html, cb, verifier, code } = await desktopConsent(sql, calls, clock);
+  assert.match(html, /Type this code into Atrium on the device you're connecting/);
+  assert.match(html, /nothing is shared until the code is entered/);
+  for (const secret of [verifier, "1//rt", "at-1"]) assert.ok(!html.includes(secret));
+  assert.ok(!cb.headers.getSetCookie().some((c) => /^atrium_cal(_r)?=/.test(c)), "browser gets no session in hand-off mode");
+  const rows = JSON.stringify(await sql.query("select * from calendar_handoff"));
+  assert.ok(!rows.includes(code) && !rows.includes(code.replace("-", "")));
+});
+
+test("B2 T7: 11th start from one IP within 10 min → 429; another IP still works", async () => {
+  const sql = await db();
+  const clock = { t: 7_000_000 };
+  for (let i = 0; i < 10; i++) assert.equal((await startDesktop(sql, [], clock)).res.status, 200);
+  assert.equal((await startDesktop(sql, [], clock)).res.status, 429);
+  assert.equal((await startDesktop(sql, [], clock, "198.51.100.2")).res.status, 200);
+  clock.t += 10 * 60_000 + 1;
+  assert.equal((await startDesktop(sql, [], clock)).res.status, 200);
+});
+
+test("B1 T2: preflight from each Tauri origin → 204 exact ACAO, no Allow-Credentials; evil origin → none", async () => {
+  for (const origin of ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"]) {
+    const r = await handleCalendar(new Request("https://a.test/api/calendar/status", { method: "OPTIONS", headers: { origin, "access-control-request-headers": "authorization" } }), "status", { env: ENV, sql: async () => assert.fail() });
+    assert.equal(r.status, 204);
+    assert.equal(r.headers.get("access-control-allow-origin"), origin);
+    assert.equal(r.headers.get("access-control-allow-credentials"), null);
+    assert.match(r.headers.get("access-control-allow-headers")!, /authorization/);
+  }
+  const evil = await handleCalendar(new Request("https://a.test/api/calendar/status", { method: "OPTIONS", headers: { origin: "https://evil.example" } }), "status", { env: ENV, sql: async () => assert.fail() });
+  assert.equal(evil.headers.get("access-control-allow-origin"), null);
+});
+
+test("M1 T1: CALENDAR_PUBLIC_ORIGIN unset → not ready, listed missing, /connect 503 (no BETTER_AUTH_URL fallback)", async () => {
+  const { CALENDAR_PUBLIC_ORIGIN: _o, ...rest } = ENV;
+  const cfg = readCalendarConfig({ ...rest, BETTER_AUTH_URL: "https://a.test" });
+  assert.equal(cfg.ready, false);
+  assert.ok(cfg.missing.includes("CALENDAR_PUBLIC_ORIGIN"));
+  const r = await handleCalendar(new Request("https://a.test/api/calendar/connect"), "connect", { env: { ...rest, BETTER_AUTH_URL: "https://a.test" }, sql: async () => assert.fail() });
+  assert.equal(r.status, 503);
+});
+
+test("M1 T2 (Critic C1): X-Forwarded-Host can't move the redirect_uri", async () => {
+  const sql = await db();
+  const env = { ...ENV, CALENDAR_PUBLIC_ORIGIN: "https://atrium-swart-seven.vercel.app" };
+  const r = await handleCalendar(new Request("https://a.test/api/calendar/connect", { headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" } }), "connect", { env, sql: async () => sql });
+  assert.equal(new URL(r.headers.get("location")!).searchParams.get("redirect_uri"), "https://atrium-swart-seven.vercel.app/api/calendar/oauth/callback");
+});
+
+test("M1 T3: http in production, a path, or not a URL → not ready with the reason", () => {
+  for (const [v, prod] of [["http://x", true], ["https://x/path", false], ["notaurl", false], ["https://x?q=1", false]] as const) {
+    const cfg = readCalendarConfig({ ...ENV, CALENDAR_PUBLIC_ORIGIN: v, NODE_ENV: prod ? "production" : "development" });
+    assert.equal(cfg.ready, false, v);
+    assert.match(cfg.missing.join(), /CALENDAR_PUBLIC_ORIGIN \(must be an https origin/);
+    assert.ok(!cfg.missing.join().includes(v), "value never echoed");
+  }
+  assert.equal(checkOrigin("http://localhost:8080", false), "http://localhost:8080");
+  assert.equal(checkOrigin("http://localhost:8080", true), null);
+  assert.equal(checkOrigin("https://atrium-swart-seven.vercel.app/", true), "https://atrium-swart-seven.vercel.app");
+});
+
+async function desktopPair(sql: Sql, clock: Clock, calls: Call[] = []) {
+  const { d, hid, verifier, code } = await desktopConsent(sql, calls, clock);
+  const r = await claim(d, hid, verifier, code);
+  return { d, pair: (await r.json()) as { access: string; refresh: string; accessExp: number; refreshExp: number } };
+}
+const bearerReq = (path: string, access: string, init: RequestInit = {}) => new Request(`https://a.test/api/calendar/${path}`, { ...init, headers: { authorization: `Bearer ${access}`, origin: "http://tauri.localhost" } });
+const refresh = (d: Parameters<typeof handleCalendar>[2], token: string) => handleCalendar(post("session/refresh", { refresh: token }), "session/refresh", d);
+
+test("M2 T1: access handle 61 min old → 401 session_expired; refresh → new pair; old access rejected", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 10_000_000 };
+  const { d, pair } = await desktopPair(sql, clock);
+  clock.t += 61 * 60_000;
+  const exp = await handleCalendar(bearerReq("calendars", pair.access), "calendars", d);
+  assert.equal(exp.status, 401);
+  assert.deepEqual(await exp.json(), { error: "session_expired" });
+  const r = await refresh(d, pair.refresh);
+  assert.equal(r.status, 200);
+  const next = (await r.json()) as { access: string };
+  assert.notEqual(next.access, pair.access);
+  assert.equal((await handleCalendar(bearerReq("calendars", next.access), "calendars", d)).status, 200);
+  assert.equal((await handleCalendar(bearerReq("calendars", pair.access), "calendars", d)).status, 401);
+});
+
+test("M2 T2: reusing a rotated refresh handle (after 10 s grace) kills the whole family; other families live", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 20_000_000 };
+  const a = await desktopPair(sql, clock);
+  const b = await desktopPair(sql, clock);
+  const r1 = (await (await refresh(a.d, a.pair.refresh)).json()) as { access: string; refresh: string };
+  assert.equal((await refresh(a.d, a.pair.refresh)).status, 409, "within grace: retry, no revoke");
+  clock.t += 11_000;
+  assert.equal((await refresh(a.d, a.pair.refresh)).status, 401);
+  assert.equal((await handleCalendar(bearerReq("calendars", r1.access), "calendars", a.d)).status, 401, "new access dead too");
+  assert.equal((await refresh(a.d, r1.refresh)).status, 401, "new refresh dead too");
+  assert.equal((await handleCalendar(bearerReq("calendars", b.pair.access), "calendars", b.d)).status, 200, "other device unaffected");
+});
+
+test("M2 T3: idle 14 d + 1 s → refresh fails; 90 d absolute → fails even when active", async () => {
+  const sql = await db();
+  const clock = { t: 30_000_000 };
+  const { d, pair } = await desktopPair(sql, clock);
+  clock.t += 14 * 86_400_000 + 1_000;
+  assert.equal((await refresh(d, pair.refresh)).status, 401);
+  const clock2 = { t: 40_000_000 };
+  const s2 = await desktopPair(await db(), clock2);
+  let cur = s2.pair.refresh;
+  for (let day = 13; day < 90; day += 13) {
+    clock2.t = 40_000_000 + day * 86_400_000;
+    const r = await refresh(s2.d, cur);
+    assert.equal(r.status, 200, `day ${day}`);
+    cur = ((await r.json()) as { refresh: string }).refresh;
+  }
+  clock2.t = 40_000_000 + 90 * 86_400_000 + 1;
+  assert.equal((await refresh(s2.d, cur)).status, 401);
+});
+
+test("M2 T4: sign out on this device kills only that family; Disconnect kills all and revokes Google once", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 50_000_000 };
+  const calls: Call[] = [];
+  const a = await desktopPair(sql, clock, calls);
+  const b = await desktopPair(sql, clock, calls);
+  assert.equal((await handleCalendar(bearerReq("signout", a.pair.access, { method: "POST" }), "signout", a.d)).status, 200);
+  assert.deepEqual(await (await handleCalendar(bearerReq("status", a.pair.access), "status", a.d)).json(), { state: "disconnected" });
+  assert.equal((await handleCalendar(bearerReq("calendars", b.pair.access), "calendars", b.d)).status, 200);
+  assert.equal((await handleCalendar(bearerReq("disconnect", b.pair.access, { method: "POST" }), "disconnect", b.d)).status, 200);
+  assert.equal(calls.filter((c) => c.url.startsWith("https://oauth2.googleapis.com/revoke")).length, 1);
+  assert.equal((await sql.query("select * from calendar_session")).length, 0);
+  assert.equal((await refresh(b.d, b.pair.refresh)).status, 401);
+});
+
+test("M2 T5: schema has no plaintext token columns; nothing token-shaped is logged", async () => {
+  const sql = await db();
+  const cols = await sql.query<{ table_name: string; column_name: string }>("select table_name, column_name from information_schema.columns where table_name like 'calendar_%'");
+  for (const c of cols) assert.ok(/(_hash|_enc|^id$|_id$|_exp|_at$|^state$|^attempts$|^scopes$|^provider$|account_|^challenge$|^hid$)/.test(c.column_name), `${c.table_name}.${c.column_name}`);
+  const logs: string[] = [];
+  const orig = [console.log, console.warn, console.error];
+  console.log = console.warn = console.error = (...a: unknown[]) => void logs.push(a.join(" "));
+  try {
+    const clock = { t: 60_000_000 };
+    const { d, pair } = await desktopPair(sql, clock);
+    clock.t += 3_600_000 + 20_000;
+    await refresh(d, pair.refresh);
+    clock.t += 20_000;
+    await refresh(d, pair.refresh);
+  } finally {
+    [console.log, console.warn, console.error] = orig;
+  }
+  assert.ok(logs.length >= 1, "reuse is logged");
+  for (const l of logs) assert.ok(!/[A-Za-z0-9_-]{32,}/.test(l), l);
+});
+
+test("M2 T6 + web rotation: cookies Max-Age ≤ 14 d, HttpOnly + Secure; an expired access cookie rotates transparently", async () => {
   _resetAccessCache();
   const sql = await db();
   const calls: Call[] = [];
-  const verifier = randomToken(32);
-  const { d, cb } = await connectedSession(sql, calls, pkceChallenge(verifier));
-  assert.equal(cb.status, 200);
-  assert.match(await cb.text(), /close this window/);
-  assert.ok(!cb.headers.getSetCookie().some((c) => c.startsWith("atrium_cal=")), "browser gets no session in hand-off mode");
-  const claim = await handleCalendar(new Request("https://a.test/api/calendar/handoff", { method: "POST", body: JSON.stringify({ verifier }), headers: { origin: "http://tauri.localhost" } }), "handoff", d);
-  assert.equal(claim.headers.get("access-control-allow-origin"), "http://tauri.localhost");
-  const { session } = (await claim.json()) as { session: string };
-  assert.ok(session.length >= 40);
-  const auth = { authorization: `Bearer ${session}` };
+  const clock = { t: 70_000_000 };
+  const { cb } = await connectedSession(sql, calls, undefined, () => clock.t);
+  const set = cb.headers.getSetCookie().filter((c) => /^atrium_cal(_r)?=/.test(c));
+  assert.equal(set.length, 2);
+  for (const c of set) {
+    assert.ok(Number(/Max-Age=(\d+)/.exec(c)![1]) <= 1_209_600, c);
+    assert.match(c, /HttpOnly; Secure/);
+  }
+  const cookie = set.map((c) => c.split(";")[0]).join("; ");
+  const d = { env: ENV, sql: async () => sql, fetch: google(calls), now: () => clock.t };
+  clock.t += 2 * 3_600_000;
+  const r = await handleCalendar(new Request("https://a.test/api/calendar/status", { headers: { cookie } }), "status", d);
+  assert.equal(((await r.json()) as { state: string }).state, "connected");
+  assert.equal(r.headers.getSetCookie().filter((c) => /^atrium_cal(_r)?=/.test(c)).length, 2, "rotated pair set");
+});
+
+test("desktop session: 410 → gone, 412 → conflict, If-Match sent", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const calls: Call[] = [];
+  const clock = { t: 80_000_000 };
+  const { d, pair } = await desktopPair(sql, clock, calls);
+  const auth = { authorization: `Bearer ${pair.access}` };
   const gone = await handleCalendar(new Request("https://a.test/api/calendar/events?cal=x&syncToken=old", { headers: auth }), "events", { ...d, fetch: google(calls, { eventsStatus: 410 }) });
   assert.deepEqual(await gone.json(), { items: [], gone: true });
   const patch = (status?: number) =>
     handleCalendar(new Request("https://a.test/api/calendar/events/e1", { method: "PATCH", headers: auth, body: JSON.stringify({ cal: "x", etag: '"1"', body: { summary: "Standup moved" } }) }), "events/e1", { ...d, fetch: google(calls, { patchStatus: status }) });
   assert.equal((await patch(412)).status, 409);
-  const ok = await patch();
-  assert.equal(ok.status, 200);
+  assert.equal((await patch()).status, 200);
   const sent = calls.filter((c) => c.init?.method === "PATCH").at(-1)!;
   assert.equal((sent.init!.headers as Record<string, string>)["if-match"], '"1"');
-  const evil = await handleCalendar(new Request("https://a.test/api/calendar/status", { headers: { origin: "https://evil.example" } }), "status", d);
-  assert.equal(evil.headers.get("access-control-allow-origin"), null);
-  const off = await handleCalendar(new Request("https://a.test/api/calendar/disconnect", { method: "POST", headers: auth }), "disconnect", d);
-  assert.equal(off.status, 200);
-  assert.ok(calls.some((c) => c.url.startsWith("https://oauth2.googleapis.com/revoke")));
-  assert.equal((await sql.query("select * from calendar_connection")).length, 0);
 });

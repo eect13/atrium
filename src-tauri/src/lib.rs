@@ -200,6 +200,70 @@ fn raise_floats(app: &tauri::AppHandle) {
     }
 }
 
+/// Card 170 (Card 167 M2): the calendar refresh handle lives in the app's private data dir,
+/// not in WebView localStorage. One opaque value; never logged.
+fn cal_secret_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("calendar-session.secret"))
+}
+
+fn valid_secret(v: &str) -> bool {
+    !v.is_empty() && v.len() <= 512 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+#[tauri::command]
+fn cal_secret_get(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let p = cal_secret_path(&app)?;
+    match std::fs::read_to_string(&p) {
+        Ok(v) => {
+            let v = v.trim().to_string();
+            Ok(if valid_secret(&v) { Some(v) } else { None })
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn cal_secret_set(app: tauri::AppHandle, value: String) -> Result<(), String> {
+    if !valid_secret(&value) {
+        return Err("invalid value".into());
+    }
+    let p = cal_secret_path(&app)?;
+    let tmp = p.with_extension("tmp");
+    std::fs::write(&tmp, value.as_bytes()).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn cal_secret_clear(app: tauri::AppHandle) -> Result<(), String> {
+    let p = cal_secret_path(&app)?;
+    match std::fs::remove_file(&p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::valid_secret;
+    #[test]
+    fn only_opaque_handles() {
+        assert!(valid_secret("abcDEF012-_"));
+        assert!(!valid_secret(""));
+        assert!(!valid_secret("a b"));
+        assert!(!valid_secret("../x"));
+        assert!(!valid_secret(&"a".repeat(513)));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -216,7 +280,7 @@ pub fn run() {
     }
 
     builder
-        .invoke_handler(tauri::generate_handler![fetch_text, open_url])
+        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_secret_get, cal_secret_set, cal_secret_clear])
         .setup(|app| {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {

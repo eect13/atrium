@@ -22,12 +22,31 @@ function atriumKeys(store: Storage) {
   return keys;
 }
 
+export const CALENDAR_ACCOUNTS_KEY = "atrium.calendar.v1";
+
+/**
+ * Card 170 (Card 166 E3c / Card 168): secret iCal addresses are credentials and never leave
+ * the device in a backup; the old v1 Bearer `session` is dropped too. Subscriptions come back
+ * by name and can be re-added by address.
+ */
+export function scrubCalendarAccounts(raw: string): string {
+  try {
+    const data = JSON.parse(raw) as { state?: { session?: unknown; icsSources?: { url?: string }[] } };
+    if (!data?.state) return raw;
+    delete data.state.session;
+    if (Array.isArray(data.state.icsSources)) data.state.icsSources = data.state.icsSources.map(({ url: _u, ...rest }) => rest);
+    return JSON.stringify(data);
+  } catch {
+    return "{}";
+  }
+}
+
 export function collectProfileBackup(): ProfileBackup {
   const storage: Record<string, string> = {};
   if (typeof localStorage !== "undefined") {
     for (const k of atriumKeys(localStorage)) {
       const v = localStorage.getItem(k);
-      if (v != null) storage[k] = v;
+      if (v != null) storage[k] = k === CALENDAR_ACCOUNTS_KEY ? scrubCalendarAccounts(v) : v;
     }
   }
   if (typeof sessionStorage !== "undefined") {

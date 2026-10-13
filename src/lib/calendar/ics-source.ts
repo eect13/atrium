@@ -41,3 +41,29 @@ export function withoutSource(events: CalendarEvent[], srcId: string) {
 
 /** ICS events imported before Card 165 carry no source id; they are listed as one source. */
 export const LEGACY_ICS = "ics-earlier";
+
+/**
+ * Card 168: a saved iCal address can be a Google "secret address" — treat it like a password.
+ * Shown as `calendar.google.com/calendar/ical/••••••••/basic.ics`: host and plain words stay,
+ * any id-like or private segment (and the whole query) collapses to one mask.
+ */
+export function maskIcsUrl(raw: string) {
+  const DOTS = "••••••••";
+  let u: URL;
+  try {
+    u = new URL(raw.replace(/^webcal:/i, "https:"));
+  } catch {
+    return DOTS;
+  }
+  const parts = u.pathname.split("/").filter(Boolean);
+  const out: string[] = [];
+  parts.forEach((p, i) => {
+    const last = i === parts.length - 1;
+    const plain = /^[a-z][a-z-]{0,11}$/i.test(p) && !/^private/i.test(p);
+    const file = last && /^[a-z][\w-]{0,20}\.ics$/i.test(p);
+    const seg = plain || file ? p : DOTS;
+    if (seg === DOTS && out.at(-1) === DOTS) return;
+    out.push(seg);
+  });
+  return `${u.host}/${out.join("/")}${u.search ? `?${DOTS}` : ""}`;
+}

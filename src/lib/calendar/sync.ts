@@ -138,9 +138,10 @@ export function writeOf(e: CalendarEvent): EventWrite {
 }
 
 /** Banner for a stopped sync (Card 164 §6). */
-export function bannerFor(stop: { code: string; status: number } | undefined, online: boolean): "failed" | "expired" | "offline" | "partial" | null {
+export function bannerFor(stop: { code: string; status: number } | undefined, online: boolean): "failed" | "expired" | "disconnected" | "offline" | "partial" | null {
   if (!stop) return null;
   if (!online || stop.code === "offline") return "offline";
+  if (stop.code === "disconnected") return "disconnected";
   if (stop.code === "expired" || stop.status === 401) return "expired";
   if (stop.code === "needs_edit") return "partial";
   return "failed";
