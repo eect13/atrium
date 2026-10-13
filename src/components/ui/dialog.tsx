@@ -3,6 +3,7 @@ import { CloseButton } from "@/components/ui/close-button";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { escapeConfirmFirst } from "@/components/ui/confirm-row";
+import { useFocusReturn } from "@/components/ui/focus-return";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -24,7 +25,9 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const focus = useFocusReturn(props);
+  return (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -35,6 +38,8 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
       onEscapeKeyDown={escapeConfirmFirst(props.onEscapeKeyDown)}
+      onOpenAutoFocus={focus.onOpenAutoFocus}
+      onCloseAutoFocus={focus.onCloseAutoFocus}
     >
       {children}
       <DialogPrimitive.Close asChild>
@@ -42,7 +47,8 @@ const DialogContent = React.forwardRef<
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
-));
+  );
+});
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

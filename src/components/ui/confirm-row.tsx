@@ -28,8 +28,13 @@ function triggerIn(el: Element | null | undefined) {
   return el?.querySelector<HTMLElement>(`[${TRIGGER}]`) ?? null;
 }
 
-function focusLater(get: () => HTMLElement | null | undefined) {
-  requestAnimationFrame(() => get()?.focus());
+/** Focus after React re-renders the trigger back in; retries a few frames (Form 173 §1). */
+function focusLater(get: () => HTMLElement | null | undefined, tries = 4) {
+  requestAnimationFrame(() => {
+    const el = get();
+    if (el?.isConnected) el.focus();
+    else if (tries > 1) focusLater(get, tries - 1);
+  });
 }
 
 /** 44×44 Trash icon that opens a ConfirmRow for `id`. */
@@ -80,6 +85,8 @@ type Props = {
   lead?: React.ReactNode;
   /** Extra lines under the message; when set, `detail` is not inlined. */
   children?: React.ReactNode;
+  /** Form 173 §2: e.g. "Keep editing". Defaults to "Cancel". */
+  cancelLabel?: string;
 };
 
 /** The shared inline destructive confirm (interests, hub, categories, clocks, feed sources). */
@@ -98,6 +105,7 @@ export function ConfirmRow({
   buttonClassName,
   lead,
   children,
+  cancelLabel = "Cancel",
 }: Props) {
   const ref = React.useRef<HTMLElement | null>(null);
   const cancel = () => {
@@ -148,7 +156,7 @@ export function ConfirmRow({
       </div>
       <div className={cn("ml-auto flex gap-2", actionsClassName)}>
         <Button type="button" variant="outline" className={buttonClassName} onClick={cancel} autoFocus>
-          Cancel
+          {cancelLabel}
         </Button>
         <Button type="button" variant="destructive" className={buttonClassName} onClick={confirm}>
           {verb}

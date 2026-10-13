@@ -76,7 +76,7 @@ function CalendarOptionsCard() {
   return (
     <Card id="opt-calendar" className="scroll-mt-4">
       <CardHeader>
-        <CardTitle>Calendar</CardTitle>
+        <CardTitle data-focus-home="" tabIndex={-1}>Calendar</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2">

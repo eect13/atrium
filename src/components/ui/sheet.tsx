@@ -3,6 +3,7 @@ import { CloseButton } from "@/components/ui/close-button";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { escapeConfirmFirst } from "@/components/ui/confirm-row";
+import { useFocusReturn } from "@/components/ui/focus-return";
 
 const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
@@ -13,7 +14,9 @@ const SheetContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     side?: "left" | "right" | "bottom";
   }
->(({ className, children, side = "right", ...props }, ref) => (
+>(({ className, children, side = "right", ...props }, ref) => {
+  const focus = useFocusReturn(props);
+  return (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/90" />
     <DialogPrimitive.Content
@@ -28,6 +31,8 @@ const SheetContent = React.forwardRef<
       )}
       {...props}
       onEscapeKeyDown={escapeConfirmFirst(props.onEscapeKeyDown)}
+      onOpenAutoFocus={focus.onOpenAutoFocus}
+      onCloseAutoFocus={focus.onCloseAutoFocus}
     >
       {children}
       <DialogPrimitive.Close asChild>
@@ -35,7 +40,8 @@ const SheetContent = React.forwardRef<
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
-));
+  );
+});
 SheetContent.displayName = "SheetContent";
 
 const SheetTitle = React.forwardRef<

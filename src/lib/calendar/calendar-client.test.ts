@@ -62,3 +62,20 @@ test("profile backup never carries a secret iCal address or the v1 session", () 
   assert.match(out, /"name":"calendar.google.com"/);
   assert.equal(scrubCalendarAccounts("{bad"), "{}");
 });
+
+// ---------- Card 174 M-a ----------
+import { unwrapReply } from "./device-secret.ts";
+import { CalendarApiError as ApiErr } from "./google-source.ts";
+
+test("M-a: device replies give JS only the access handle; errors keep status + server message", () => {
+  assert.deepEqual(unwrapReply({ status: 200, body: { access: "acc", accessExp: 5 } }), { access: "acc", accessExp: 5 });
+  assert.ok(!("refresh" in unwrapReply({ status: 200, body: { access: "acc", accessExp: 5, refresh: "r" } as never })), "unwrap copies only access + accessExp");
+  assert.throws(() => unwrapReply({ status: 401, body: { error: "bad_code", message: "That code doesn't match." } }), (e: unknown) => e instanceof ApiErr && e.status === 401 && e.code === "bad_code" && e.message === "That code doesn't match.");
+  assert.throws(() => unwrapReply({ status: 429, body: { error: "rate_limited", message: "Too many wrong codes." } }), (e: unknown) => e instanceof ApiErr && e.status === 429);
+  assert.throws(() => unwrapReply({ status: 0, body: null }), (e: unknown) => e instanceof ApiErr && e.code === "offline");
+});
+
+test("M-a: device-secret exposes no way to read the refresh handle back", async () => {
+  const mod = await import("./device-secret.ts");
+  assert.deepEqual(Object.keys(mod).sort(), ["adoptLegacy", "claimOnDevice", "clearRefresh", "refreshOnDevice", "unwrapReply"]);
+});

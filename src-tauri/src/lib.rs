@@ -200,39 +200,117 @@ fn raise_floats(app: &tauri::AppHandle) {
     }
 }
 
-/// Card 170 (Card 167 M2): the calendar refresh handle lives in the app's private data dir,
-/// not in WebView localStorage. One opaque value; never logged.
-fn cal_secret_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+/// Card 174 M-a (Critic 171): the calendar refresh handle never reaches the WebView.
+/// Rust claims the hand-off and rotates the handle itself; JS only ever gets the 1 h access handle.
+/// At rest it is sealed with Windows DPAPI (CryptProtectData, current user) on Windows; on other
+/// desktops it is a 0600 file in the app's private data dir. There is no command that returns it.
+const CAL_API_DEFAULT: &str = "https://atrium-swart-seven.vercel.app";
+#[cfg(windows)]
+const CAL_ENTROPY: &[u8] = b"atrium-calendar-session-v1";
+
+/// Fixed at build time (same name as the web build's VITE_CALENDAR_API_ORIGIN), never from JS,
+/// so a script can't point the refresh at another server.
+fn cal_api_base() -> String {
+    let v = option_env!("VITE_CALENDAR_API_ORIGIN").unwrap_or(CAL_API_DEFAULT).trim_end_matches('/');
+    if v.starts_with("https://") || v.starts_with("http://127.0.0.1:") || v.starts_with("http://localhost:") {
+        v.to_string()
+    } else {
+        CAL_API_DEFAULT.to_string()
+    }
+}
+
+fn cal_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("calendar-session.secret"))
+    Ok(dir)
 }
 
 fn valid_secret(v: &str) -> bool {
     !v.is_empty() && v.len() <= 512 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-#[tauri::command]
-fn cal_secret_get(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let p = cal_secret_path(&app)?;
-    match std::fs::read_to_string(&p) {
-        Ok(v) => {
-            let v = v.trim().to_string();
-            Ok(if valid_secret(&v) { Some(v) } else { None })
+#[cfg(windows)]
+mod dpapi {
+    use windows_sys::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    fn blob(b: &[u8]) -> CRYPT_INTEGER_BLOB {
+        CRYPT_INTEGER_BLOB { cbData: b.len() as u32, pbData: b.as_ptr() as *mut u8 }
+    }
+
+    unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
+        let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+        LocalFree(out.pbData as HLOCAL);
+        v
+    }
+
+    pub fn protect(plain: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
+        let input = blob(plain);
+        let ent = blob(entropy);
+        let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+        let ok = unsafe { CryptProtectData(&input, std::ptr::null(), &ent, std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out) };
+        if ok == 0 {
+            return Err("CryptProtectData failed".into());
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.to_string()),
+        Ok(unsafe { take(out) })
+    }
+
+    pub fn unprotect(sealed: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
+        let input = blob(sealed);
+        let ent = blob(entropy);
+        let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+        let ok = unsafe { CryptUnprotectData(&input, std::ptr::null_mut(), &ent, std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out) };
+        if ok == 0 {
+            return Err("CryptUnprotectData failed".into());
+        }
+        Ok(unsafe { take(out) })
     }
 }
 
-#[tauri::command]
-fn cal_secret_set(app: tauri::AppHandle, value: String) -> Result<(), String> {
-    if !valid_secret(&value) {
+#[cfg(windows)]
+fn seal_secret(v: &str) -> Result<Vec<u8>, String> {
+    dpapi::protect(v.as_bytes(), CAL_ENTROPY)
+}
+#[cfg(windows)]
+fn open_secret(b: &[u8]) -> Option<String> {
+    dpapi::unprotect(b, CAL_ENTROPY).ok().and_then(|v| String::from_utf8(v).ok())
+}
+#[cfg(not(windows))]
+fn seal_secret(v: &str) -> Result<Vec<u8>, String> {
+    Ok(v.as_bytes().to_vec())
+}
+#[cfg(not(windows))]
+fn open_secret(b: &[u8]) -> Option<String> {
+    String::from_utf8(b.to_vec()).ok()
+}
+
+/// `calendar-session.bin` (sealed). Card 170's plaintext `calendar-session.secret` is read once,
+/// sealed into the new file, then removed.
+fn cal_read(app: &tauri::AppHandle) -> Option<String> {
+    let dir = cal_dir(app).ok()?;
+    if let Ok(b) = std::fs::read(dir.join("calendar-session.bin")) {
+        return open_secret(&b).map(|v| v.trim().to_string()).filter(|v| valid_secret(v));
+    }
+    let old = dir.join("calendar-session.secret");
+    let v = std::fs::read_to_string(&old).ok()?.trim().to_string();
+    if !valid_secret(&v) {
+        return None;
+    }
+    if cal_write(app, &v).is_ok() {
+        let _ = std::fs::remove_file(&old);
+    }
+    Some(v)
+}
+
+fn cal_write(app: &tauri::AppHandle, v: &str) -> Result<(), String> {
+    if !valid_secret(v) {
         return Err("invalid value".into());
     }
-    let p = cal_secret_path(&app)?;
+    let p = cal_dir(app)?.join("calendar-session.bin");
     let tmp = p.with_extension("tmp");
-    std::fs::write(&tmp, value.as_bytes()).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, seal_secret(v)?).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -241,19 +319,114 @@ fn cal_secret_set(app: tauri::AppHandle, value: String) -> Result<(), String> {
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn cal_secret_clear(app: tauri::AppHandle) -> Result<(), String> {
-    let p = cal_secret_path(&app)?;
-    match std::fs::remove_file(&p) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.to_string()),
+fn cal_clear_files(app: &tauri::AppHandle) -> Result<(), String> {
+    let dir = cal_dir(app)?;
+    for name in ["calendar-session.bin", "calendar-session.secret", "calendar-session.tmp"] {
+        match std::fs::remove_file(dir.join(name)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.to_string()),
+        }
     }
+    Ok(())
+}
+
+/// Strip the refresh handle from a server reply before it goes to JS.
+fn without_refresh(mut body: serde_json::Value) -> serde_json::Value {
+    if let Some(o) = body.as_object_mut() {
+        o.remove("refresh");
+    }
+    body
+}
+
+async fn cal_post(path: &str, body: serde_json::Value) -> Result<(u16, serde_json::Value), String> {
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build().map_err(|e| e.to_string())?;
+    let res = client
+        .post(format!("{}/api/calendar{}", cal_api_base(), path))
+        .header("content-type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|_| "offline".to_string())?;
+    let status = res.status().as_u16();
+    let text = res.text().await.unwrap_or_default();
+    Ok((status, serde_json::from_str(&text).unwrap_or(serde_json::Value::Null)))
+}
+
+/// Reply shape for JS: `{ status, body }`, the body never carrying `refresh`.
+fn reply(status: u16, body: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "status": status, "body": without_refresh(body) })
+}
+
+/// Keep the new refresh handle (if any) and hand JS the rest.
+fn keep_pair(app: &tauri::AppHandle, status: u16, body: serde_json::Value) -> Result<serde_json::Value, String> {
+    if status == 200 {
+        let r = body.get("refresh").and_then(|v| v.as_str()).unwrap_or("");
+        cal_write(app, r)?;
+    }
+    Ok(reply(status, body))
+}
+
+#[tauri::command]
+async fn cal_session_claim(app: tauri::AppHandle, hid: String, verifier: String, code: String) -> Result<serde_json::Value, String> {
+    if hid.len() > 128 || verifier.len() > 128 || code.len() > 16 {
+        return Err("invalid value".into());
+    }
+    let (status, body) = cal_post("/handoff/claim", serde_json::json!({ "hid": hid, "verifier": verifier, "code": code })).await?;
+    keep_pair(&app, status, body)
+}
+
+#[tauri::command]
+async fn cal_session_refresh(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let Some(refresh) = cal_read(&app) else {
+        return Ok(reply(401, serde_json::json!({ "error": "disconnected" })));
+    };
+    let (status, body) = cal_post("/session/refresh", serde_json::json!({ "refresh": refresh })).await?;
+    if status == 401 {
+        cal_clear_files(&app)?;
+    }
+    keep_pair(&app, status, body)
+}
+
+/// One-time move of a Card 165-era handle that JS still had in localStorage. Write-only, and
+/// never replaces a handle that is already stored.
+#[tauri::command]
+fn cal_session_adopt(app: tauri::AppHandle, value: String) -> Result<(), String> {
+    if cal_read(&app).is_some() {
+        return Ok(());
+    }
+    cal_write(&app, &value)
+}
+
+#[tauri::command]
+fn cal_session_clear(app: tauri::AppHandle) -> Result<(), String> {
+    cal_clear_files(&app)
 }
 
 #[cfg(test)]
 mod secret_tests {
-    use super::valid_secret;
+    use super::{cal_api_base, open_secret, reply, seal_secret, valid_secret, without_refresh};
+
+    #[test]
+    fn refresh_never_returned_to_js() {
+        let r = reply(200, serde_json::json!({ "access": "a", "refresh": "r", "accessExp": 1 }));
+        assert_eq!(r["status"], 200);
+        assert!(r["body"].get("refresh").is_none());
+        assert_eq!(r["body"]["access"], "a");
+        assert_eq!(without_refresh(serde_json::Value::Null), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn seal_round_trip_and_api_base_is_fixed() {
+        let s = seal_secret("abc_DEF-1").unwrap();
+        assert_eq!(open_secret(&s).as_deref(), Some("abc_DEF-1"));
+        #[cfg(windows)]
+        assert!(!s.windows(9).any(|w| w == b"abc_DEF-1"), "DPAPI output is not plaintext");
+        let b = cal_api_base();
+        assert!(b.starts_with("https://") || b.starts_with("http://127.0.0.1:") || b.starts_with("http://localhost:"));
+        assert!(!b.ends_with('/'));
+    }
+
     #[test]
     fn only_opaque_handles() {
         assert!(valid_secret("abcDEF012-_"));
@@ -280,7 +453,7 @@ pub fn run() {
     }
 
     builder
-        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_secret_get, cal_secret_set, cal_secret_clear])
+        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear])
         .setup(|app| {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {

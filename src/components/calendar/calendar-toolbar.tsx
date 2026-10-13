@@ -81,7 +81,7 @@ export function CalendarToolbar({
         }}
       />
       <div className="hidden items-center gap-2 md:flex">
-        <h2 className="min-w-0 truncate font-display text-[28px] font-medium leading-tight tracking-tight">{title}</h2>
+        <h2 data-focus-home="" tabIndex={-1} className="min-w-0 truncate font-display text-[28px] font-medium leading-tight tracking-tight">{title}</h2>
         {nav}
         {views(false)}
         <div className="grow" />
@@ -101,7 +101,7 @@ export function CalendarToolbar({
       </div>
       <div className="flex flex-col gap-2 md:hidden">
         <div className="flex items-center gap-1">
-          <h2 className="min-w-0 flex-1 truncate font-display text-2xl font-medium tracking-tight">{title}</h2>
+          <h2 data-focus-home="" tabIndex={-1} className="min-w-0 flex-1 truncate font-display text-2xl font-medium tracking-tight">{title}</h2>
           <Button size="icon" className="size-11 shrink-0" aria-label="New event" onClick={onNew}>
             <Plus className="size-5" aria-hidden />
           </Button>

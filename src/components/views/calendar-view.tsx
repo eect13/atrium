@@ -50,6 +50,7 @@ import { isNarrow } from "@/lib/desk";
 import { EMPTY_DAY } from "@/lib/cal-view";
 import { calendarColourOf } from "@/lib/calendar/source";
 import { guestsToTell, moveBlock, tellGuestsQuestion } from "@/lib/calendar/move";
+import { usableFocus } from "@/components/ui/focus-return";
 import { addIcsSource, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
 import { fmtTime } from "@/lib/format";
 import { catToken } from "@/lib/event-cats";
@@ -175,6 +176,29 @@ export function CalendarView() {
   const [daySheet, setDaySheet] = useState<string | null>(null);
   /** FORM-WCAG #13 / O5: restore focus to the control that opened the dialog. */
   const returnFocus = useRef<HTMLElement | null>(null);
+  /** Form 173 §2: fields as they were when the dialog opened; a change makes Esc/×/Cancel ask first. */
+  const formNow = JSON.stringify([title, start, end, cat, loc, allDay, eventTz, repeat, repeatEvery, repeatUntil, repeatCount, reminder, color, target]);
+  const formSnap = useRef<string | null>(null);
+  const snapNext = useRef(false);
+  const [askDiscard, setAskDiscard] = useState(false);
+  const discardBack = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open && snapNext.current) {
+      formSnap.current = formNow;
+      snapNext.current = false;
+    }
+  }, [open, formNow]);
+  function requestClose() {
+    const dirty = !viewOnly && formSnap.current !== null && formSnap.current !== formNow;
+    if (!dirty || askDiscard) {
+      if (!dirty) setOpen(false);
+      return;
+    }
+    discardBack.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirmDelete(false);
+    setTellAsk(null);
+    setAskDiscard(true);
+  }
   const shown = useMemo(() => {
     const span = paintSpan(cursor, mode);
     return expandEvents(listed, span.from, span.to);
@@ -232,6 +256,8 @@ export function CalendarView() {
     setViewOnly(null);
     setTarget(defaultEventTarget(writable));
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    snapNext.current = true;
+    setAskDiscard(false);
     setOpen(true);
   }
 
@@ -271,6 +297,8 @@ export function CalendarView() {
         : null,
     );
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    snapNext.current = true;
+    setAskDiscard(false);
     setOpen(true);
   }
 
@@ -585,11 +613,13 @@ export function CalendarView() {
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : requestClose())}>
         <DialogContent
           onCloseAutoFocus={(e) => {
+            const el = usableFocus(returnFocus.current);
+            if (!el) return; // shared fallback in DialogContent (Form 173 §1)
             e.preventDefault();
-            returnFocus.current?.focus?.();
+            el.focus();
           }}
         >
           <DialogHeader>
@@ -864,7 +894,22 @@ export function CalendarView() {
                 Meet
               </a>
             ) : null}
-            {editId && tellAsk && moveSrc ? (
+            {askDiscard ? (
+              <ConfirmRow
+                subject={editId ? "changes" : "this event"}
+                verb="Discard"
+                cancelLabel="Keep editing"
+                onCancel={() => {
+                  setAskDiscard(false);
+                  const back = discardBack.current;
+                  requestAnimationFrame(() => usableFocus(back)?.focus());
+                }}
+                onConfirm={() => {
+                  setAskDiscard(false);
+                  setOpen(false);
+                }}
+              />
+            ) : editId && tellAsk && moveSrc ? (
               <div role="group" aria-labelledby="tell-guests-q" className="space-y-2 rounded-md border border-border p-3">
                 <p id="tell-guests-q" className="text-sm font-medium">{tellGuestsQuestion(guestsToTell(moveSrc))}</p>
                 <p className="text-xs text-muted-foreground">
@@ -911,7 +956,7 @@ export function CalendarView() {
               />
             ) : (
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setOpen(false)}>
+              <Button variant="outline" onClick={() => requestClose()}>
                 {viewOnly ? "Close" : "Cancel"}
               </Button>
               {editId && !viewOnly ? (

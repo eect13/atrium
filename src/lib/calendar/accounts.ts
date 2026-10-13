@@ -12,8 +12,8 @@ import { uid } from "../format.ts";
 import { useAtrium } from "../store.ts";
 import type { CalendarEvent, GCalDesk } from "../types.ts";
 import { gcalLane } from "../google-cal.ts";
-import { clearRefresh, readRefresh, saveRefresh } from "./device-secret.ts";
-import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus, type SessionPair } from "./google-source.ts";
+import { adoptLegacy, claimOnDevice, clearRefresh, refreshOnDevice, type DeviceAccess } from "./device-secret.ts";
+import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus } from "./google-source.ts";
 import { LEGACY_ICS, withoutSource, type IcsSourceMeta } from "./ics-source.ts";
 import { isWritableRole } from "./source.ts";
 import { applyFlush, applyPull, bannerFor, enqueue, flushPending, pullCalendar, writeOf, type PendingOp } from "./sync.ts";
@@ -76,9 +76,8 @@ let access: { token: string; exp: number } | null = null;
 let renewing: Promise<string | null> | null = null;
 const RENEW_EARLY_MS = 5 * 60_000;
 
-function keepPair(p: SessionPair) {
-  access = { token: p.access, exp: p.accessExp };
-  return saveRefresh(p.refresh);
+function keepAccess(a: DeviceAccess) {
+  access = { token: a.access, exp: a.accessExp };
 }
 
 async function forgetDevice() {
@@ -93,12 +92,10 @@ function renew(): Promise<string | null> {
   renewing = (async () => {
     try {
       for (let i = 0; i < 2; i++) {
-        const refresh = await readRefresh();
-        if (!refresh) return null;
         try {
-          const p = await api<SessionPair>({ base: calendarApiBase(), native: true }, "/session/refresh", { method: "POST", body: JSON.stringify({ refresh }) });
-          await keepPair(p);
-          return p.access;
+          const a = await refreshOnDevice();
+          keepAccess(a);
+          return a.access;
         } catch (e) {
           if (e instanceof CalendarApiError && e.status === 409) {
             await new Promise((r) => setTimeout(r, 400));
@@ -118,7 +115,7 @@ function renew(): Promise<string | null> {
 
 async function accessToken() {
   if (legacyRefresh) {
-    await saveRefresh(legacyRefresh).catch(() => undefined);
+    await adoptLegacy(legacyRefresh).catch(() => undefined);
     legacyRefresh = null;
   }
   if (access && access.exp - Date.now() > RENEW_EARLY_MS) return access.token;
@@ -230,8 +227,7 @@ export async function submitHandoffCode(code: string): Promise<string | null> {
   if (!h || !verifier) return "Start again: choose Sign in with Google.";
   set({ handoff: { ...h, busy: true, error: undefined } });
   try {
-    const p = await api<SessionPair>({ base: calendarApiBase(), native: true }, "/handoff/claim", { method: "POST", body: JSON.stringify({ hid: h.hid, verifier, code }) });
-    await keepPair(p);
+    keepAccess(await claimOnDevice(h.hid, verifier, code));
     cancelFlow?.();
     await afterConnect();
     return null;
