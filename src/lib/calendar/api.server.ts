@@ -17,6 +17,8 @@ import { authUrl, exchangeCode, OAuthError, refreshAccess, revoke, userInfo, typ
 import {
   bindHandoff,
   claimHandoff,
+  claimLimited,
+  noteClaimFail,
   consentHandoff,
   deleteConnection,
   findConnection,
@@ -100,8 +102,14 @@ function bearer(req: Request) {
   return auth?.startsWith("Bearer ") ? auth.slice(7).trim() || null : null;
 }
 
-function clientIp(req: Request) {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
+/**
+ * Card 174 L1 (Scout 172): Vercel sets x-vercel-forwarded-for / x-real-ip at its edge and overwrites
+ * client X-Forwarded-For (https://vercel.com/docs/headers/request-headers). Off Vercel (dev, other
+ * hosts) fall back to the leftmost XFF; on Vercel never trust it.
+ */
+export function clientIp(req: Request, onVercel = Boolean(process.env.VERCEL)) {
+  const h = (n: string) => req.headers.get(n)?.split(",")[0]?.trim() || "";
+  return h("x-vercel-forwarded-for") || h("x-real-ip") || (onVercel ? "" : h("x-forwarded-for")) || "unknown";
 }
 
 const pairBody = (p: SessionPair) => ({ access: p.access, refresh: p.refresh, accessExp: p.accessExp, refreshExp: p.refreshExp });
@@ -257,7 +265,10 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
   if (path === "/handoff/claim" && method === "POST") {
     const body = (await req.json().catch(() => ({}))) as { hid?: string; verifier?: string; code?: string };
     if (!body.hid || !body.verifier || body.verifier.length < 43 || body.verifier.length > 128 || typeof body.code !== "string" || body.code.length > 16) return json(req, { error: "bad_request" }, 400);
+    const ipHash = sha256(`ip:${clientIp(req)}`);
+    if (await claimLimited(sql, ipHash, now)) return json(req, { error: "rate_limited", message: "Too many wrong codes. Wait a few minutes and try again." }, 429, { "retry-after": "600" });
     const r = await claimHandoff(sql, cfg.key, body.hid, body.verifier, body.code, now);
+    if (r === "bad") await noteClaimFail(sql, ipHash, now);
     if (r === "pending") return json(req, { error: "pending", message: "Finish signing in to Google in your browser first." }, 409);
     if (r === "bad") return json(req, { error: "bad_code", message: "That code doesn't match. Check the code in your browser." }, 401);
     if (r === "gone") return json(req, { error: "gone", message: "This sign-in expired. Start again." }, 410);

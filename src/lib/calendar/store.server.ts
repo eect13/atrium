@@ -191,26 +191,52 @@ export type ClaimResult = { pair: SessionPair } | "pending" | "bad" | "gone";
  * row must be `consented` and unexpired. Each wrong try counts; the 5th burns the row. One claim.
  */
 export async function claimHandoff(sql: Sql, key: Buffer, hid: string, verifier: string, code: string, now = Date.now()): Promise<ClaimResult> {
-  const r = await handoffRow(sql, hid);
-  if (!r) return "gone";
-  if (r.state === "claimed" || r.state === "burned" || ms(r.expires_at)! <= now) {
-    if (r.state !== "claimed" && r.state !== "burned") await sql.query("update calendar_handoff set state = 'expired', session_enc = null, final_at = $2 where hid = $1", [hid, iso(now)]);
-    return "gone";
+  // Card 174 K1: reserve one attempt in a single statement (increment-and-check), so parallel
+  // claims can't each read the same count. Only HANDOFF_MAX_ATTEMPTS claims ever get past here.
+  const got = await sql.query<{ attempts: number; challenge: string; code_hash: string | null; session_enc: string | null }>(
+    "update calendar_handoff set attempts = attempts + 1 where hid = $1 and state = 'consented' and expires_at > $2 and attempts < $3 returning attempts, challenge, code_hash, session_enc",
+    [hid, iso(now), HANDOFF_MAX_ATTEMPTS],
+  );
+  const g = got[0];
+  if (!g) {
+    const r = await handoffRow(sql, hid);
+    if (!r) return "gone";
+    if (r.state === "consented" && r.attempts >= HANDOFF_MAX_ATTEMPTS) {
+      await sql.query("update calendar_handoff set state = 'burned', session_enc = null, final_at = $2 where hid = $1 and state = 'consented'", [hid, iso(now)]);
+      return "gone";
+    }
+    if (r.state === "claimed" || r.state === "burned" || r.state === "expired" || ms(r.expires_at)! <= now) {
+      if (r.state !== "claimed" && r.state !== "burned") await sql.query("update calendar_handoff set state = 'expired', session_enc = null, final_at = $2 where hid = $1", [hid, iso(now)]);
+      return "gone";
+    }
+    // Not consented yet: the browser half isn't done. Doesn't spend an attempt.
+    return sameSecret(pkceChallenge(verifier), r.challenge) ? "pending" : "bad";
   }
-  const verOk = sameSecret(pkceChallenge(verifier), r.challenge);
-  if (r.state !== "consented") return verOk ? "pending" : "bad";
-  const codeOk = Boolean(r.code_hash) && sameSecret(sha256(`code:${hid}:${normCode(code)}`), r.code_hash!);
+  const verOk = sameSecret(pkceChallenge(verifier), g.challenge);
+  const codeOk = Boolean(g.code_hash) && sameSecret(sha256(`code:${hid}:${normCode(code)}`), g.code_hash!);
   if (!verOk || !codeOk) {
-    const attempts = r.attempts + 1;
-    if (attempts >= HANDOFF_MAX_ATTEMPTS) await sql.query("update calendar_handoff set attempts = $2, state = 'burned', session_enc = null, final_at = $3 where hid = $1", [hid, attempts, iso(now)]);
-    else await sql.query("update calendar_handoff set attempts = $2 where hid = $1", [hid, attempts]);
+    if (g.attempts >= HANDOFF_MAX_ATTEMPTS) await sql.query("update calendar_handoff set state = 'burned', session_enc = null, final_at = $2 where hid = $1 and state = 'consented'", [hid, iso(now)]);
     return "bad";
   }
   const won = await sql.query(
     "update calendar_handoff set state = 'claimed', session_enc = null, final_at = $2 where hid = $1 and state = 'consented' returning hid",
     [hid, iso(now)],
   );
-  if (!won.length || !r.session_enc) return "gone";
-  const { connectionId } = JSON.parse(open(r.session_enc, key, `handoff:${hid}`)) as { connectionId: string };
+  if (!won.length || !g.session_enc) return "gone";
+  const { connectionId } = JSON.parse(open(g.session_enc, key, `handoff:${hid}`)) as { connectionId: string };
   return { pair: await newSession(sql, connectionId, now) };
 }
+
+/** Card 174 K1: wrong codes per client IP across all hand-offs (stops spraying many hids). */
+export const CLAIM_FAIL_RATE = { max: 20, windowMs: 10 * 60_000 };
+
+export async function claimLimited(sql: Sql, ipHash: string, now = Date.now()) {
+  const n = await sql.query<{ n: number }>("select count(*)::int as n from calendar_claim_fail where ip_hash = $1 and failed_at > $2", [ipHash, iso(now - CLAIM_FAIL_RATE.windowMs)]);
+  return (n[0]?.n ?? 0) >= CLAIM_FAIL_RATE.max;
+}
+
+export async function noteClaimFail(sql: Sql, ipHash: string, now = Date.now()) {
+  await sql.query("delete from calendar_claim_fail where failed_at < $1", [iso(now - CLAIM_FAIL_RATE.windowMs)]);
+  await sql.query("insert into calendar_claim_fail (ip_hash, failed_at) values ($1, $2)", [ipHash, iso(now)]);
+}
+

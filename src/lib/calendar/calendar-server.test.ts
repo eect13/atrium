@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
-import { _resetAccessCache, handleCalendar } from "./api.server.ts";
+import { _resetAccessCache, clientIp, handleCalendar } from "./api.server.ts";
 import { CALENDAR_ENV, checkOrigin, readCalendarConfig } from "./config.server.ts";
 import { open, parseSealKey, pkceChallenge, randomToken, seal, SealError, sha256 } from "./crypto.server.ts";
 import { findConnection, newSession, normCode, sessionFor, upsertConnection, type Sql } from "./store.server.ts";
@@ -12,7 +12,7 @@ const KEY_B64 = KEY.toString("base64");
 
 async function db(): Promise<Sql> {
   const pg = new PGlite();
-  for (const m of ["0002_calendar_connections.sql", "0003_calendar_sessions.sql"]) await pg.exec(readFileSync(new URL(`../../../migrations/${m}`, import.meta.url), "utf8"));
+  for (const m of ["0002_calendar_connections.sql", "0003_calendar_sessions.sql", "0004_calendar_claim_limit.sql"]) await pg.exec(readFileSync(new URL(`../../../migrations/${m}`, import.meta.url), "utf8"));
   return { query: async (text, params) => (await pg.query(text, params as unknown[])).rows as never };
 }
 
@@ -443,4 +443,66 @@ test("desktop session: 410 → gone, 412 → conflict, If-Match sent", async () 
   assert.equal((await patch()).status, 200);
   const sent = calls.filter((c) => c.init?.method === "PATCH").at(-1)!;
   assert.equal((sent.init!.headers as Record<string, string>)["if-match"], '"1"');
+});
+
+// ---------- Card 174 ----------
+
+test("K1 (Critic X3): 40 parallel wrong claims → at most 5 × 401, the rest 410; row burned; even the right code then 410", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 8_000_000 };
+  const { d, hid, verifier, code } = await desktopConsent(sql, [], clock);
+  const wrong = code.startsWith("Z") ? "Y" + code.slice(1) : "Z" + code.slice(1);
+  const st = await Promise.all(Array.from({ length: 40 }, () => claim(d, hid, verifier, wrong).then((r) => r.status)));
+  assert.ok(st.filter((s) => s === 401).length <= 5, `401s: ${st.filter((s) => s === 401).length}`);
+  assert.equal(st.filter((s) => s !== 401 && s !== 410).length, 0);
+  assert.equal((await sql.query<{ state: string }>("select state from calendar_handoff where hid = $1", [hid]))[0]!.state, "burned");
+  assert.equal((await claim(d, hid, verifier, code)).status, 410);
+  assert.equal((await sql.query("select * from calendar_session")).length, 0);
+});
+
+test("K1: claim endpoint rate-limits wrong codes per client IP (21st in 10 min → 429), other IPs unaffected", async () => {
+  const sql = await db();
+  const clock = { t: 9_000_000 };
+  const d = { env: ENV, sql: async () => sql, now: () => clock.t };
+  const v = randomToken(32);
+  const bad = (ip: string) => handleCalendar(post("handoff/claim", { hid: "nohidnohidnohid", verifier: v, code: "AAAAAA" }, { "x-forwarded-for": ip }), "handoff/claim", d);
+  // unknown hid is "gone", not a wrong code; use a real consented row per batch of 5.
+  for (let i = 0; i < 4; i++) {
+    const c = await desktopConsent(sql, [], clock);
+    for (let j = 0; j < 5; j++) assert.equal((await claim(c.d, c.hid, c.verifier, "000000")).status, 401);
+  }
+  const c = await desktopConsent(sql, [], clock);
+  assert.equal((await claim(c.d, c.hid, c.verifier, c.code)).status, 429, "limit applies even to the right code once tripped");
+  assert.equal((await bad("198.51.100.9")).status, 410, "another IP is not limited");
+  clock.t += 10 * 60_000 + 1;
+  assert.equal((await claim(c.d, c.hid, c.verifier, c.code)).status, 410, "window over; that hand-off has expired by now");
+});
+
+test("L1 (Scout 172): client IP order — x-vercel-forwarded-for → x-real-ip → XFF only off Vercel", () => {
+  const r = (h: Record<string, string>) => new Request("https://a.test/", { headers: h });
+  assert.equal(clientIp(r({ "x-vercel-forwarded-for": "1.1.1.1", "x-real-ip": "2.2.2.2", "x-forwarded-for": "3.3.3.3" }), true), "1.1.1.1");
+  assert.equal(clientIp(r({ "x-real-ip": "2.2.2.2", "x-forwarded-for": "3.3.3.3" }), true), "2.2.2.2");
+  assert.equal(clientIp(r({ "x-forwarded-for": "6.6.6.6, 2.2.2.2" }), true), "unknown", "spoofable XFF ignored on Vercel");
+  assert.equal(clientIp(r({ "x-forwarded-for": "6.6.6.6, 2.2.2.2" }), false), "6.6.6.6");
+});
+
+test("L1: on Vercel, rotating client X-Forwarded-For doesn't change the start bucket", async () => {
+  const sql = await db();
+  const clock = { t: 10_000_000 };
+  const old = process.env.VERCEL;
+  process.env.VERCEL = "1";
+  try {
+    const d = { env: ENV, sql: async () => sql, now: () => clock.t };
+    const st: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const res = await handleCalendar(post("handoff/start", { challenge: pkceChallenge(randomToken(32)) }, { "x-forwarded-for": `10.0.0.${i}`, "x-vercel-forwarded-for": "203.0.113.50" }), "handoff/start", d);
+      st.push(res.status);
+    }
+    assert.deepEqual(st.slice(0, 10), Array(10).fill(200));
+    assert.equal(st[10], 429);
+  } finally {
+    if (old === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = old;
+  }
 });
