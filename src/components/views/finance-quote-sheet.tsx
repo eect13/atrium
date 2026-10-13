@@ -6,6 +6,7 @@ import { FileDown, Star } from "lucide-react";
 import { toast } from "sonner";
 import { ChangePill, Spark, TickMark } from "@/components/spark";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,7 +15,7 @@ import { displayLast, positionPnl, positionValue, type BoardRow } from "@/lib/ma
 import type { MarketQuote } from "@/lib/prices";
 import { applyPublicStats, fetchPseStats } from "@/lib/pse-fundamentals";
 import { concentration, fetchPseiWeights, PSEI_FORMULA, PSEI_WEIGHT_AS_OF, PSEI_WEIGHTS, topWeights } from "@/lib/psei-weight";
-import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, newsDeskId, researchPdf, tapeBox, type RelatedStory } from "@/lib/research";
+import { buildResearch, downloadPdf, fetchRelatedStories, issuerDisplay, researchPdf, stockNewsKey, tapeBox, type RelatedStory } from "@/lib/research";
 import { capLabel, peLabel, yldLabel } from "@/lib/screener";
 import { SPARK_RANGES, normalizeSparkRange } from "@/lib/sparks";
 import { vsIndex } from "@/lib/desk-stats";
@@ -27,7 +28,7 @@ import { PeerStrip } from "./finance-tape";
 export function RelatedNews({ item }: { item: WatchItem }) {
   const issuer = issuerDisplay(item);
   const news = useQuery({
-    queryKey: ["stock-news", item.id, item.symbol, item.name, issuer.legal, newsDeskId(item), "v11"],
+    queryKey: stockNewsKey(item),
     queryFn: () => fetchRelatedStories({ data: item }),
     staleTime: 5 * 60_000,
     gcTime: 60 * 60_000,
@@ -204,6 +205,7 @@ export function QuoteSheet({
   const [qty, setQty] = useState(held?.qty != null ? String(held.qty) : "");
   const [avg, setAvg] = useState(held?.avg != null ? String(held.avg) : "");
   const [pdfHref, setPdfHref] = useState<string | null>(null);
+  const [confirmUnwatch, setConfirmUnwatch] = useState(false);
   useEffect(() => {
     return () => {
       if (pdfHref) URL.revokeObjectURL(pdfHref);
@@ -422,8 +424,6 @@ export function QuoteSheet({
           <a
             href={pdfHref}
             download={`atrium-${row.item.label.toLowerCase()}-research.pdf`}
-            target="_blank"
-            rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center rounded-md border border-border px-3 text-xs hover:bg-muted"
           >
             Open PDF
@@ -431,11 +431,49 @@ export function QuoteSheet({
         ) : null}
       </div>
       {pdfHref ? (
-        <iframe
-          title={`${row.item.label} research`}
-          src={pdfHref}
-          className="h-[480px] w-full rounded-md border border-border bg-white"
-        />
+        <section
+          aria-label={`${row.item.label} research note`}
+          className="max-h-[480px] space-y-3 overflow-y-auto rounded-md border border-border bg-card p-4 text-sm"
+        >
+          <div>
+            <p className="font-medium">
+              {note.ticker} · {note.name}
+            </p>
+            <p className="text-xs text-muted-foreground">{note.issuerLine}</p>
+            <p className="text-xs text-muted-foreground">{note.asOf}</p>
+          </div>
+          <p className="tabular-nums">
+            Last {note.last} · {note.change} · Bias {note.bias}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Support {note.support} · Pivot {note.pivot} · Resistance {note.resistance}
+          </p>
+          {(
+            [
+              ["Standpoint", [...note.thesis.slice(0, 2), ...note.technical.slice(0, 2)]],
+              ["CFA desk", note.expert ?? []],
+              ["Watch", note.watch ?? []],
+              ["Risk", note.risk ?? []],
+              ["Next", note.next ?? []],
+            ] as const
+          )
+            .filter(([, items]) => items.length)
+            .map(([title, items]) => (
+              <div key={title}>
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">{title}</p>
+                <ul className="mt-1 space-y-1">
+                  {items.map((s) => (
+                    <li key={s} className="leading-snug">
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          <p className="text-xs text-muted-foreground">
+            Readable research note. Open PDF downloads the file.
+          </p>
+        </section>
       ) : null}
       {row.q?.kind === "crypto" && row.q.high != null && row.q.low != null ? (
         <p className="text-sm text-muted-foreground">
@@ -480,8 +518,21 @@ export function QuoteSheet({
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        {watching ? (
-          <Button variant="outline" className="min-h-11" aria-label="Remove from watcher" onClick={onRemove}>
+        {watching && confirmUnwatch ? (
+          <ConfirmRow
+            className="w-full"
+            subject={row.item.label}
+            verb="Remove"
+            detail="It leaves the watcher. You can watch it again."
+            triggerId="unwatch"
+            onCancel={() => setConfirmUnwatch(false)}
+            onConfirm={() => {
+              setConfirmUnwatch(false);
+              onRemove();
+            }}
+          />
+        ) : watching ? (
+          <Button variant="outline" className="min-h-11" aria-label="Remove from watcher" data-confirm-trigger="unwatch" onClick={() => setConfirmUnwatch(true)}>
             <Star className="size-4 fill-primary text-primary" />
             Watching
           </Button>

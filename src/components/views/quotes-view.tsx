@@ -1,55 +1,88 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Quote, Shuffle, Star } from "lucide-react";
-import { useState } from "react";
+import { Quote, RefreshCw, Shuffle, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Chip } from "@/components/views/finance-chip";
 import { FloatBtn } from "@/components/desk-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LOCAL_QUOTES, QUOTE_TOPICS, fetchQuotes, nextQuoteSeed, suggestAuthors, readQuoteSeed, writeQuoteSession, type DeskQuote } from "@/lib/quotes";
+import {
+  authorChipsFromQuotes,
+  loadDeskQuotes,
+  nextQuoteSeed,
+  QUOTE_PAGE,
+  quoteNoteReason,
+  quoteTopicChips,
+  readQuoteSeed,
+  suggestAuthors,
+  writeQuoteSession,
+  type DeskQuote,
+  type DeskQuotes,
+  type QuoteMode,
+} from "@/lib/quotes";
+import { WQ_LICENSE, WQ_SITE } from "@/lib/wikiquote";
+import { onExternalAnchorClick } from "@/lib/http";
 import { cn } from "@/lib/utils";
+import { QUOTE_LINK, QuoteAttribution } from "@/components/quote-attribution";
 
 export function useDeskQuotes(
-  mode: "random" | "popular" | "author",
+  mode: QuoteMode,
   author = "",
   seed = "desk",
   topic = "all",
   q = "",
   exact = false,
 ) {
-  return useQuery({
+  // Refresh rechecks the current view's cache key only (no global bust, not in the query key).
+  const force = useRef(false);
+  const query = useQuery({
     queryKey: ["quotes", mode, author.trim().toLowerCase(), mode === "random" ? seed : "", topic, q.trim().toLowerCase(), exact],
-    queryFn: () =>
-      fetchQuotes({
-        data: {
-          mode,
-          author: author.trim() || undefined,
-          topic: topic === "all" ? undefined : topic,
-          q: q.trim() || undefined,
-          exact: exact || undefined,
-          limit: mode === "author" ? 24 : 16,
-          seed,
-        },
-      }).catch(() => ({ quotes: LOCAL_QUOTES, from: "local" as const })),
-    staleTime: mode === "random" ? Infinity : 30 * 60_000,
+    queryFn: async () => {
+      const again = force.current;
+      force.current = false;
+      return loadDeskQuotes({
+        mode,
+        author: author.trim() || undefined,
+        topic,
+        q: q.trim() || undefined,
+        exact,
+        seed,
+        force: again,
+      });
+    },
+    staleTime: 5 * 60_000,
     gcTime: 6 * 60 * 60_000,
+    refetchOnWindowFocus: false,
+    // Offline still reads the saved copy + built-ins (React Query would otherwise pause on a skeleton).
+    networkMode: "always",
   });
+  const recheck = () => {
+    force.current = true;
+    return query.refetch();
+  };
+  return Object.assign(query, { recheck });
 }
+
+const LINK = QUOTE_LINK;
 
 function QuoteCard({
   q,
   featured = false,
+  idx,
   onPick,
 }: {
   q: DeskQuote;
   featured?: boolean;
+  idx?: number;
   onPick?: (q: DeskQuote) => void;
 }) {
   return (
     <article
+      data-quote-idx={idx}
+      tabIndex={idx != null ? -1 : undefined}
       className={cn(
         "rounded-xl bg-card text-card-foreground shadow-[var(--shadow-border)]",
         featured ? "p-6 md:p-8" : "p-5",
@@ -57,7 +90,7 @@ function QuoteCard({
     >
       <Quote className="mb-3 size-4 text-muted-foreground" aria-hidden />
       <p className={cn("font-display leading-snug", featured ? "text-2xl md:text-4xl" : "text-lg")}>{q.text}</p>
-      <p className="mt-4 text-sm text-muted-foreground">— {q.author}</p>
+      <QuoteAttribution q={q} className="mt-4 text-sm" />
       {onPick ? (
         <div className="mt-4">
           <Button
@@ -85,17 +118,33 @@ export function QuotesView() {
   const [topic, setTopic] = useState("all");
   const [exact, setExact] = useState(false);
   const [seed, setSeed] = useState(readQuoteSeed);
+  const [filterFallback, setFilterFallback] = useState<string | null>(null);
+  const filterQ = mode === "author" ? "" : person;
   const quotes = useDeskQuotes(
     mode === "author" && search.trim() ? "author" : mode === "popular" ? "popular" : "random",
     mode === "author" ? search : "",
     seed,
     topic,
-    mode === "author" ? "" : person,
+    filterQ,
     exact,
   );
-  const list = quotes.data?.quotes ?? [];
-  const hero = list[0];
-  const rest = list.slice(1);
+  const list = useMemo(() => quotes.data?.quotes ?? [], [quotes.data?.quotes]);
+  // Show more (Form 149 §2): one page at a time, reset when the view changes.
+  const step = mode === "author" && search.trim() ? QUOTE_PAGE.author : QUOTE_PAGE.list;
+  const [shown, setShown] = useState<number>(step);
+  const gridRef = useRef<HTMLDivElement>(null);
+  useEffect(() => setShown(step), [step, mode, search, topic, filterQ, seed, exact]);
+  const visible = list.slice(0, shown);
+  const hero = visible[0];
+  const rest = visible.slice(1);
+  function showMore() {
+    const first = visible.length;
+    setShown((n) => n + step);
+    requestAnimationFrame(() => gridRef.current?.querySelector<HTMLElement>(`[data-quote-idx="${first}"]`)?.focus());
+  }
+  // Chips from desk corpus + current result set (not a hardcoded dump).
+  const topicChips = useMemo(() => quoteTopicChips(), []);
+  const authorChips = useMemo(() => authorChipsFromQuotes(list), [list]);
 
   function pin(q: DeskQuote) {
     writeQuoteSession(q);
@@ -113,6 +162,12 @@ export function QuotesView() {
     setSearch("");
   }
 
+  /** Recheck Wikiquote for the view on screen only; Random also reshuffles. */
+  function refresh() {
+    if (mode === "random") setSeed(nextQuoteSeed());
+    void quotes.recheck();
+  }
+
   function goAuthor(name: string) {
     const n = name.trim();
     if (n.length < 2) {
@@ -120,8 +175,36 @@ export function QuotesView() {
       return;
     }
     setSearch(n);
+    setPerson(n);
     setMode("author");
   }
+
+  /** Modular search: Exact → author; otherwise text filter on popular/random.
+   *  When the filter yields empty, fall through to author mode (c35599a / Card 125). */
+  function runSearch() {
+    const n = person.trim();
+    if (n.length < 2) return;
+    if (exact) {
+      goAuthor(n);
+      return;
+    }
+    setSearch("");
+    if (mode === "author") setMode("popular");
+    // Already filtering this query on popular/random and nothing matches → author.
+    if (mode !== "author") {
+      if (!list.length) goAuthor(n);
+      return;
+    }
+    // Just left author — confirm empty after the popular pool loads.
+    setFilterFallback(n);
+  }
+
+  useEffect(() => {
+    if (!filterFallback || quotes.isFetching || quotes.isLoading) return;
+    const q = filterFallback;
+    setFilterFallback(null);
+    if (!(quotes.data?.quotes ?? []).length) goAuthor(q);
+  }, [filterFallback, quotes.isFetching, quotes.isLoading, quotes.data?.quotes]);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -131,9 +214,11 @@ export function QuotesView() {
           <p className="text-xs text-muted-foreground">
             {mode === "author" && search
               ? `By ${search}`
-              : mode === "popular"
+              : filterQ.trim()
+                ? `Filter: ${filterQ.trim()}`
+                : mode === "popular"
                   ? "Popular voices"
-                  : "A new roll each session"}
+                  : "Fresh roll — refresh anytime"}
           </p>
         </div>
         <div className="grow" />
@@ -145,10 +230,22 @@ export function QuotesView() {
           <Star className="size-3.5" />
           Popular
         </Chip>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9"
+          onClick={refresh}
+          disabled={quotes.isFetching}
+          aria-label="Refresh quotes"
+        >
+          <RefreshCw className={cn("size-3.5", quotes.isFetching && "animate-spin")} />
+          Refresh
+        </Button>
         <FloatBtn kind="quote" />
       </div>
       <div className="mb-4 flex flex-wrap gap-2">
-        {QUOTE_TOPICS.map((t) => (
+        {topicChips.map((t) => (
           <Chip
             key={t.id}
             active={topic === t.id}
@@ -161,36 +258,45 @@ export function QuotesView() {
           </Chip>
         ))}
       </div>
-
-
+      {authorChips.length > 1 ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {authorChips.map((name) => (
+            <Chip key={name} active={mode === "author" && search === name} onClick={() => goAuthor(name)}>
+              {name}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
 
       <form
         className="mb-6 flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          const n = person.trim();
-          if (n.length < 2) return;
-          goAuthor(n);
+          runSearch();
         }}
       >
-                <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           <Input
-          value={person}
-          onChange={(e) => {
-            setPerson(e.target.value);
-          }}
-          placeholder="Type a name — Albert, Maya, Seneca"
-          className="h-11 min-w-0 w-full"
-          aria-label="Search quotes"
-          autoComplete="off"
-        />
+            value={person}
+            onChange={(e) => {
+              setPerson(e.target.value);
+              if (mode === "author" && !exact) {
+                setSearch("");
+                setMode("popular");
+              }
+            }}
+            placeholder="Search text or name — courage, Einstein, bicycle"
+            className="h-11 min-w-0 w-full"
+            aria-label="Search quotes"
+            autoComplete="off"
+          />
           {person.trim().length >= 2 && suggestAuthors(person).length ? (
             <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-card p-1 shadow-[var(--shadow-float)]">
               {suggestAuthors(person).map((a) => (
                 <li key={a.slug}>
                   <button
                     type="button"
-                    className="flex min-h-9 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
+                    className="flex min-h-hit w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
                     onClick={() => {
                       setPerson(a.name);
                       goAuthor(a.name);
@@ -218,7 +324,6 @@ export function QuotesView() {
         </Chip>
       </form>
 
-
       {quotes.isPending && !list.length ? (
         <div className="space-y-4">
           <Skeleton className="h-52 rounded-xl" />
@@ -244,21 +349,66 @@ export function QuotesView() {
         <div className="space-y-4">
           <QuoteCard q={hero} featured onPick={pin} />
           {rest.length ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {rest.map((q) => (
-                <QuoteCard key={`${q.author}-${q.text}`} q={q} onPick={pin} />
+            <div ref={gridRef} className="grid gap-4 sm:grid-cols-2">
+              {rest.map((q, i) => (
+                <QuoteCard key={`${q.author}-${q.text}`} q={q} idx={i + 1} onPick={pin} />
               ))}
             </div>
           ) : null}
         </div>
       )}
-      {quotes.data?.from === "local" ? (
-        <p className="mt-4 text-xs text-muted-foreground">
-          Public feed was quiet — showing the desk copy. Try Random again in a moment.
-        </p>
-      ) : (
-        <p className="mt-4 text-xs text-muted-foreground">Source: public quote feed.</p>
-      )}
+      {list.length ? (
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            {visible.length >= list.length
+              ? `All ${list.length} shown`
+              : `Showing ${visible.length} of ${list.length}`}
+            {filterQ.trim() ? ` matching “${filterQ.trim()}”` : ""}
+          </p>
+          {visible.length < list.length ? (
+            <Button type="button" variant="outline" onClick={showMore}>
+              Show {Math.min(step, list.length - visible.length)} more
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {mode !== "author" && filterQ.trim().length >= 2 && quotes.data?.from === "local" ? (
+        <div className="mt-2 flex justify-center">
+          <Button type="button" variant="outline" onClick={() => goAuthor(filterQ)}>
+            Search Wikiquote for “{filterQ.trim()}”
+          </Button>
+        </div>
+      ) : null}
+      <QuoteSourceNote data={quotes.data} />
     </div>
+  );
+}
+
+/** Attribution + state line. CC BY-SA needs a visible link to the page and the license. */
+function QuoteSourceNote({ data }: { data?: DeskQuotes }) {
+  if (!data) return null;
+  const reason = quoteNoteReason(data, typeof navigator === "undefined" || navigator.onLine !== false);
+  return (
+    <p className="mt-4 text-xs text-muted-foreground" data-quote-source={data.from} data-quote-state={data.state} data-quote-note={reason}>
+      {reason === "filtered" ? (
+        <>No Wikiquote quotes match this filter — showing built-in matches. </>
+      ) : reason === "offline" ? (
+        <>You’re offline — showing the built-in set. Refresh when you’re back online. </>
+      ) : reason === "failed" ? (
+        <>Wikiquote didn’t answer — showing the built-in set. Refresh to try again. </>
+      ) : (
+        <>
+          Quotes from{" "}
+          <a href={data.page?.href ?? WQ_SITE} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
+            {data.page ? `Wikiquote · ${data.page.title}` : "Wikiquote"}
+          </a>
+          , text under{" "}
+          <a href={WQ_LICENSE.href} onClick={onExternalAnchorClick} className={LINK} target="_blank" rel="noreferrer">
+            {WQ_LICENSE.label}
+          </a>
+          {" · excerpts edited"}{data.state === "stale" ? " · saved copy (Wikiquote didn’t answer)" : ""}. Built-in quotes fill in after.
+        </>
+      )}
+    </p>
   );
 }

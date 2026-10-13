@@ -42,11 +42,15 @@ import { applyDeskProfile, DEFAULT_REGION, normalizeMarkets, regionOf } from "./
 import { isQuotaError, reportStorageQuota } from "./quota";
 import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreenVol, normalizeScreenYld } from "./screener";
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
+import { normalizeCalViews, type CalView } from "./cal-view";
 import { asNewsTag, keepNewsChip } from "./headline";
+import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
+import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
-import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, withFactoryGlobals, normalizeStockTape } from "./types";
+import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
+import { DEFAULT_EVENT_CATS, normalizeEventCats, remapCatId, type EventCategory } from "./event-cats";
 
 export const STARTER_FEED_IDS = starterFeedIds("PH");
 
@@ -150,6 +154,7 @@ type Data = {
   view: ViewId;
   modules: Modules;
   events: CalendarEvent[];
+  eventCats: EventCategory[];
   notes: StickyNote[];
   notesLayout: NotesLayout;
   windows: FloatWin[];
@@ -167,9 +172,15 @@ type Data = {
   dashOrder: DashCard[];
   dashLocked: boolean;
   dashSpan: Partial<Record<DashCard, number>>;
+  /** @deprecated Pre-Card 128 peek mode; superseded by `calViews`. Kept for persisted back-compat. */
   calPeek: "auto" | "month" | "week";
+  /** Calendar widget / float view (Today | Week | Month) per widget id. Missing = Month. */
+  calViews: Record<string, CalView>;
   newsQuery: string;
+  /** Legacy tag chip (pre-Feed). Kept for back-compat; Feed uses feedPrefs.interest. */
   newsTag: string;
+  feedPrefs: FeedPrefs;
+  clockPrefs: ClockPrefs;
   railCollapsed: boolean;
   boardQuery: string;
   boardFocus: string | null;
@@ -188,6 +199,10 @@ type State = Data & {
   addEvent: (e: CalendarEvent) => void;
   updateEvent: (id: string, patch: Partial<CalendarEvent>) => void;
   removeEvent: (id: string) => void;
+  setEventCats: (cats: EventCategory[]) => void;
+  addEventCat: (cat: EventCategory) => void;
+  updateEventCat: (id: string, patch: Partial<EventCategory>) => void;
+  removeEventCat: (id: string, remapTo?: string) => void;
   importEvents: (e: CalendarEvent[]) => number;
   setGcalCals: (cals: GCalDesk[], off?: string[]) => void;
   toggleGcal: (id: string) => void;
@@ -230,8 +245,11 @@ type State = Data & {
   setDashSpan: (id: DashCard, n: number) => void;
   resetDash: () => void;
   setCalPeek: (v: "auto" | "month" | "week") => void;
+  setCalView: (widgetId: string, v: CalView) => void;
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
+  updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
+  updateClock: (fn: (p: ClockPrefs) => ClockPrefs) => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
   enableStarterFeeds: () => void;
@@ -302,6 +320,7 @@ function windowSize(kind: WidgetKind) {
   if (kind === "news") return { w: 360, h: 240 };
   if (kind === "weather") return { w: 320, h: 360 };
   if (kind === "finance") return { w: 340, h: 280 };
+  if (kind === "clock") return { w: 300, h: 280 };
   return { w: 300, h: 240 };
 }
 
@@ -364,8 +383,9 @@ function blankDesk(): Data {
     profile: { name: "", city: "", lat: null, lon: null, tagline: DEFAULT_TAGLINE, region: DEFAULT_REGION, tz: regionOf(DEFAULT_REGION).tz, locale: regionOf(DEFAULT_REGION).locale, markets: [DEFAULT_REGION] },
     theme: "dark",
     view: "dashboard",
-    modules: { calendar: true, weather: true, notes: true, finance: true, news: true, quotes: true },
+    modules: { calendar: true, weather: true, clock: true, notes: true, finance: true, news: true, quotes: true },
     events: [],
+    eventCats: DEFAULT_EVENT_CATS.map((c) => ({ ...c })),
     notes: [],
     notesLayout: "board",
     windows: [],
@@ -384,8 +404,11 @@ function blankDesk(): Data {
     dashLocked: true,
     dashSpan: {},
     calPeek: "auto",
+    calViews: {},
     newsQuery: "",
     newsTag: "All",
+    feedPrefs: { ...DEFAULT_FEED_PREFS },
+    clockPrefs: { ...DEFAULT_CLOCK_PREFS },
     railCollapsed: false,
     boardQuery: "",
     boardFocus: null,
@@ -464,6 +487,9 @@ export const useAtrium = create<State>()(
           if (id === "weather" && !next.weather) {
             windows = windows.filter((w) => w.kind !== "weather");
           }
+          if (id === "clock" && !next.clock) {
+            windows = windows.filter((w) => w.kind !== "clock");
+          }
           return { modules: next, view, windows };
         }),
       setProfile: (p) =>
@@ -485,6 +511,25 @@ export const useAtrium = create<State>()(
           events: s.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
         })),
       removeEvent: (id) => set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
+      setEventCats: (cats) => set({ eventCats: normalizeEventCats(cats) }),
+      addEventCat: (cat) =>
+        set((s) => {
+          if (s.eventCats.some((c) => c.id === cat.id)) return s;
+          return { eventCats: [...s.eventCats, cat] };
+        }),
+      updateEventCat: (id, patch) =>
+        set((s) => ({
+          eventCats: s.eventCats.map((c) => (c.id === id ? { ...c, ...patch, id: c.id } : c)),
+        })),
+      removeEventCat: (id, remapTo) =>
+        set((s) => {
+          if (s.eventCats.length <= 1) return s;
+          const fallback = remapCatId(s.eventCats, id, remapTo);
+          return {
+            eventCats: s.eventCats.filter((c) => c.id !== id),
+            events: s.events.map((e) => (e.cat === id ? { ...e, cat: fallback } : e)),
+          };
+        }),
       importEvents: (incoming) => {
         let added = 0;
         set((s) => {
@@ -880,8 +925,11 @@ export const useAtrium = create<State>()(
         }),
       resetDash: () => set({ dashOrder: [...DEFAULT_DASH], dashSpan: {} }),
       setCalPeek: (calPeek) => set({ calPeek }),
+      setCalView: (widgetId, v) => set((s) => ({ calViews: normalizeCalViews({ ...s.calViews, [widgetId]: v }) })),
       setNewsQuery: (newsQuery) => set({ newsQuery }),
       setNewsTag: (newsTag) => set({ newsTag }),
+      updateFeed: (fn) => set((s) => ({ feedPrefs: normalizeFeedPrefs(fn(s.feedPrefs)) })),
+      updateClock: (fn) => set((s) => ({ clockPrefs: normalizeClockPrefs(fn(s.clockPrefs)) })),
       toggleFeed: (id) =>
         set((s) => ({
           feeds: s.feeds.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
@@ -931,7 +979,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 32,
+      version: 34,
       storage: createJSONStorage(() => ({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
@@ -1101,6 +1149,7 @@ export const useAtrium = create<State>()(
             modules: {
               calendar: true,
               weather: true,
+              clock: true,
               notes: true,
               finance: true,
               news: true,
@@ -1181,6 +1230,25 @@ export const useAtrium = create<State>()(
             gcalOff: Array.isArray(raw.gcalOff) ? raw.gcalOff : [],
           };
         }
+        if (version < 33) {
+          p = { ...p, eventCats: normalizeEventCats((p as { eventCats?: unknown }).eventCats) };
+        }
+        
+        if (version < 34) {
+          p = {
+            ...p,
+            modules: {
+              calendar: true,
+              weather: true,
+              clock: true,
+              notes: true,
+              finance: true,
+              news: true,
+              quotes: true,
+              ...(p.modules ?? {}),
+            },
+          };
+        }
         return p as Data;
       },
       partialize: (s) => ({
@@ -1189,6 +1257,7 @@ export const useAtrium = create<State>()(
         view: s.view,
         modules: s.modules,
         events: s.events,
+        eventCats: s.eventCats,
         notes: s.notes,
         notesLayout: s.notesLayout,
         windows: s.windows,
@@ -1207,8 +1276,11 @@ export const useAtrium = create<State>()(
         dashLocked: s.dashLocked,
         dashSpan: s.dashSpan,
         calPeek: s.calPeek,
+        calViews: s.calViews,
         newsQuery: s.newsQuery,
         newsTag: s.newsTag,
+        feedPrefs: s.feedPrefs,
+        clockPrefs: s.clockPrefs,
         railCollapsed: s.railCollapsed,
         boardQuery: s.boardQuery,
         boardFocus: s.boardFocus,
@@ -1220,21 +1292,7 @@ export const useAtrium = create<State>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
-        const rawView = (persisted as { view?: unknown } | null)?.view;
-        const persistedView = typeof rawView === "string" ? rawView : "";
-        const view: ViewId =
-          persistedView === "modules"
-            ? "options"
-            : persistedView === "dashboard" ||
-                persistedView === "calendar" ||
-                persistedView === "weather" ||
-                persistedView === "notes" ||
-                persistedView === "finance" ||
-                persistedView === "quotes" ||
-                persistedView === "news" ||
-                persistedView === "options"
-              ? persistedView
-              : current.view;
+        const view = toViewId((persisted as { view?: unknown } | null)?.view, current.view);
         const demo = demoBooks(p.profile?.name ?? current.profile.name);
         const accounts = (p.accounts ?? current.accounts)
           .map((a, i) => normalizeAccount(a, i))
@@ -1254,6 +1312,7 @@ export const useAtrium = create<State>()(
           gcalCals: Array.isArray(p.gcalCals) ? p.gcalCals : (current as Data).gcalCals ?? [],
           gcalOff: Array.isArray(p.gcalOff) ? p.gcalOff : (current as Data).gcalOff ?? [],
           digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
+          eventCats: normalizeEventCats(p.eventCats ?? (current as Data).eventCats),
           profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,
@@ -1284,11 +1343,15 @@ export const useAtrium = create<State>()(
           dashLocked: (p.dashLocked ?? current.dashLocked) !== false,
           dashSpan: normalizeDashSpan(p.dashSpan ?? current.dashSpan),
           calPeek: ((p.calPeek ?? current.calPeek) === "month" || (p.calPeek ?? current.calPeek) === "week" || (p.calPeek ?? current.calPeek) === "auto") ? (p.calPeek ?? current.calPeek) as "auto" | "month" | "week" : "auto",
+          calViews: normalizeCalViews((p as { calViews?: unknown }).calViews ?? (current as Data).calViews),
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,
           newsTag: keepNewsChip(typeof p.newsTag === "string" ? p.newsTag : current.newsTag),
+          feedPrefs: normalizeFeedPrefs((p as { feedPrefs?: unknown }).feedPrefs ?? (current as Data).feedPrefs),
+          clockPrefs: normalizeClockPrefs((p as { clockPrefs?: unknown }).clockPrefs ?? (current as Data).clockPrefs),
           modules: {
             calendar: true,
             weather: (p.modules as { weather?: boolean } | undefined)?.weather !== false,
+            clock: (p.modules as { clock?: boolean } | undefined)?.clock !== false,
             notes: (p.modules?.notes ?? current.modules.notes) !== false,
             finance: (p.modules?.finance ?? current.modules.finance) !== false,
             news: (p.modules?.news ?? current.modules.news) !== false,

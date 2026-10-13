@@ -62,3 +62,11 @@ test("suggestCommands ranks tickers and views", () => {
   assert.ok(wx.some((h) => h.fill === "weather"));
   assert.equal(resolveCommand("zip").type, "view");
 });
+test("feed opens the Feed view (old news / headlines keys still alias)", () => {
+  for (const word of ["feed", "news", "headlines", "briefing"]) {
+    const cmd = resolveCommand(word);
+    assert.deepEqual(cmd, { type: "view", view: "news" }, word);
+  }
+  const hit = suggestCommands("feed").find((h) => h.id === "view-news");
+  assert.equal(hit?.label, "Feed");
+});

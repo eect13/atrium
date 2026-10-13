@@ -1,35 +1,82 @@
 import { createServerFn } from "@tanstack/react-start";
-import { httpText } from "./http.ts";
 import { z } from "zod";
+import { manilaParts } from "./format.ts";
+import { httpText } from "./http.ts";
+import { browserKV, loadView, quoteCacheKey, type KV, type ViewState } from "./quote-cache.ts";
+import { WQ_TOPIC_PAGES, loadWikiquote, wqRetryAfter, wqPageHref, type WqKind, type WqResult } from "./wikiquote.ts";
 
 export type DeskQuote = {
   text: string;
   author: string;
   href: string;
-  source: "brainyquote" | "local" | "live";
+  /** wikiquote = live (CC BY-SA, links to its page) · local = built-in offline set */
+  source: "wikiquote" | "local";
 };
 
 export const QUOTE_SESSION_KEY = "atrium.quote.session";
 export const QUOTE_SEED_KEY = "atrium.quote.seed";
 
-export function readQuoteSession(): DeskQuote | undefined {
-  if (typeof sessionStorage === "undefined") return undefined;
+/** Main-window launch id: the session quote lives in localStorage so floats (own webviews) mirror the widget. */
+export const QUOTE_LAUNCH_KEY = "atrium.quote.launch";
+
+type QuoteStore = Pick<Storage, "getItem" | "setItem">;
+const localStore = (): QuoteStore | undefined => (typeof localStorage === "undefined" ? undefined : localStorage);
+let launched = false;
+
+/** Main window, once per app launch: a new launch id retires the old session quote ("new quote each launch"). */
+export function markQuoteLaunch(store = localStore(), id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`) {
+  if (!store || launched) return;
+  launched = true;
   try {
-    const raw = JSON.parse(sessionStorage.getItem(QUOTE_SESSION_KEY) ?? "null") as DeskQuote | null;
-    if (!raw?.text || !raw.author) return undefined;
-    return raw;
+    store.setItem(QUOTE_LAUNCH_KEY, JSON.stringify({ id }));
+  } catch {
+    /* quota */
+  }
+}
+
+function launchId(store: QuoteStore): string | undefined {
+  try {
+    return (JSON.parse(store.getItem(QUOTE_LAUNCH_KEY) ?? "null") as { id?: string } | null)?.id;
   } catch {
     return undefined;
   }
 }
 
-export function writeQuoteSession(q: DeskQuote) {
-  if (typeof sessionStorage === "undefined") return;
+/** Parse a stored `{launch, quote}`; ignored when it belongs to another launch. */
+export function parseQuoteSession(raw: string | null, launch: string | undefined): DeskQuote | undefined {
   try {
-    sessionStorage.setItem(QUOTE_SESSION_KEY, JSON.stringify(q));
+    const v = JSON.parse(raw ?? "null") as { launch?: string; quote?: DeskQuote } | null;
+    const q = v?.quote;
+    if (!launch || v?.launch !== launch || !q?.text || !q.author) return undefined;
+    return q;
+  } catch {
+    return undefined;
+  }
+}
+
+export function readQuoteSession(store = localStore()): DeskQuote | undefined {
+  if (!store) return undefined;
+  return parseQuoteSession(store.getItem(QUOTE_SESSION_KEY), launchId(store));
+}
+
+export function writeQuoteSession(q: DeskQuote, store = localStore()) {
+  if (!store) return;
+  try {
+    store.setItem(QUOTE_SESSION_KEY, JSON.stringify({ launch: launchId(store), quote: q }));
   } catch {
     /* quota */
   }
+}
+
+/** For `storage` events from another window (widget ↔ float). */
+export function quoteFromStorageEvent(key: string | null, value: string | null, store = localStore()): DeskQuote | undefined {
+  if (key !== QUOTE_SESSION_KEY || !store) return undefined;
+  return parseQuoteSession(value, launchId(store));
+}
+
+/** Test hook: allow markQuoteLaunch again. */
+export function resetQuoteLaunchForTest() {
+  launched = false;
 }
 
 export function nextQuoteSeed() {
@@ -51,37 +98,6 @@ export function readQuoteSeed() {
   }
 }
 
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
-const FETCH_MS = 6_000;
-const CACHE_MS = 6 * 60 * 60_000;
-
-const NAMED: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-function decodeEntities(s: string) {
-  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (raw, token: string) => {
-    if (token[0] === "#") {
-      const code =
-        token[1] === "x" || token[1] === "X"
-          ? Number.parseInt(token.slice(2), 16)
-          : Number.parseInt(token.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : raw;
-    }
-    return NAMED[token.toLowerCase()] ?? raw;
-  });
-}
-
-function stripTags(s: string) {
-  return decodeEntities(s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-}
-
 export function authorSlug(name: string) {
   return name
     .trim()
@@ -91,62 +107,6 @@ export function authorSlug(name: string) {
     .replace(/^(dr|sir|saint|st)\.?\s+/i, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-export function parseBrainyHtml(html: string): DeskQuote[] {
-  const out: DeskQuote[] = [];
-  const seen = new Set<string>();
-  const re =
-    /<a href="(\/quotes\/[^"]+)" class="[^"]*\bb-qt\b[^"]*"[^>]*>([\s\S]*?)<\/a>\s*<a href="(\/authors\/[^"]+)" class="[^"]*\bbq-aut\b[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  for (const m of html.matchAll(re)) {
-    const text = stripTags(m[2] ?? "");
-    const author = stripTags(m[4] ?? "");
-    if (text.length < 12 || !author) continue;
-    const key = `${author}::${text}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      text,
-      author,
-      href: `https://www.brainyquote.com${m[1]}`,
-      source: "brainyquote",
-    });
-  }
-  return out;
-}
-
-/**
- * BrainyQuote RSS (current): <title>Author</title><description>"Quote."</description>
- * Older feeds used <title>Quote - Author</title>.
- */
-export function parseBrainyRss(xml: string): DeskQuote[] {
-  const chunks = xml.split(/<item[\s>]/i).slice(1);
-  const out: DeskQuote[] = [];
-  for (const raw of chunks) {
-    const block = raw.split(/<\/item>/i)[0] ?? "";
-    const title = stripTags((block.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] ?? "");
-    const link = stripTags((block.match(/<link[^>]*>([\s\S]*?)<\/link>/i) || [])[1] ?? "");
-    const desc = stripTags(
-      (block.match(/<description[^>]*>([\s\S]*?)<\/description>/i) || [])[1] ?? "",
-    );
-    const href = link.startsWith("http") ? link : "https://www.brainyquote.com/quote_of_the_day";
-    const dashed = title.match(/^([\s\S]+)\s+[-–—]\s+([^–—-]{2,80})$/);
-    let text = "";
-    let author = "";
-    if (desc.length >= 12 && title.length >= 2 && title.length <= 80 && !dashed) {
-      text = desc.replace(/^["“]+|["”]+$/g, "").trim();
-      author = title.trim();
-    } else if (dashed) {
-      text = dashed[1]!.replace(/^["“]+|["”]+$/g, "").trim();
-      author = dashed[2]!.trim();
-    } else if (desc.length >= 12) {
-      text = desc.replace(/^["“]+|["”]+$/g, "").trim();
-      author = title.trim();
-    }
-    if (text.length < 12 || !author) continue;
-    out.push({ text, author, href, source: "brainyquote" });
-  }
-  return out;
 }
 
 export const POPULAR_AUTHORS = [
@@ -193,17 +153,27 @@ export function suggestAuthors(q: string, limit = 8) {
   return out;
 }
 
-function local(author: string, slug: string, text: string): DeskQuote {
-  return { text, author, href: `https://www.brainyquote.com/authors/${slug}-quotes`, source: "local" };
+function local(author: string, _slug: string, text: string): DeskQuote {
+  return { text, author, href: wqPageHref(author), source: "local" };
 }
 
-/** Desk copies for when BrainyQuote HTML is Cloudflare-gated. RSS still wins. */
+/**
+ * Built-in offline set: always available, shown after live rows and alone when offline.
+ * Origin: unknown. Added in 91f4199 (2026-09-08, BrainyQuote era) with no source list; 21/42 also
+ * appear in quotable-io/data. Card 147 (Scout 148 S4) checked against Wikiquote author pages:
+ * Aristotle "We are what we repeatedly do" → Will Durant (The Story of Philosophy, 1926);
+ * Marcus Aurelius "power over your mind" (Misattributed) → Meditations VII.64; Seneca "Luck…"
+ * (Disputed) → Letter I; Mandela "It always seems impossible" (Obama eulogy) → 1990 Boston speech.
+ * Card 153 Scout: Einstein re-worded to LIFE 1955; Twain ×2, Buddha, Sun Tzu, Confucius, Gandhi swapped for Wikiquote-sourced lines.
+ * Twain "secret of getting ahead" (Misattributed) → "Few things are harder to put up with than the annoyance of a
+ * good example." (Pudd'nhead Wilson, 1894, ch. 19; Wikiquote › Pudd'nhead Wilson).
+ */
 export const LOCAL_QUOTES: DeskQuote[] = [
   local("Albert Einstein", "albert-einstein", "Life is like riding a bicycle. To keep your balance, you must keep moving."),
   local("Albert Einstein", "albert-einstein", "Imagination is more important than knowledge."),
-  local("Albert Einstein", "albert-einstein", "Strive not to be a success, but rather to be of value."),
+  local("Albert Einstein", "albert-einstein", "Try not to become a man of success, but rather try to become a man of value."),
   local("Marcus Aurelius", "marcus-aurelius", "The impediment to action advances action. What stands in the way becomes the way."),
-  local("Marcus Aurelius", "marcus-aurelius", "You have power over your mind — not outside events. Realize this, and you will find strength."),
+  local("Marcus Aurelius", "marcus-aurelius", "Very little is needed to make a happy life."),
   local("Marcus Aurelius", "marcus-aurelius", "Waste no more time arguing about what a good man should be. Be one."),
   local("Steve Jobs", "steve-jobs", "Stay hungry. Stay foolish."),
   local("Steve Jobs", "steve-jobs", "Innovation distinguishes between a leader and a follower."),
@@ -212,12 +182,12 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Oscar Wilde", "oscar-wilde", "Be yourself; everyone else is already taken."),
   local("Oscar Wilde", "oscar-wilde", "We are all in the gutter, but some of us are looking at the stars."),
   local("Seneca", "seneca", "We suffer more often in imagination than in reality."),
-  local("Seneca", "seneca", "Luck is what happens when preparation meets opportunity."),
-  local("Confucius", "confucius", "It does not matter how slowly you go as long as you do not stop."),
+  local("Seneca", "seneca", "While we are postponing, life speeds by."),
+  local("Confucius", "confucius", "To know what you know and what you do not know, that is true knowledge."),
   local("Confucius", "confucius", "The man who moves a mountain begins by carrying away small stones."),
   local("Rumi", "rumi", "Yesterday I was clever, so I wanted to change the world. Today I am wise, so I am changing myself."),
   local("Rumi", "rumi", "What you seek is seeking you."),
-  local("Nelson Mandela", "nelson-mandela", "It always seems impossible until it's done."),
+  local("Nelson Mandela", "nelson-mandela", "Education is the most powerful weapon which we can use."),
   local("Nelson Mandela", "nelson-mandela", "Courage is not the absence of fear, but the triumph over it."),
   local("Winston Churchill", "winston-churchill", "Success is not final, failure is not fatal: it is the courage to continue that counts."),
   local("Winston Churchill", "winston-churchill", "If you're going through hell, keep going."),
@@ -225,40 +195,34 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Marie Curie", "marie-curie", "Be less curious about people and more curious about ideas."),
   local("Epictetus", "epictetus", "It's not what happens to you, but how you react to it that matters."),
   local("Epictetus", "epictetus", "No man is free who is not master of himself."),
-  local("Mark Twain", "mark-twain", "The secret of getting ahead is getting started."),
-  local("Mark Twain", "mark-twain", "Kindness is the language which the deaf can hear and the blind can see."),
+  local("Mark Twain", "mark-twain", "Few things are harder to put up with than the annoyance of a good example."),
+  local("Mark Twain", "mark-twain", "When in doubt, tell the truth."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "What you do speaks so loudly that I cannot hear what you say."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "Do not go where the path may lead, go instead where there is no path and leave a trail."),
-  local("Aristotle", "aristotle", "We are what we repeatedly do. Excellence, then, is not an act, but a habit."),
+  local("Will Durant", "will-durant", "We are what we repeatedly do. Excellence, then, is not an act, but a habit."),
   local("Aristotle", "aristotle", "Knowing yourself is the beginning of all wisdom."),
-  local("Buddha", "buddha", "The mind is everything. What you think you become."),
+  local("Buddha", "buddha", "All that we are is the result of what we have thought."),
   local("Buddha", "buddha", "Do not dwell in the past, do not dream of the future, concentrate the mind on the present moment."),
-  local("Mahatma Gandhi", "mahatma-gandhi", "Be the change that you wish to see in the world."),
+  local("Mahatma Gandhi", "mahatma-gandhi", "If we could change ourselves, the tendencies in the world would also change."),
   local("Mahatma Gandhi", "mahatma-gandhi", "The weak can never forgive. Forgiveness is the attribute of the strong."),
   local("Jane Austen", "jane-austen", "There is no charm equal to tenderness of heart."),
   local("Jane Austen", "jane-austen", "It isn't what we say or think that defines us, but what we do."),
   local("Sun Tzu", "sun-tzu", "The supreme art of war is to subdue the enemy without fighting."),
-  local("Sun Tzu", "sun-tzu", "In the midst of chaos, there is also opportunity."),
+  local("Sun Tzu", "sun-tzu", "To secure ourselves against defeat lies in our own hands, but the opportunity of defeating the enemy is provided by the enemy himself."),
   local("Simone Weil", "simone-weil", "Attention is the rarest and purest form of generosity."),
   local("Simone Weil", "simone-weil", "The world is the closed door. It is a barrier. And at the same time it is the way through."),
 ];
 
-const BRAINY_RSS = [
-  "https://www.brainyquote.com/link/quotebr.rss",
-  "https://www.brainyquote.com/link/quotelo.rss",
-  "https://www.brainyquote.com/link/quotefu.rss",
-  "https://www.brainyquote.com/link/quotena.rss",
-];
-
+/** Topic chips: ids + labels; each maps to a Wikiquote theme page (WQ_TOPIC_PAGES). */
 export const QUOTE_TOPICS = [
   { id: "all", label: "All" },
-  { id: "life", label: "Life", rss: "https://www.brainyquote.com/link/quoteli.rss", path: "/topics/life-quotes" },
-  { id: "funny", label: "Funny", rss: "https://www.brainyquote.com/link/quotefu.rss", path: "/topics/funny-quotes" },
-  { id: "love", label: "Love", rss: "https://www.brainyquote.com/link/quotelo.rss", path: "/topics/love-quotes" },
-  { id: "wisdom", label: "Wisdom", rss: "https://www.brainyquote.com/link/quotewi.rss", path: "/topics/wisdom-quotes" },
-  { id: "success", label: "Success", rss: "https://www.brainyquote.com/link/quotesu.rss", path: "/topics/success-quotes" },
-  { id: "motivational", label: "Motivational", rss: "https://www.brainyquote.com/link/quotemo.rss", path: "/topics/motivational-quotes" },
-  { id: "nature", label: "Nature", rss: "https://www.brainyquote.com/link/quotena.rss", path: "/topics/nature-quotes" },
+  { id: "life", label: "Life" },
+  { id: "funny", label: "Funny" },
+  { id: "love", label: "Love" },
+  { id: "wisdom", label: "Wisdom" },
+  { id: "success", label: "Success" },
+  { id: "motivational", label: "Motivational" },
+  { id: "nature", label: "Nature" },
 ] as const;
 
 export type QuoteTopicId = (typeof QUOTE_TOPICS)[number]["id"];
@@ -290,92 +254,19 @@ function shuffle<T>(list: T[], seed: string) {
   return out;
 }
 
-const g = globalThis as typeof globalThis & {
-  __atriumQuotes?: Map<string, { exp: number; data: DeskQuote[] }>;
-};
-
-function cache() {
-  g.__atriumQuotes ??= new Map();
-  return g.__atriumQuotes;
-}
-
-async function pull(url: string): Promise<string | null> {
-  try {
-    return await Promise.race([
-      httpText(url),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
-    ]);
-  } catch {
-    return null;
-  }
-}
-
-async function fromDummy(): Promise<DeskQuote[]> {
-  try {
-    const raw = await pull("https://dummyjson.com/quotes?limit=50");
-    if (!raw) return [];
-    const data = JSON.parse(raw) as { quotes?: { quote?: string; author?: string }[] };
-    return (data.quotes ?? [])
-      .filter((q) => q.quote && q.author)
-      .map((q) => ({ text: q.quote!, author: q.author!, href: "https://dummyjson.com/quotes", source: "live" as const }));
-  } catch {
-    return [];
-  }
-}
-
-async function fromAuthor(slug: string): Promise<DeskQuote[]> {
-  const key = `author:${slug}`;
-  const hit = cache().get(key);
-  if (hit && hit.exp > Date.now()) return hit.data;
-  const html = await pull(`https://www.brainyquote.com/authors/${slug}-quotes`);
-  const data = html ? parseBrainyHtml(html) : [];
-  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
-  return data;
-}
-
-async function fromRss(): Promise<DeskQuote[]> {
-  const key = "rss:all";
-  const hit = cache().get(key);
-  if (hit && hit.exp > Date.now()) return hit.data;
-  const pages = await Promise.all(BRAINY_RSS.map((url) => pull(url)));
-  let data = unique(pages.flatMap((xml) => (xml ? parseBrainyRss(xml) : [])));
-  if (!data.length) data = await fromDummy();
-  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
-  return data;
-}
-
-async function fromTopic(id: QuoteTopicId): Promise<DeskQuote[]> {
-  if (id === "all") return fromRss();
-  const spec = QUOTE_TOPICS.find((t) => t.id === id);
-  if (!spec || !("rss" in spec) || !spec.rss) return fromRss();
-  const key = `topic:${id}`;
-  const hit = cache().get(key);
-  if (hit && hit.exp > Date.now()) return hit.data;
-  const xml = await pull(spec.rss);
-  let data = xml ? parseBrainyRss(xml) : [];
-  if (!data.length && spec.path) {
-    const html = await pull(`https://www.brainyquote.com${spec.path}`);
-    data = html ? parseBrainyHtml(html) : [];
-  }
-  if (data.length) cache().set(key, { exp: Date.now() + CACHE_MS, data });
-  return data;
-}
-
 function unique(list: DeskQuote[]) {
   const seen = new Set<string>();
   return list.filter((q) => {
-    const k = `${q.author}::${q.text}`;
+    const k = q.text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
 }
 
-/** Prefer the public feed. Desk copies only when the live set is empty. */
-export function liveQuotePool(daily: DeskQuote[], local: DeskQuote[]) {
-  const live = unique(daily.filter((q) => q.source !== "local" && q.text.length >= 12));
-  if (live.length) return live;
-  return unique(local);
+/** Live rows first, then built-ins, deduped by normalized text. Built-ins alone when offline. */
+export function mergeQuotePool(live: DeskQuote[], builtins: DeskQuote[]) {
+  return unique([...live.filter((q) => q.text.length >= 12), ...builtins]);
 }
 
 const TOPIC_WORDS: Record<string, string[]> = {
@@ -396,6 +287,27 @@ export function topicLocals(id: QuoteTopicId, local: DeskQuote[] = LOCAL_QUOTES)
     return words.some((w) => blob.includes(w));
   });
   return hit.length ? hit : local;
+}
+
+/** Topic chips: every topic that has a live page (data table), plus All. */
+export function quoteTopicChips(): { id: QuoteTopicId; label: string }[] {
+  return QUOTE_TOPICS.filter((t) => t.id === "all" || t.id in WQ_TOPIC_PAGES).map((t) => ({ id: t.id, label: t.label }));
+}
+
+/** Author chips from the current result set (search/filter chrome, not a dump of every name). */
+export function authorChipsFromQuotes(quotes: DeskQuote[], limit = 8): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const q of quotes) {
+    const name = q.author.trim();
+    if (!name) continue;
+    const key = authorSlug(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export function matchQuoteQuery(q: DeskQuote, query: string) {
@@ -425,63 +337,148 @@ export function authorMatches(author: string, name: string) {
   );
 }
 
-function matchAuthor(q: DeskQuote, name: string, slug: string) {
-  return authorMatches(q.author, name) || authorMatches(q.author, slug);
+async function pull(url: string, headers: Record<string, string>): Promise<string | null> {
+  try {
+    return await Promise.race([
+      httpText(url, headers),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+    ]);
+  } catch (e) {
+    // 429/503 carry "retry-after=N" up so the Wikiquote pacer can honour it.
+    if (wqRetryAfter(e) !== null) throw e;
+    return null;
+  }
 }
 
-export const fetchQuotes = createServerFn({ method: "POST" })
+/** One Wikiquote view (daily date, topic id, or author/search name). Server on web, webview on Tauri. */
+export const fetchWikiquote = createServerFn({ method: "POST" })
   .validator(
     z.object({
-      mode: z.enum(["random", "popular", "author"]),
-      author: z.string().trim().max(80).optional(),
-      topic: z.string().trim().max(24).optional(),
-      q: z.string().trim().max(80).optional(),
-      exact: z.boolean().optional(),
-      limit: z.number().int().min(1).max(40).optional(),
-      seed: z.string().max(40).optional(),
+      kind: z.enum(["daily", "topic", "author"]),
+      key: z.string().trim().min(1).max(80),
     }),
   )
-  .handler(async ({ data }): Promise<{ quotes: DeskQuote[]; author?: string; from: string; topic?: string }> => {
-    const limit = data.limit ?? 12;
-    const seed = data.seed ?? `${Date.now()}`;
-    const topic = normalizeQuoteTopic(data.topic);
-    const query = (data.q ?? "").trim();
-    const daily = topic === "all" ? await fromRss() : await fromTopic(topic);
-    const locals = topicLocals(topic);
+  .handler(async ({ data }): Promise<WqResult> => loadWikiquote(data.kind, data.key, pull));
 
-    if (data.mode === "author") {
-      const name = (data.author ?? query).trim();
-      const slug = authorSlug(name);
-      if (slug.length < 2) return { quotes: [], from: "local" };
-      const known = POPULAR_AUTHORS.find(
-        (a) => a.slug === slug || authorSlug(a.name) === slug || a.name.toLowerCase() === name.toLowerCase(),
-      );
-      const slugs = [...new Set([known?.slug, slug, slug.replace(/-\d+$/, "")].filter(Boolean))] as string[];
-      const pick = (list: DeskQuote[]) =>
-        data.exact ? list.filter((q) => exactAuthor(q, name)) : list.filter((q) => slugs.some((s) => matchAuthor(q, name, s)));
-      for (const s of slugs) {
-        const quotes = pick(await fromAuthor(s));
-        if (quotes.length) {
-          return { quotes: quotes.slice(0, limit), author: quotes[0]?.author ?? name, from: "brainyquote" };
-        }
-      }
-      const pool = pick(unique([...daily, ...LOCAL_QUOTES]));
-      return {
-        quotes: pool.slice(0, limit),
-        author: pool[0]?.author ?? name,
-        from: pool.some((q) => q.source === "brainyquote") ? "brainyquote" : "local",
-      };
-    }
+export type QuoteMode = "random" | "popular" | "author";
+export type QuoteQuery = {
+  mode: QuoteMode;
+  author?: string;
+  topic?: string;
+  q?: string;
+  exact?: boolean;
+  limit?: number;
+  seed?: string;
+  /** Refresh: recheck this view's key only, bypassing the TTL. */
+  force?: boolean;
+};
 
-    const pool = (topic === "all" ? liveQuotePool(daily, LOCAL_QUOTES) : liveQuotePool(daily, locals)).filter((q) =>
-      matchQuoteQuery(q, query),
-    );
+/** Today's daily key in the desk zone. */
+export function todayQuoteKey(d = new Date()) {
+  const p = manilaParts(d);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
 
-    if (data.mode === "popular") {
-      const quotes = pool.slice(0, limit);
-      return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
-    }
+/** Which Wikiquote view a query reads: author > topic > daily. */
+export function quoteView(o: Pick<QuoteQuery, "mode" | "author" | "topic" | "q">, today = todayQuoteKey()): { kind: WqKind; key: string } {
+  const name = (o.author ?? o.q ?? "").trim();
+  if (o.mode === "author" && name.length >= 2) return { kind: "author", key: name };
+  const topic = normalizeQuoteTopic(o.topic);
+  if (topic !== "all") return { kind: "topic", key: topic };
+  return { kind: "daily", key: today };
+}
 
-    const quotes = shuffle(pool, seed).slice(0, limit);
-    return { quotes, from: quotes.some((q) => q.source === "brainyquote") ? "brainyquote" : "local", topic };
-  });
+export type DeskQuotes = {
+  /** Full merged pool (the view pages it); sliced only when `limit` is passed (widget). */
+  quotes: DeskQuote[];
+  /** Pool size before any `limit` slice: the "of M" in "Showing N of M". */
+  total: number;
+  /** Live Wikiquote rows loaded for this view before the text filter (0 = none came back). */
+  liveTotal: number;
+  author?: string;
+  topic?: string;
+  /** All only: today's rotating live topic. */
+  dailyTopic?: QuoteTopicId;
+  /** wikiquote when any live row is shown, else local (built-ins). */
+  from: "wikiquote" | "local";
+  state: ViewState["from"];
+  /** The Wikiquote page behind this view (attribution). */
+  page?: { title: string; href: string };
+};
+
+/** Show-more step: 16 per page, 24 in author mode (Form 149 §2). */
+export const QUOTE_PAGE = { list: 16, author: 24 } as const;
+
+/** All's rotating live topic: stable within a desk day, seeded like the N7 shuffle. */
+export function dailyQuoteTopic(today = todayQuoteKey()): QuoteTopicId {
+  const ids = QUOTE_TOPICS.map((t) => t.id).filter((id) => id !== "all" && id in WQ_TOPIC_PAGES);
+  return ids[hash(`all:${today}`) % ids.length] ?? "life";
+}
+
+/** Footer reason when no live row is on screen (N3): honest copy, not keyed on `from` alone. */
+export type QuoteNote = "live" | "filtered" | "offline" | "failed";
+export function quoteNoteReason(d: Pick<DeskQuotes, "from" | "liveTotal">, online = true): QuoteNote {
+  if (d.from === "wikiquote") return "live";
+  if (d.liveTotal > 0) return "filtered";
+  return online ? "failed" : "offline";
+}
+
+type Deps = {
+  fetcher?: (kind: WqKind, key: string) => Promise<WqResult>;
+  kv?: KV;
+  now?: () => number;
+  today?: string;
+};
+
+/** Client composer: persistent cache + Wikiquote + built-ins → the page/widget list. */
+export async function loadDeskQuotes(o: QuoteQuery, deps: Deps = {}): Promise<DeskQuotes> {
+  const fetcher = deps.fetcher ?? ((kind, key) => fetchWikiquote({ data: { kind, key } }));
+  const view = quoteView(o, deps.today);
+  const state = await loadView<DeskQuote>(
+    quoteCacheKey(view.kind, view.key),
+    async () => {
+      const r = await fetcher(view.kind, view.key);
+      return { quotes: r.quotes.map((q) => ({ ...q, source: "wikiquote" as const })), title: r.title };
+    },
+    { kv: "kv" in deps ? deps.kv : browserKV(), now: deps.now, force: o.force },
+  );
+  const today = deps.today ?? todayQuoteKey();
+  const order = (list: DeskQuote[]) => shuffle(list, `${view.kind}:${view.key}:${today}`);
+  const done = (pool: DeskQuote[], liveTotal: number, extra: Partial<DeskQuotes>): DeskQuotes => {
+    const quotes = o.limit ? pool.slice(0, o.limit) : pool;
+    return { quotes, total: pool.length, liveTotal, from: from(quotes), state: state.from, page, ...extra };
+  };
+  const live = state.quotes;
+  const page = state.title ? { title: state.title, href: live[0]?.href ?? wqPageHref(state.title) } : undefined;
+  const from = (list: DeskQuote[]) => (list.some((q) => q.source === "wikiquote") ? "wikiquote" : "local") as DeskQuotes["from"];
+
+  if (view.kind === "author") {
+    const name = view.key;
+    const builtins = LOCAL_QUOTES.filter((q) => (o.exact ? exactAuthor(q, name) : authorMatches(q.author, name)));
+    const pool = mergeQuotePool(order(live), builtins);
+    return done(pool, live.length, { author: live[0]?.author ?? pool[0]?.author ?? name });
+  }
+  const topic = normalizeQuoteTopic(o.topic);
+  if (view.kind === "topic") {
+    const pool = mergeQuotePool(order(live), topicLocals(topic)).filter((q) => matchQuoteQuery(q, o.q ?? ""));
+    return done(o.mode === "random" ? shuffle(pool, o.seed ?? `${Date.now()}`) : pool, live.length, { topic });
+  }
+  // All: today's quote first, then one rotating live topic (stable for the day), then built-ins.
+  const dailyTopic = dailyQuoteTopic(today);
+  const extraKey = quoteView({ mode: "popular", topic: dailyTopic }, today);
+  const extra = await loadView<DeskQuote>(
+    quoteCacheKey(extraKey.kind, extraKey.key),
+    async () => {
+      const r = await fetcher(extraKey.kind, extraKey.key);
+      return { quotes: r.quotes.map((q) => ({ ...q, source: "wikiquote" as const })), title: r.title };
+    },
+    { kv: "kv" in deps ? deps.kv : browserKV(), now: deps.now, force: o.force },
+  ).catch(() => ({ quotes: [] as DeskQuote[], from: "none" as const }));
+  const rotating = shuffle(extra.quotes, `topic:${dailyTopic}:${today}`);
+  const pool = mergeQuotePool([...live, ...rotating], LOCAL_QUOTES).filter((q) => matchQuoteQuery(q, o.q ?? ""));
+  return done(
+    o.mode === "random" ? shuffle(pool, o.seed ?? `${Date.now()}`) : pool,
+    live.length + rotating.length,
+    { topic, dailyTopic },
+  );
+}

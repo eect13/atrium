@@ -24,7 +24,7 @@ export function NoteIconBtn({
       <button
         type="button"
         aria-label={label}
-        className="flex size-9 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
+        className="flex size-11 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
         style={ink ? { color: ink } : undefined}
         onClick={onClick}
       >

@@ -99,8 +99,27 @@ const ISSUER_NEWS: Record<string, IssuerNews> = {
   },
   SCC: { names: ["Semirara"], minus: [], reject: /$^/ },
   AEV: { names: ["Aboitiz Equity"], minus: [], reject: /$^/ },
+  LPZ: {
+    names: ["Lopez Holdings Corporation", "Lopez Holdings"],
+    minus: [],
+    reject: /$^/,
+  },
 };
 
+
+
+/** News wires rarely use the full legal suffix. Keep both forms for search + match. */
+function issuerAliasNames(name: string) {
+  const full = name.trim();
+  if (!full) return [];
+  const short = full
+    .replace(/\s+(Corporation|Corp\.?|Incorporated|Inc\.?|Limited|Ltd\.?|PLC|Company|Co\.?)\s*$/i, "")
+    .trim();
+  if (!short || short.toLowerCase() === full.toLowerCase()) return [full];
+  // Drop one-word stubs ("Ayala") — they flood the wires. Keep "Lopez Holdings".
+  if (!short.includes(" ") && short.length < 10) return [full];
+  return [full, short];
+}
 
 function quoteTerm(s: string) {
   const t = s.trim();
@@ -133,12 +152,19 @@ export function issuerNews(item: { label: string; symbol: string; name?: string;
     return n.length > 3 || n.includes(" ");
   });
   if (ISSUER_NEWS[t]) {
-    return { ...ISSUER_NEWS[t], names: uniqNames([...ISSUER_NEWS[t].names, ...extra]) };
+    const seeded = [...ISSUER_NEWS[t].names, ...extra].flatMap(issuerAliasNames);
+    return { ...ISSUER_NEWS[t], names: uniqNames(seeded) };
   }
   if (item.kind && item.kind !== "stock") return null;
   const name = (item.name ?? item.label).trim();
   if (!name) return null;
-  return { names: uniqNames([name, extra.find((n) => n !== name) ?? "", official ?? ""]), minus: [], reject: /$^/ };
+  const seeded = [name, extra.find((n) => n !== name) ?? "", official ?? ""].flatMap(issuerAliasNames);
+  return { names: uniqNames(seeded), minus: [], reject: /$^/ };
+}
+
+/** Shared react-query key for one stock's harvested news — quote sheet and Feed share the cache. */
+export function stockNewsKey(item: { id?: string; label: string; symbol: string; name?: string; kind?: string }) {
+  return ["stock-news", item.id ?? item.symbol, item.symbol, item.name, issuerDisplay(item).legal, newsDeskId(item), "v13"] as const;
 }
 
 /** Legal / trade names the CFA desk and harvest use for this ticker. */
@@ -172,10 +198,10 @@ export function issuerSearchQuery(item: { label: string; symbol: string; name?: 
       const bits = [ticker, ...names].filter((s, i, a) => s && a.indexOf(s) === i);
       return { q: `(${bits.join(" OR ")})`, minus: minusOf(spec.minus) };
     }
-    const bits = [...names];
-    if (ticker.length <= 3 && newsDeskId(item) === "PH") {
-      bits.push(`(${ticker} (Philippines OR PSE OR Manila OR peso))`);
-    } else bits.push(ticker);
+    // Never nest (TICKER (Philippines|PSE|…)) — that shape empties Google News RSS for
+    // short PH tickers across the book (LPZ 0 raw; AC/AEV/DMC lose Latest). Legal names
+    // + bare ticker carry the query; PH wires + isRelatedStory already scope relevance.
+    const bits = [...names, ticker];
     return { q: `(${[...new Set(bits)].join(" OR ")})`, minus: minusOf(spec.minus) };
   }
   const bits = [ticker, name].filter((s, i, a) => s && a.indexOf(s) === i);
@@ -217,16 +243,18 @@ export function isRelatedStory(
 ) {
   const titleHay = `${story.title} ${story.src ?? ""}`.toLowerCase();
   const hay = `${story.title} ${story.desc ?? ""} ${story.src ?? ""}`.toLowerCase();
+  // Stock-scoped: the name or ticker must be in the TITLE (or outlet). RSS descriptions — Google News
+  // clusters especially — list other outlets' headlines, so a desc-only hit is an unrelated story.
   if (isPseiItem(item)) {
-    return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(hay);
+    return /psei|\bpse index\b|philippine stock exchange|manila (?:shares|bourse)|local bourse|pse composite/.test(titleHay);
   }
   const spec = issuerNews(item);
   if (spec?.reject.test(hay)) return false;
   for (const n of spec?.names ?? []) {
-    if (n.length >= 4 && hay.includes(n.toLowerCase())) return true;
+    if (n.length >= 4 && titleHay.includes(n.toLowerCase())) return true;
   }
   for (const n of relatedNeedles(item)) {
-    if (n.length >= 4 && hay.includes(n)) return true;
+    if (n.length >= 4 && titleHay.includes(n)) return true;
   }
   const ticker = newsTicker(item);
   // Short tickers must hit the TITLE — RSS descriptions often dump other headlines.
@@ -413,6 +441,17 @@ export function relatedNewsUrl(
   now = new Date(),
 ) {
   const q = relatedNewsQuery(item, window, now);
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${newsLocale(item)}`;
+}
+
+/** Same issuer query without after: — used when dated Google RSS returns nothing. */
+export function undatedRelatedNewsUrl(
+  item: { label: string; symbol: string; name?: string; kind: string },
+  window: NewsWindow = "30d",
+  now = new Date(),
+) {
+  const dated = relatedNewsQuery(item, window, now);
+  const q = dated.replace(/\s+after:\d{4}-\d{2}-\d{2}\b/, "").trim();
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${newsLocale(item)}`;
 }
 

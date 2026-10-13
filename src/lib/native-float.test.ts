@@ -72,3 +72,11 @@ test("main-window exit clears the float keep flag once the floats are gone (C47)
     g.localStorage = had.localStorage;
   }
 });
+
+test("native-session wires main close to closeAllNativeFloatsForExit (O8 coverage)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("./native-session.ts", import.meta.url), "utf8");
+  assert.match(src, /import \{ closeAllNativeFloatsForExit \} from "@\/lib\/native-float"/);
+  assert.match(src, /onCloseRequested/);
+  assert.match(src, /await closeAllNativeFloatsForExit\(\)/);
+});

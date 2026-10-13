@@ -3,10 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { AppWindow, House } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
-import type { WidgetKind } from "@/lib/types";
+import { WIDGET_LABEL, type WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Shared look for the page-header Float buttons (44×44, desktop only). */
+const FLOAT_BTN =
+  "hidden size-hit items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex";
 
 export function FloatBtn({ kind }: { kind: WidgetKind }) {
   const openWindow = useAtrium((s) => s.openWindow);
@@ -18,7 +23,7 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
         <button
           type="button"
           className={cn(
-            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
+            FLOAT_BTN,
             on && "text-foreground",
           )}
           aria-label={label}
@@ -48,7 +53,7 @@ export function NotesFloatBtn() {
         <button
           type="button"
           className={cn(
-            "hidden size-10 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground lg:flex",
+            FLOAT_BTN,
             on && "text-foreground",
           )}
           aria-label={label}
@@ -80,13 +85,14 @@ export function DeskMenu() {
       })),
     );
   const items: { kind: WidgetKind; label: string }[] = [
-    ...(modules.weather !== false ? [{ kind: "weather" as const, label: "Weather" }] : []),
-    { kind: "calendar", label: "Calendar" },
+    ...(modules.weather !== false ? [{ kind: "weather" as const, label: WIDGET_LABEL.weather }] : []),
+    { kind: "calendar", label: WIDGET_LABEL.calendar },
+    ...(modules.clock !== false ? [{ kind: "clock" as const, label: WIDGET_LABEL.clock }] : []),
   ];
   const afterNotes: { kind: WidgetKind; label: string }[] = [
-    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: "Quote" }] : []),
-    ...(modules.finance ? [{ kind: "finance" as const, label: "Finance" }] : []),
-    ...(modules.news ? [{ kind: "news" as const, label: "News" }] : []),
+    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: WIDGET_LABEL.quote }] : []),
+    ...(modules.finance ? [{ kind: "finance" as const, label: WIDGET_LABEL.finance }] : []),
+    ...(modules.news ? [{ kind: "news" as const, label: WIDGET_LABEL.news }] : []),
   ];
   const pinnedN = notes.filter((n) => n.pinned).length;
   const showNotes = modules.notes !== false;
@@ -137,16 +143,18 @@ export function DeskMenu() {
     <div ref={root} className="relative">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
             type="button"
-            className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted"
+            variant="outline"
+            size="icon"
+            className="text-foreground"
             aria-label="Windows"
             aria-expanded={open}
             aria-haspopup="menu"
             onClick={() => setOpen((o) => !o)}
           >
             <AppWindow className="size-4" />
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent>Windows</TooltipContent>
       </Tooltip>

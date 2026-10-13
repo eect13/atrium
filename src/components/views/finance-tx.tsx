@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +42,7 @@ export function TxDialog({
     tx?.transferToId ?? accounts[1]?.id ?? accounts[0]?.id ?? "cash",
   );
   const [memo, setMemo] = useState(tx?.memo ?? "");
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [status, setStatus] = useState<"pending" | "cleared">(tx ? txStatusOf(tx) : "cleared");
 
   const resolved = accounts.some((a) => a.id === accountId) ? accountId : (accounts[0]?.id ?? "cash");
@@ -182,9 +184,19 @@ export function TxDialog({
               Pending
             </Chip>
           </div>
+          {tx && onDelete && confirmRemove ? (
+            <ConfirmRow
+              subject={tx.payee || tx.memo || "this transaction"}
+              verb="Remove"
+              detail="It leaves the register and balances."
+              triggerId={`tx-${tx.id}`}
+              onCancel={() => setConfirmRemove(false)}
+              onConfirm={() => onDelete(tx.id)}
+            />
+          ) : (
           <div className="flex justify-end gap-2">
             {tx && onDelete ? (
-              <Button type="button" variant="outline" onClick={() => onDelete(tx.id)}>
+              <Button type="button" variant="outline" data-confirm-trigger={`tx-${tx.id}`} onClick={() => setConfirmRemove(true)}>
                 Remove
               </Button>
             ) : null}
@@ -193,6 +205,7 @@ export function TxDialog({
             </Button>
             <Button type="submit">{isNew ? "Post" : "Save"}</Button>
           </div>
+          )}
         </form>
       </DialogContent>
     </Dialog>

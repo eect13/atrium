@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { fromManila, manilaAt, manilaParts } from "./format.ts";
+import { fromManila, inclusiveAllDayEnd, manilaAt, manilaParts } from "./format.ts";
 import { parseRrule } from "./repeat.ts";
 import type { CalendarEvent, GCalDesk } from "./types.ts";
 
@@ -141,6 +141,15 @@ export function googleNeedsInstances(events: { recurrence?: string[]; recurringE
   return events.some((e) => Boolean(e.recurringEventId));
 }
 
+/** Event-dialog colour swatches with hue words for names (Form 149 1a; hexes unchanged). */
+export const EVENT_SWATCHES = [
+  { hex: "#7986cb", name: "Lavender" },
+  { hex: "#33b679", name: "Sage" },
+  { hex: "#f6bf26", name: "Banana" },
+  { hex: "#e67c73", name: "Flamingo" },
+  { hex: "#8e24aa", name: "Grape" },
+] as const;
+
 const GOOGLE_COLORS: Record<string, string> = {
   "1": "#795548",
   "2": "#33b679",
@@ -168,7 +177,7 @@ function googleId(calendarId: string | undefined, id: string) {
   return "g-" + (calendarId ? calendarId + "-" : "") + id;
 }
 
-/** One master per rule. An all-day Google end is the next day; keep it on the start date. */
+/** One master per rule. Date-only Google ends are exclusive; map to an inclusive desk end. */
 export function mapGoogleEvents(events: GCalEvent[], calendarId?: string): CalendarEvent[] {
   const skips = new Map<string, string[]>();
   const masters: CalendarEvent[] = [];
@@ -190,7 +199,7 @@ export function mapGoogleEvents(events: GCalEvent[], calendarId?: string): Calen
     const startAt = g.start?.dateTime ? new Date(g.start.dateTime) : manilaAt(g.start!.date!, 0);
     if (Number.isNaN(startAt.getTime())) continue;
     const endAt = dateOnly
-      ? manilaAt(g.start!.date!, 23, 59)
+      ? inclusiveAllDayEnd(g.start!.date!, g.end?.date)
       : new Date(g.end?.dateTime || g.end?.date || startRaw);
     const ruleLine = g.recurrence?.find((r) => /FREQ=/i.test(r));
     const rule = ruleLine ? parseRrule(ruleLine) : null;

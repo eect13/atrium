@@ -8,6 +8,8 @@
   --color-muted: #1c1c1f;
   --color-muted-foreground: #8e8e8a;
   --color-border: #2a2a2c;
+  /* Input/control boundary ≥3:1 vs card and muted (Form 149 1b); border stays the keyline. */
+  --color-input: #6a6a6c;
   --color-primary: #e8e8e4;
   --color-primary-foreground: #0c0c0d;
   --color-accent: #1c1c1f;
@@ -34,12 +36,48 @@
   --shadow-border: 0 0 0 1px rgb(242 242 240 / 0.08);
   --shadow-float: 0 0 0 1px rgb(242 242 240 / 0.1), 0 16px 40px rgb(0 0 0 / 0.45);
   --spacing-dock: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  /* Minimum touch target (44px). size-hit / h-hit / min-h-hit / min-w-hit. */
+  --spacing-hit: 2.75rem;
   --aspect-plastic: 1.586;
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html {
   color-scheme: dark;
+}
+
+/*
+ * Category palette — Card 109 B vivid, solid fills. Each fill pairs with a
+ * `-fg` label colour (≥4.5:1 on the fill, fill ≥3:1 on card) per theme.
+ * work…other seed the starter categories; pink/sky/amber/mint are extra
+ * swatches for user categories (src/lib/event-cats.ts CAT_PALETTE).
+ */
+:root {
+  --cat-work: #6db3ff;
+  --cat-work-fg: #0c0c0d;
+  --cat-personal: #c49bff;
+  --cat-personal-fg: #0c0c0d;
+  --cat-family: #ff9f5a;
+  --cat-family-fg: #0c0c0d;
+  --cat-health: #3dceb0;
+  --cat-health-fg: #0c0c0d;
+  --cat-other: #b0b0a8;
+  --cat-other-fg: #0c0c0d;
+  --cat-pink: #ff6b9d;
+  --cat-pink-fg: #0c0c0d;
+  --cat-sky: #7dd3fc;
+  --cat-sky-fg: #0c0c0d;
+  --cat-amber: #fbbf24;
+  --cat-amber-fg: #0c0c0d;
+  --cat-mint: #86efac;
+  --cat-mint-fg: #0c0c0d;
+  --today-accent: #6db3ff;
+
+  /* Shape 1 tag (pill) */
+  --tag-radius: 999px;
+  --tag-h: 20px;
+  --tag-pad: 0 8px 0 6px;
+  --tag-dot: 6px;
 }
 
 html.light {
@@ -51,6 +89,7 @@ html.light {
   --color-muted: #e8e3d8;
   --color-muted-foreground: #625f59;
   --color-border: #d9d3c6;
+  --color-input: #85807a;
   --color-primary: #161513;
   --color-primary-foreground: #f3efe6;
   --color-accent: #e0dbd0;
@@ -63,6 +102,40 @@ html.light {
   --color-ink: #161513;
   --shadow-border: 0 0 0 1px rgb(22 21 19 / 0.08), 0 1px 2px rgb(22 21 19 / 0.04);
   --shadow-float: 0 0 0 1px rgb(22 21 19 / 0.1), 0 14px 36px rgb(22 21 19 / 0.16);
+  --cat-work: #1760b0;
+  --cat-work-fg: #ffffff;
+  --cat-personal: #7c3aed;
+  --cat-personal-fg: #ffffff;
+  --cat-family: #a04a10;
+  --cat-family-fg: #ffffff;
+  --cat-health: #0f7a68;
+  --cat-health-fg: #ffffff;
+  --cat-other: #5a5852;
+  --cat-other-fg: #ffffff;
+  --cat-pink: #b0285f;
+  --cat-pink-fg: #ffffff;
+  --cat-sky: #0b6a96;
+  --cat-sky-fg: #ffffff;
+  --cat-amber: #8a5c00;
+  --cat-amber-fg: #ffffff;
+  --cat-mint: #1d7a3e;
+  --cat-mint-fg: #ffffff;
+  --today-accent: #1760b0;
+}
+
+/* Hit area ≥ --spacing-hit around a smaller visual. Use only where neighbouring
+   target centres are ≥ 44px apart and no overflow:hidden ancestor clips it. */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--spacing-hit));
+    height: max(100%, var(--spacing-hit));
+    transform: translate(-50%, -50%);
+  }
 }
 
 @layer base {
@@ -145,6 +218,96 @@ html.light {
   .scroll-auto:focus-within::-webkit-scrollbar-thumb {
     background: color-mix(in oklab, var(--color-foreground) 22%, transparent);
   }
+  /* Category tag — Shape 1 pill: solid fill, paired fg label, leading fg dot, no letter mark. */
+  .cat-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+    height: var(--tag-h);
+    padding: var(--tag-pad);
+    border-radius: var(--tag-radius);
+    background: var(--tag-bg, var(--color-muted));
+    color: var(--tag-fg, var(--color-foreground));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .cat-tag::before {
+    content: "";
+    flex: none;
+    width: var(--tag-dot);
+    height: var(--tag-dot);
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .cat-tag > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* "+N more" — same pill silhouette, neutral fill, no dot. */
+  .cat-tag-more {
+    justify-content: center;
+    padding: 0 8px;
+    background: var(--color-muted);
+    color: var(--color-muted-foreground);
+    font-weight: 500;
+  }
+  .cat-tag-more::before {
+    display: none;
+  }
+  /* Legend / manager chips: same pill, roomier. */
+  .cat-tag-lg {
+    height: calc(var(--tag-h) + 8px);
+    padding: 0 12px 0 10px;
+    gap: 7px;
+    font-size: 0.8125rem;
+  }
+  /*
+   * Multi-day span bar (Card 138 §5) — Shape 1 type in one continuous bar per
+   * week-row segment. True ends: rounded + 4px inset + dot. Squared ends run to
+   * the row edge (a squared start carries a ‹ chevron instead of the dot).
+   * Keyline = primary-foreground: invisible on card, ≥3:1 edge on a selected (primary) day.
+   */
+  .span-bar {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    height: var(--tag-h);
+    padding: 0 8px 0 3px;
+    background: var(--tag-bg, var(--color-muted));
+    color: var(--tag-fg, var(--color-foreground));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px var(--color-primary-foreground);
+  }
+  .span-bar-start {
+    margin-left: 4px;
+    padding-left: 6px;
+    border-top-left-radius: var(--tag-radius);
+    border-bottom-left-radius: var(--tag-radius);
+  }
+  .span-bar-start::before {
+    content: "";
+    flex: none;
+    width: var(--tag-dot);
+    height: var(--tag-dot);
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .span-bar-end {
+    margin-right: 4px;
+    border-top-right-radius: var(--tag-radius);
+    border-bottom-right-radius: var(--tag-radius);
+  }
+
   .wallet-face {
     background: var(--color-card);
     color: var(--color-card-foreground);

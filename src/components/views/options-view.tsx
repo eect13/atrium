@@ -3,7 +3,7 @@
 import { APP_LABEL } from "@/lib/version";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, LocateFixed } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, LocateFixed } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { AppearancePicker } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { OptionsSwitchRow } from "@/components/ui/options-switch-row";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
@@ -26,20 +27,23 @@ import { PlaceField } from "@/components/place-field";
 import { DeskStorage } from "./finance-options";
 import { Chip, FIELD_SELECT } from "./finance-chip";
 import { packIsOn, sortedFeedPacks } from "@/lib/feeds";
+import { DigestFields } from "./feed-panels";
 import { DESK_REGIONS, clockZones, normalizeMarkets, regionOf, toggleMarket } from "@/lib/region";
 import { cn } from "@/lib/utils";
 
 const OPTIONAL = [
-  { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Today card, and city or ZIP pin." },
+  { id: "weather" as const, label: "Weather", blurb: "Forecast tab, Weather card, and city or ZIP pin." },
+  { id: "clock" as const, label: "Clock", blurb: "World clocks tab, Clock card, and floating clock." },
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
   { id: "finance" as const, label: "Finance", blurb: "Watcher, tape, cash books, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
-  { id: "news" as const, label: "News briefing", blurb: "RSS mosaic in the MSN style." },
+  { id: "news" as const, label: "Feed", blurb: "Your interests, daily digest, summary, stories, and a resource hub." },
 ];
 
-const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" | "weather" }[] = [
+const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" | "weather" | "clock" }[] = [
   { kind: "weather", need: "weather" },
   { kind: "calendar" },
+  { kind: "clock", need: "clock" },
   { kind: "quote", need: "quotes" },
   { kind: "finance", need: "finance" },
   { kind: "news", need: "news" },
@@ -51,12 +55,45 @@ const JUMP = [
   { id: "opt-dash", label: "Dashboard" },
   { id: "opt-modules", label: "Modules" },
   { id: "opt-markets", label: "Markets" },
-  { id: "opt-news", label: "News" },
+  { id: "opt-news", label: "Feed" },
+  { id: "opt-clocks", label: "Clocks" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
   { id: "opt-storage", label: "Storage" },
   { id: "opt-data", label: "Data" },
 ];
+
+
+function WorldClocksCard() {
+  const setView = useAtrium((s) => s.setView);
+  const modules = useAtrium((s) => s.modules);
+  const toggleModule = useAtrium((s) => s.toggleModule);
+  return (
+    <Card id="opt-clocks" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle>World clocks</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">Zones are managed on the Clock tab.</p>
+        <button
+          type="button"
+          className="flex min-h-[52px] w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Manage in Clock tab"
+          onClick={() => {
+            if (modules.clock === false) toggleModule("clock");
+            setView("clock");
+          }}
+        >
+          <span className="min-w-0">
+            <p className="text-sm font-medium">Manage in Clock tab</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Add, remove, reorder cities · 12/24h</p>
+          </span>
+          <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+      </CardContent>
+    </Card>
+  );
+}
 
 function ProfileFields({ profile, setProfile }: { profile: Profile; setProfile: (p: Partial<Profile>) => void }) {
   const setView = useAtrium((s) => s.setView);
@@ -308,6 +345,8 @@ export function OptionsView() {
     notes,
     feeds,
     setFeedPack,
+    feedPrefs,
+    updateFeed,
     dashOrder,
     setDashOrder,
     resetDash,
@@ -329,6 +368,8 @@ export function OptionsView() {
       notes: s.notes,
       feeds: s.feeds,
       setFeedPack: s.setFeedPack,
+      feedPrefs: s.feedPrefs,
+      updateFeed: s.updateFeed,
       dashOrder: s.dashOrder,
       setDashOrder: s.setDashOrder,
       resetDash: s.resetDash,
@@ -405,7 +446,7 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Pop widgets out like sticky notes — calendar, weather, markets, headlines. Nothing floats until you pin a note or open one from this list or the desk menu. Drag the bar at the top, resize any corner, Esc to dock.
+            Pop widgets out like sticky notes — calendar, weather, markets, feed. Nothing floats until you pin a note or open one from this list or the desk menu. Drag the bar at the top, resize any corner, Esc to dock.
           </p>
           {DESK.filter((d) => !d.need || modules[d.need]).map((d) => {
             const win = windows.find((w) => w.kind === d.kind);
@@ -538,27 +579,99 @@ export function OptionsView() {
       {modules.news ? (
         <Card id="opt-news" className="scroll-mt-4">
           <CardHeader>
-            <CardTitle>News packs</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+            <CardTitle>Feed</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Sources stay off until you pick them. A pack turns a slice on — not the whole catalog.
+              Layout and digest behaviour for the Feed page. Context-neutral — no fixed topics or tickers.
             </p>
-            <div className="flex flex-wrap gap-2">
-              {sortedFeedPacks().map((p) => {
-                const on = packIsOn(feeds, p.id);
-                return (
-                  <Chip key={p.id} active={on} onClick={() => setFeedPack(p.id, !on)}>
-                    {p.label}
-                  </Chip>
-                );
-              })}
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Sources</p>
+              <p className="text-sm text-muted-foreground">
+                Sources stay off until you pick them. A pack turns a slice on — not the whole catalog.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {sortedFeedPacks().map((p) => {
+                  const on = packIsOn(feeds, p.id);
+                  return (
+                    <Chip key={p.id} active={on} onClick={() => setFeedPack(p.id, !on)}>
+                      {p.label}
+                    </Chip>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {sortedFeedPacks().map((p) => `${p.label}: ${p.hint}`).join(" · ")}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {sortedFeedPacks().map((p) => `${p.label}: ${p.hint}`).join(" · ")}
-            </p>
-            <Button variant="outline" onClick={() => setView("news")}>
-              Open briefing
+            <div className="space-y-1 border-t border-border pt-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.08em] text-muted-foreground">Layout</p>
+              <OptionsSwitchRow
+                title="Sources strip"
+                hint="Show the Sources · N control and pack chips on Feed. Off hides the strip; saved sources stay."
+              >
+                <Switch
+                  checked={feedPrefs.showSourcesStrip}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, showSourcesStrip: v }))}
+                  aria-label="Sources strip"
+                />
+              </OptionsSwitchRow>
+              <OptionsSwitchRow
+                title="Summary block"
+                hint="Show the counted Summary under the digest hero. Off keeps digest and stories only."
+              >
+                <Switch
+                  checked={feedPrefs.showSummary}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, showSummary: v }))}
+                  aria-label="Summary block"
+                />
+              </OptionsSwitchRow>
+              <OptionsSwitchRow
+                title="Resource hub"
+                hint="Show the hub rail (desktop) or strip (phone). Off hides the rail; hub items stay saved."
+              >
+                <Switch
+                  checked={feedPrefs.showHub}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, showHub: v }))}
+                  aria-label="Resource hub"
+                />
+              </OptionsSwitchRow>
+              <OptionsSwitchRow
+                title="Comfortable story density"
+                hint="On = roomy story rows. Off = compact list for denser scanning."
+              >
+                <Switch
+                  checked={feedPrefs.comfortableDensity}
+                  onCheckedChange={(v) => updateFeed((p) => ({ ...p, comfortableDensity: v }))}
+                  aria-label="Comfortable story density"
+                />
+              </OptionsSwitchRow>
+            </div>
+            <div className="space-y-1 border-t border-border pt-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.08em] text-muted-foreground">Digest</p>
+              <DigestFields prefs={feedPrefs} update={updateFeed} />
+            </div>
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Curate</p>
+              <p className="text-sm text-muted-foreground">
+                {feedPrefs.interests.length} interests · {feedPrefs.hub.length} in hub · {feedPrefs.pinned.length} pinned ·{" "}
+                {feedPrefs.hidden.length} hidden · {feedPrefs.muted.length} muted
+              </p>
+              {feedPrefs.hidden.length || feedPrefs.pinned.length || feedPrefs.muted.length ? (
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => {
+                    updateFeed((p) => ({ ...p, hidden: [], pinned: [], muted: [] }));
+                    toast("Curate reset");
+                  }}
+                >
+                  Reset pins, hidden, and muted
+                </Button>
+              ) : null}
+            </div>
+            <Button variant="outline" className="min-h-11" onClick={() => setView("news")}>
+              Open Feed
             </Button>
           </CardContent>
         </Card>
@@ -598,6 +711,9 @@ export function OptionsView() {
           </div>
         </CardContent>
       </Card>
+
+      <WorldClocksCard />
+
       <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
         <DialogContent>
           <DialogHeader>
@@ -654,13 +770,12 @@ export function OptionsView() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Atrium stays on this device. Hook Fantastical, Google, Outlook, or Apple by exporting an .ics or
-            pasting a public iCal URL on the Calendar screen. Google Calendar can also be pulled when this
-            app is opened through a connected Grok session.
+            Atrium stays on this device. Add calendars by exporting an .ics or pasting a public iCal URL on
+            the Calendar screen — works with Fantastical, Outlook, Apple, and other apps that speak iCal.
+            Connected calendar accounts can also sync when signed in on this session.
           </p>
           <p>
-            Cash books still have their own JSON on the Cash tab. The profile backup above is the
-            whole desk.
+            Cash books keep their own JSON on the Cash tab. Profile backup above saves the whole desk.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setView("finance")}>

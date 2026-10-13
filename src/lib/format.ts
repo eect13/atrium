@@ -194,11 +194,77 @@ export function fmtDate(iso: string) {
   });
 }
 
-/** True when the event is flagged all-day or spans at least 12 hours. */
+/**
+ * True all-day only: the explicit flag wins. Unflagged (legacy) events count as all-day
+ * only when they run whole days in the desk zone (00:00 → 23:59 or next 00:00). A timed span of
+ * 12h+ (night shift, red-eye) stays timed.
+ */
 export function isAllDayEvent(e: { start: string; end: string; allDay?: boolean }) {
-  if (e.allDay) return true;
-  const ms = new Date(e.end).getTime() - new Date(e.start).getTime();
-  return Number.isFinite(ms) && ms >= 12 * 3_600_000;
+  if (e.allDay != null) return e.allDay;
+  const a = new Date(e.start);
+  const b = new Date(e.end);
+  const ms = b.getTime() - a.getTime();
+  if (!Number.isFinite(ms) || ms < 23 * 3_600_000 + 59 * 60_000) return false;
+  const at = (d: Date, h: number, m: number) => {
+    const p = manilaParts(d);
+    return p.hour === h && p.minute === m;
+  };
+  // Desk all-day ends are inclusive 23:59; exclusive midnight ends also count.
+  return at(a, 0, 0) && (at(b, 23, 59) || at(b, 0, 0));
+}
+
+/** Normalize Google `YYYY-MM-DD` or ICS `YYYYMMDD` to desk `YYYY-MM-DD`. */
+export function ymdStamp(raw: string) {
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (digits.length >= 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return isoDate(new Date(raw));
+}
+
+/**
+ * Google/ICS date-only ends are exclusive (day after last inclusive day).
+ * Desk all-day ends are inclusive at 23:59 on the last covered day.
+ */
+export function inclusiveAllDayEnd(startYmd: string, exclusiveEndYmd?: string | null) {
+  const startDay = ymdStamp(startYmd);
+  if (!exclusiveEndYmd) return manilaAt(startDay, 23, 59);
+  const excl = ymdStamp(exclusiveEndYmd);
+  const last = addDays(manilaAt(excl, 12), -1);
+  let lastDay = isoDate(last);
+  if (lastDay < startDay) lastDay = startDay;
+  return manilaAt(lastDay, 23, 59);
+}
+
+/** Exclusive DATE (`YYYY-MM-DD`) for Google/ICS export of a desk all-day span. */
+export function exclusiveAllDayEnd(ev: { start: string; end: string }) {
+  const lastInclusive = isoDate(new Date(ev.end));
+  return isoDate(addDays(manilaAt(lastInclusive, 12), 1));
+}
+
+/** True when the event should paint on this desk calendar day (inclusive start..end). */
+export function eventCoversDay(e: { start: string; end: string }, day: Date | string) {
+  const d = typeof day === "string" && /^\d{4}-\d{2}-\d{2}/.test(day) ? day.slice(0, 10) : isoDate(new Date(day));
+  const s = isoDate(new Date(e.start));
+  const en = isoDate(new Date(e.end));
+  return d >= s && d <= en;
+}
+
+/** Inclusive desk days this event covers, capped so a bad span cannot loop forever. */
+export function eventCoverDays(e: { start: string; end: string }, cap = 366) {
+  const first = isoDate(new Date(e.start));
+  const last = isoDate(new Date(e.end));
+  if (last < first) return [first];
+  const out: string[] = [];
+  let cur = manilaAt(first, 12);
+  for (let i = 0; i < cap; i += 1) {
+    const key = isoDate(cur);
+    out.push(key);
+    if (key >= last) break;
+    cur = addDays(cur, 1);
+  }
+  return out;
 }
 
 export function fmtWhen(e: { start: string; end: string; allDay?: boolean }) {
@@ -415,13 +481,44 @@ export function uid() {
   return crypto.randomUUID();
 }
 
+/** Starter category fills — dedicated `--cat-*` theme tokens (Card 109 B), not chrome. */
 export const CAT_COLORS: Record<string, string> = {
-  work: "var(--color-ring)",
-  personal: "var(--color-foreground)",
-  family: "var(--color-destructive)",
-  health: "var(--color-ok)",
-  other: "var(--color-muted-foreground)",
+  work: "var(--cat-work)",
+  personal: "var(--cat-personal)",
+  family: "var(--cat-family)",
+  health: "var(--cat-health)",
+  other: "var(--cat-other)",
 };
+
+/** Visible labels for event categories (FORM-WCAG #15 / O7 — not colour-only). */
+export const CAT_LABELS: Record<string, string> = {
+  work: "Work",
+  personal: "Personal",
+  family: "Family",
+  health: "Health",
+  other: "Other",
+};
+
+/** Single-letter non-colour marks paired with CAT_COLORS. */
+export const CAT_MARK: Record<string, string> = {
+  work: "W",
+  personal: "P",
+  family: "F",
+  health: "H",
+  other: "O",
+};
+
+/** Visible category name; unknown ids are humanised ("my-club" → "My club"), never shown raw. */
+export function catLabel(cat: string) {
+  const known = CAT_LABELS[cat];
+  if (known) return known;
+  const words = cat.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Uncategorised";
+}
+
+export function catMark(cat: string) {
+  return CAT_MARK[cat] ?? "?";
+}
 
 export const NOTE_COLORS = [
   "#ffffff",

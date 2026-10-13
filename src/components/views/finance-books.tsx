@@ -5,6 +5,7 @@ import { Eye, EyeOff, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
+import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,7 @@ export function FinanceBooks() {
     year,
   });
   const [acctOpen, setAcctOpen] = useState(false);
+  const [removeTxId, setRemoveTxId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [newName, setNewName] = useState("");
@@ -550,6 +552,23 @@ export function FinanceBooks() {
                         <td className={rowPad} />
                         <td className={rowPad} />
                       </tr>
+                      ) : removeTxId === r.tx.id ? (
+                      <tr key={r.tx.id} className="border-t border-border">
+                        <td colSpan={9} className={rowPad}>
+                          <ConfirmRow
+                            subject={r.tx.payee || r.tx.memo || r.tx.date}
+                            verb="Remove"
+                            detail="It leaves the register and balances."
+                            triggerId={`reg-${r.tx.id}`}
+                            onCancel={() => setRemoveTxId(null)}
+                            onConfirm={() => {
+                              removeTx(r.tx.id);
+                              setRemoveTxId(null);
+                              toast("Removed");
+                            }}
+                          />
+                        </td>
+                      </tr>
                       ) : (
                       <tr key={r.tx.id} className="border-t border-border">
                         <td className={rowPad}>
@@ -590,7 +609,7 @@ export function FinanceBooks() {
                           </button>
                         </td>
                         <td className={rowPad}>
-                          <Button variant="ghost" size="sm" onClick={() => removeTx(r.tx.id)}>
+                          <Button variant="ghost" size="sm" data-confirm-trigger={`reg-${r.tx.id}`} onClick={() => setRemoveTxId(r.tx.id)}>
                             Remove
                           </Button>
                         </td>
@@ -819,20 +838,29 @@ export function FinanceBooks() {
               </div>
               <Switch checked={newHidden} onCheckedChange={setNewHidden} aria-label="Hide from wallet" />
             </div>
+            {editingId && confirmDelete ? (
+              <ConfirmRow
+                subject={accounts.find((a) => a.id === editingId)?.name ?? "this account"}
+                verb="Delete"
+                detail="It leaves your wallet and books. Its transactions stay, unlinked."
+                triggerId={`acct-${editingId}`}
+                onCancel={() => setConfirmDelete(false)}
+                onConfirm={deleteCard}
+              />
+            ) : null}
             <div className="flex justify-end gap-2">
               {editingId ? (
-                confirmDelete ? (
                   <>
-                    <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
-                      Keep
-                    </Button>
-                    <Button type="button" variant="destructive" onClick={deleteCard}>
-                      Delete account
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => setConfirmDelete(true)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      data-confirm-trigger={`acct-${editingId}`}
+                      onClick={() => {
+                        // Last-account guard: toast, don't open the confirm.
+                        if (accounts.length <= 1) toast("Keep at least one account");
+                        else setConfirmDelete(true);
+                      }}
+                    >
                       Delete
                     </Button>
                     <Button type="button" variant="outline" onClick={() => setAcctOpen(false)}>
@@ -840,7 +868,6 @@ export function FinanceBooks() {
                     </Button>
                     <Button type="submit">Save</Button>
                   </>
-                )
               ) : (
                 <>
                   <Button type="button" variant="outline" onClick={() => setAcctOpen(false)}>
@@ -915,31 +942,26 @@ export function FinanceBooks() {
                 onChange={(e) => setBudgetLimit(e.target.value)}
               />
             </div>
+            {budgetEdit && budgetEdit !== "new" && budgetGone ? (
+              <ConfirmRow
+                subject={budgetEdit.name}
+                verb="Delete"
+                detail="Spending isn't affected."
+                triggerId={`budget-${budgetEdit.id}`}
+                onCancel={() => setBudgetGone(false)}
+                onConfirm={() => {
+                  removeBudget(budgetEdit.id);
+                  setBudgetGone(false);
+                  setBudgetEdit(null);
+                  toast("Budget deleted");
+                }}
+              />
+            ) : null}
             <div className="flex justify-end gap-2">
               {budgetEdit && budgetEdit !== "new" ? (
-                budgetGone ? (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => setBudgetGone(false)}>
-                      Keep
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => {
-                        removeBudget(budgetEdit.id);
-                        setBudgetGone(false);
-                        setBudgetEdit(null);
-                        toast("Budget removed");
-                      }}
-                    >
-                      Delete budget
-                    </Button>
-                  </>
-                ) : (
-                  <Button type="button" variant="outline" onClick={() => setBudgetGone(true)}>
-                    Delete
-                  </Button>
-                )
+                <Button type="button" variant="outline" data-confirm-trigger={`budget-${budgetEdit.id}`} onClick={() => setBudgetGone(true)}>
+                  Delete
+                </Button>
               ) : null}
               <Button type="button" variant="outline" onClick={() => setBudgetEdit(null)}>
                 Cancel

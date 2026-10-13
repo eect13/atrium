@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { LayoutGrid, LayoutList } from "lucide-react";
 import { ChipMark, Contactless, CurrencyMark } from "@/components/issuer-mark";
 import { Button } from "@/components/ui/button";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { ccySymbol, maskedMoney } from "@/lib/format";
 import { numberLabel, txKindOf, txStatusOf, type RegisterRow } from "@/lib/books";
 import type { Account, AccountKind, BooksLayout } from "@/lib/types";
@@ -63,10 +64,16 @@ export function PlasticCard({
   const digits = numberLabel(account);
   const skip = useRef(false);
   const hold = useRef(0);
+  const [menu, setMenu] = useState(false);
 
   function select(e: { detail: number }) {
     if (e.detail >= 2 || skip.current) {
       skip.current = false;
+      return;
+    }
+    // Form 152 N11: keyboard Enter/Space (detail 0) on the already-active card opens Edit.
+    if (active && e.detail === 0) {
+      onEdit();
       return;
     }
     onSelect();
@@ -83,6 +90,12 @@ export function PlasticCard({
       onDoubleClick={(e) => {
         e.preventDefault();
         onEdit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+          e.preventDefault();
+          setMenu(true);
+        }
       }}
       onPointerDown={(e) => {
         if (e.pointerType === "mouse") return;
@@ -106,6 +119,17 @@ export function PlasticCard({
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <OverflowMenu
+            label={`More for ${account.name}`}
+            open={menu}
+            onOpenChange={setMenu}
+            className="-my-3 -mr-2"
+            triggerClassName="text-current hover:bg-black/10 focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+            items={[
+              { label: "Edit", onSelect: onEdit },
+              ...(cash ? [] : [{ label: account.hideNumber === false ? "Hide number" : "Show number", onSelect: onToggleNumber }]),
+            ]}
+          />
           <Contactless className="opacity-70" />
         </div>
       </div>

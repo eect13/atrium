@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { GripHorizontal, X } from "lucide-react";
+import { GripHorizontal } from "lucide-react";
 import { clampDesk, clampSize, keyBox, resizeFrom, snapDesk, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { CloseButton } from "@/components/ui/close-button";
 import { Tip } from "@/components/ui/tooltip";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
@@ -12,14 +13,15 @@ export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
 type Handle = ResizeCorner | ResizeEdge;
 
 const HANDLES: { id: Handle; box: string; cursor: string }[] = [
-  { id: "n", box: "left-3 right-3 top-0 h-1.5", cursor: "cursor-n-resize" },
-  { id: "s", box: "left-3 right-3 bottom-0 h-1.5", cursor: "cursor-s-resize" },
-  { id: "e", box: "top-3 bottom-3 right-0 w-1.5", cursor: "cursor-e-resize" },
-  { id: "w", box: "top-3 bottom-3 left-0 w-1.5", cursor: "cursor-w-resize" },
-  { id: "nw", box: "left-0 top-0 size-3", cursor: "cursor-nw-resize" },
-  { id: "ne", box: "right-0 top-0 size-3", cursor: "cursor-ne-resize" },
-  { id: "sw", box: "bottom-0 left-0 size-3", cursor: "cursor-sw-resize" },
-  { id: "se", box: "bottom-0 right-0 size-3", cursor: "cursor-se-resize" },
+  // FORM-WCAG #9 / O3: ≥24px hit strips (2.5.8). Visual stay opacity-0; Form flip was 6px edges.
+  { id: "n", box: "left-6 right-6 top-0 h-6", cursor: "cursor-n-resize" },
+  { id: "s", box: "left-6 right-6 bottom-0 h-6", cursor: "cursor-s-resize" },
+  { id: "e", box: "top-6 bottom-6 right-0 w-6", cursor: "cursor-e-resize" },
+  { id: "w", box: "top-6 bottom-6 left-0 w-6", cursor: "cursor-w-resize" },
+  { id: "nw", box: "left-0 top-0 size-6", cursor: "cursor-nw-resize" },
+  { id: "ne", box: "right-0 top-0 size-6", cursor: "cursor-ne-resize" },
+  { id: "sw", box: "bottom-0 left-0 size-6", cursor: "cursor-sw-resize" },
+  { id: "se", box: "bottom-0 right-0 size-6", cursor: "cursor-se-resize" },
 ];
 
 export function ResizeHandles({
@@ -32,8 +34,8 @@ export function ResizeHandles({
       {HANDLES.map((c) => (
         <div
           key={c.id}
-          role="separator"
-          aria-label={`Resize ${c.id}`}
+          aria-hidden="true"
+          data-resize={c.id}
           className={cn(
             "absolute z-[3] touch-none opacity-0 hover:opacity-100",
             "before:absolute before:inset-0 before:bg-transparent",
@@ -156,10 +158,14 @@ export function FloatWindow({
 
   const geom = live.current;
   const ink = paper ? inkOnPaper(paper) : undefined;
+  const barBtn = paper
+    ? "text-current opacity-70 hover:bg-black/10 hover:text-current hover:opacity-100"
+    : "text-muted-foreground hover:bg-accent hover:text-foreground";
 
   return (
     <article
       ref={articleRef}
+      aria-label={title}
       className={cn(
         "group absolute flex flex-col overflow-hidden rounded-lg shadow-[var(--shadow-float)]",
         paper ? "" : "bg-card text-card-foreground",
@@ -177,7 +183,7 @@ export function FloatWindow({
     >
       <header
         className={cn(
-          "group/bar relative z-[2] flex h-11 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
+          "group/bar relative z-[2] flex h-12 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
           paper ? "border-current/20" : "border-border bg-muted",
         )}
         onPointerDown={(e) => {
@@ -198,10 +204,8 @@ export function FloatWindow({
           <button
             type="button"
             className={cn(
-              "relative z-[4] flex size-8 shrink-0 items-center justify-center rounded-sm",
-              paper
-                ? "opacity-70 hover:bg-black/10 hover:opacity-100"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              "relative z-[4] flex size-hit shrink-0 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              barBtn,
             )}
             aria-label={`Move or resize ${title}`}
             onKeyDown={(e) => {
@@ -218,19 +222,12 @@ export function FloatWindow({
           </button>
         </Tip>
         <Tip label="Close">
-          <button
-            type="button"
-            className={cn(
-              "relative z-[4] flex size-8 shrink-0 items-center justify-center rounded-sm",
-              paper
-                ? "opacity-70 hover:bg-black/10 hover:opacity-100"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-            aria-label="Close window"
+          <CloseButton
+            label="Close window"
+            title={undefined}
+            className={cn("relative z-[4] focus-visible:ring-offset-0", barBtn)}
             onClick={onClose}
-          >
-            <X className="size-4" />
-          </button>
+          />
         </Tip>
       </header>
       <div className="scroll-auto min-h-0 flex-1 bg-inherit p-3">{children}</div>

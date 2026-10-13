@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deskZone, manilaParts, setDeskZone } from "./format.ts";
+import { deskZone, eventCoverDays, eventCoversDay, exclusiveAllDayEnd, inclusiveAllDayEnd, isoDate, manilaParts, setDeskZone } from "./format.ts";
 import { defaultGcalOff, gcalLane, gcalRange, mapGoogleEvents, noteGcalPage, preferGoogleRules, visibleCalEvents } from "./google-cal.ts";
-import { parseICS } from "./ics.ts";
+import { eventsToICS, parseICS } from "./ics.ts";
 
 test("primary calendar is Mine; Family and holidays start hidden", () => {
   const mine = gcalLane({ id: "me@gmail.com", summary: "Eric", primary: true });
@@ -148,3 +148,67 @@ test("Google window is desk midnight, not UTC midnight", () => {
   }
 });
 
+test("a Google multi-day all-day stay keeps the exclusive end as an inclusive span", () => {
+  const prev = deskZone();
+  setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
+  try {
+    const rows = mapGoogleEvents(
+      [
+        {
+          id: "stay",
+          summary: "Multi-day stay",
+          start: { date: "2026-10-01" },
+          end: { date: "2026-10-05" },
+        },
+      ],
+      "cal",
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.allDay, true);
+    const start = manilaParts(new Date(rows[0]!.start));
+    const end = manilaParts(new Date(rows[0]!.end));
+    assert.equal(start.day, 1);
+    assert.equal(start.month, 10);
+    assert.equal(end.day, 4);
+    assert.equal(end.month, 10);
+    assert.equal(end.hour, 23);
+    assert.equal(end.minute, 59);
+    const days = eventCoverDays(rows[0]!);
+    assert.deepEqual(days, ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+    assert.equal(eventCoversDay(rows[0]!, "2026-10-03"), true);
+    assert.equal(eventCoversDay(rows[0]!, "2026-10-05"), false);
+    assert.equal(exclusiveAllDayEnd(rows[0]!), "2026-10-05");
+  } finally {
+    setDeskZone(prev);
+  }
+});
+
+test("ICS multi-day all-day parse, paint days, and export keep the full span", () => {
+  const prev = deskZone();
+  setDeskZone({ tz: "Asia/Manila", locale: "en-PH" });
+  try {
+    const text = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:stay@test",
+      "DTSTART;VALUE=DATE:20261001",
+      "DTEND;VALUE=DATE:20261005",
+      "SUMMARY:Multi-day stay",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const [ev] = parseICS(text);
+    assert.ok(ev);
+    assert.equal(ev!.allDay, true);
+    assert.deepEqual(eventCoverDays(ev!), ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+    const birthday = inclusiveAllDayEnd("2026-01-15", "2026-01-16");
+    assert.equal(isoDate(birthday), "2026-01-15");
+    const ics = eventsToICS([ev!]);
+    assert.match(ics, /DTSTART;VALUE=DATE:20261001/);
+    assert.match(ics, /DTEND;VALUE=DATE:20261005/);
+    const [back] = parseICS(ics);
+    assert.deepEqual(eventCoverDays(back!), ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+  } finally {
+    setDeskZone(prev);
+  }
+});

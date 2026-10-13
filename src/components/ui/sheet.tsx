@@ -1,7 +1,8 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { CloseButton } from "@/components/ui/close-button";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { escapeConfirmFirst } from "@/components/ui/confirm-row";
 
 const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
@@ -26,11 +27,11 @@ const SheetContent = React.forwardRef<
         className,
       )}
       {...props}
+      onEscapeKeyDown={escapeConfirmFirst(props.onEscapeKeyDown)}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-3 top-3 inline-flex size-11 items-center justify-center text-muted-foreground hover:text-foreground">
-        <X className="size-4" />
-        <span className="sr-only">Close</span>
+      <DialogPrimitive.Close asChild>
+        <CloseButton className="absolute right-2 top-2" />
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>

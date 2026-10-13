@@ -22,6 +22,22 @@ export function isTauri() {
 
 const BODY_CAP = 1_500_000;
 
+/** Longest Retry-After we honour (Scout 148/153: cap 15 min). */
+export const RETRY_AFTER_CAP_S = 15 * 60;
+
+/**
+ * RFC 9110 §10.2.3 Retry-After → whole seconds, capped at 15 min.
+ * Accepts delay-seconds ("120") or an HTTP-date ("Wed, 21 Oct 2026 07:28:00 GMT"); null when absent/invalid.
+ */
+export function retryAfterSeconds(raw: string | null | undefined, now = Date.now()): number | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  if (/^\d+$/.test(v)) return Math.min(Number(v), RETRY_AFTER_CAP_S);
+  const t = Date.parse(v);
+  if (!Number.isFinite(t)) return null;
+  return Math.min(Math.max(0, Math.ceil((t - now) / 1000)), RETRY_AFTER_CAP_S);
+}
+
 function blockedHost(host: string) {
   const h = host.replace(/^\[|\]$/g, "").toLowerCase();
   if (!h || h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || h === "metadata.google.internal") return true;
@@ -58,7 +74,9 @@ export async function httpText(url: string, headers?: Record<string, string>) {
   if (!safe) throw new Error("That address is not allowed");
   if (isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    const text = await withTimeout(invoke<string>("fetch_text", { url: safe }), 22_000, "Timed out");
+    // Only the User-Agent crosses to Rust (an honest client id where a source asks for one).
+    const ua = headers?.["User-Agent"];
+    const text = await withTimeout(invoke<string>("fetch_text", ua ? { url: safe, ua } : { url: safe }), 22_000, "Timed out");
     if (text.length > BODY_CAP) throw new Error("Response too large");
     return text;
   }
@@ -67,7 +85,10 @@ export async function httpText(url: string, headers?: Record<string, string>) {
     signal: AbortSignal.timeout(12_000),
     redirect: "follow",
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const ra = retryAfterSeconds(res.headers.get("retry-after"));
+    throw new Error(`HTTP ${res.status}${ra != null ? `; retry-after=${ra}` : ""}`);
+  }
   const text = await res.text();
   if (text.length > BODY_CAP) throw new Error("Response too large");
   return text;
@@ -77,4 +98,36 @@ export async function httpText(url: string, headers?: Record<string, string>) {
 export async function httpJson<T = unknown>(url: string, headers?: Record<string, string>): Promise<T> {
   const text = await httpText(url, headers);
   return JSON.parse(text) as T;
+}
+
+/** Open a public http(s) URL in the system browser (Tauri) or a new tab (web). */
+export async function openExternal(url: string): Promise<boolean> {
+  const safe = publicHttpUrl(url);
+  if (!safe) return false;
+  if (isTauri()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await withTimeout(invoke("open_url", { url: safe }), 8_000, "Timed out");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const w = window.open(safe, "_blank", "noopener,noreferrer");
+    return Boolean(w);
+  } catch {
+    return false;
+  }
+}
+
+/** Use on <a href> click: always go through openExternal so desktop WebView opens the OS browser. */
+export function onExternalAnchorClick(e: {
+  preventDefault: () => void;
+  currentTarget: { href: string; getAttribute: (name: string) => string | null };
+}) {
+  const href = e.currentTarget.getAttribute("href") || e.currentTarget.href;
+  if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+  e.preventDefault();
+  void openExternal(href);
 }

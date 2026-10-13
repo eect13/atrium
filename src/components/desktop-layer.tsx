@@ -13,11 +13,12 @@ import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
 import { closeNativeFloat, isTauri, openNativeFloat } from "@/lib/native-float";
 
-function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean; weather?: boolean }) {
+function allowed(kind: WidgetKind, modules: { finance: boolean; news: boolean; quotes: boolean; weather?: boolean; clock?: boolean }) {
   if (kind === "finance") return modules.finance;
   if (kind === "news") return modules.news;
   if (kind === "quote") return modules.quotes !== false;
   if (kind === "weather") return modules.weather !== false;
+  if (kind === "clock") return modules.clock !== false;
   return true;
 }
 
@@ -171,6 +172,7 @@ export function DesktopLayer({
                   ink={ink}
                   color={n.color}
                   pinned
+                  reveal="always"
                   onColor={(color) => updateNote(n.id, { color })}
                   onFloat={() => unpinNote(n.id)}
                   onDelete={() => removeNote(n.id)}
@@ -204,6 +206,7 @@ export function DesktopLayer({
                 <NoteFormat
                   ink={ink}
                   drawing={drawing}
+                  docked
                   canUndo={Boolean(n.ink?.length)}
                   canRedo={inkRedo.canRedoFor(n.id)}
                   onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}

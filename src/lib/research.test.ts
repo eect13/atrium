@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLUECHIPS } from "./market-board.ts";
-import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, NEWS_QUIET_KEEP, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
+import { buildResearch, collapseNearDup, fillRumorLane, isDeskStory, isRelatedStory, issuerDisplay, issuerSearchQuery, NEWS_LANE_KEEP, NEWS_LANE_MIN, NEWS_QUIET_KEEP, newsDeskId, newsRowHint, pickNewsLanes, relatedNewsUrl, relatedNewsQuery, undatedRelatedNewsUrl, rumorFillUrls, rumorNewsUrl, rumorNewsUrls, rumorSiteUrls, researchPdf, storyLane, tapeBox } from "./research.ts";
 import type { BoardRow } from "./market-board.ts";
 
 test("IMI is not a PSEi blue chip after Aug 2026", () => {
@@ -103,6 +103,40 @@ test("isRelatedStory keeps Lopez and drops noise", () => {
   const psei = { label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" };
   assert.equal(isRelatedStory({ title: "PSE index edges up as banks lead", src: "Inquirer" }, psei), true);
   assert.equal(isRelatedStory({ title: "Lopez Holdings sets meeting", src: "mb.com.ph" }, psei), false);
+});
+
+test("LPZ is a PH desk with Lopez Holdings search aliases", () => {
+  const item = { label: "LPZ", symbol: "LPZ", name: "Lopez Holdings Corporation", kind: "stock" };
+  assert.equal(newsDeskId(item), "PH");
+  const q = issuerSearchQuery(item);
+  assert.match(q.q, /Lopez Holdings Corporation/);
+  assert.match(q.q, /"Lopez Holdings"/);
+  assert.match(q.q, /\bLPZ\b/);
+  assert.doesNotMatch(q.q, /\(LPZ \(Philippines/);
+  const disp = issuerDisplay(item);
+  assert.equal(disp.legal, "Lopez Holdings Corporation");
+  assert.ok(disp.aliases.includes("Lopez Holdings"));
+});
+
+test("short PH tickers never nest a Philippines RSS group", () => {
+  const samples = [
+    { label: "LPZ", symbol: "LPZ", name: "Lopez Holdings Corporation", kind: "stock" },
+    { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" },
+    { label: "AC", symbol: "AC", name: "Ayala Corp", kind: "stock" },
+    { label: "JFC", symbol: "JFC", name: "Jollibee", kind: "stock" },
+    { label: "SM", symbol: "SM", name: "SM Investments", kind: "stock" },
+    { label: "AEV", symbol: "AEV", name: "Aboitiz Equity", kind: "stock" },
+    { label: "DMC", symbol: "DMC", name: "DMCI Holdings", kind: "stock" },
+  ];
+  for (const item of samples) {
+    assert.equal(newsDeskId(item), "PH", item.label);
+    const q = issuerSearchQuery(item).q;
+    assert.doesNotMatch(q, /\(Philippines OR PSE OR Manila OR peso\)/, item.label);
+    assert.match(q, new RegExp(`\\b${item.label}\\b`));
+    const undated = decodeURIComponent(undatedRelatedNewsUrl(item));
+    assert.doesNotMatch(undated, /after:\d{4}-\d{2}-\d{2}/, item.label);
+    assert.match(decodeURIComponent(relatedNewsUrl(item, "30d")), /after:\d{4}-\d{2}-\d{2}/, item.label);
+  }
 });
 
 test("storyLane splits facts from rumor copy", () => {
@@ -589,4 +623,14 @@ test("research PDF paginates and keeps a byte-accurate xref", () => {
   assert.match(latin, /ATRIUM RESEARCH/);
   const at = Number(latin.match(/startxref\n(\d+)/)?.[1]);
   assert.equal(latin.slice(at, at + 4), "xref");
+});
+
+test("stock-scoped: a desc-only name hit (RSS cluster) is not a story about the stock", () => {
+  const item = { label: "BDO", symbol: "BDO", name: "BDO Unibank", kind: "stock" };
+  assert.equal(
+    isRelatedStory({ title: "Peso slips as oil climbs", desc: "BDO Unibank shares and other names in the cluster", src: "Wire" }, item),
+    false,
+  );
+  const psei = { label: "PSEi", symbol: "PSEI.PS", name: "PSEi INDEX", kind: "global" };
+  assert.equal(isRelatedStory({ title: "Lopez Holdings sets meeting", desc: "PSE index edges up", src: "mb.com.ph" }, psei), false);
 });

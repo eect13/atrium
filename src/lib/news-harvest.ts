@@ -8,6 +8,7 @@ import {
   newsAsked,
   prepRelated,
   relatedNewsUrl,
+  undatedRelatedNewsUrl,
   rumorFillUrls,
   rumorNewsUrls,
   wireName,
@@ -100,6 +101,15 @@ async function loadHarvest(item: {
   }
   let pulled = await pull(urls);
   let related = prepRelated(pulled.stories, item);
+  // Dated Google RSS can return 0 for any ticker. One undated retry covers the whole book.
+  if (related.length === 0) {
+    const wide = await pull([undatedRelatedNewsUrl(item)]);
+    pulled = {
+      stories: [...pulled.stories, ...wide.stories],
+      missed: [...new Set([...pulled.missed, ...wide.missed])],
+    };
+    related = prepRelated(pulled.stories, item);
+  }
   let picked = fillRumorLane(related);
   if (picked.rumors.length < NEWS_LANE_MIN && talk) {
     const more = await pull(rumorFillUrls(item, "30d"));
