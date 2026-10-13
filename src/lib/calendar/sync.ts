@@ -161,9 +161,9 @@ export function bannerFor(stop: { code: string; status: number } | undefined, on
 /**
  * Card 179 (Critic 178 N1): one calendar's pull. Events cached before Card 174 have no organiser
  * info and an incremental pull never refills them, so the first pull after that does a full window,
- * once per calendar (`backfilled`). After any pull, a Google event of that calendar still without
- * organiser info (outside the window, or Google sent none) counts as not the user's
- * (`organizerSelf: false`): no pre-sync block, and the existing not-yours rules for moves and prompts.
+ * once per calendar (`backfilled`). Card 181 (Critic 180 R-N1b): an event still without organiser
+ * info stays *unknown* (`organizerSelf: undefined`), never "not yours"; the event dialog asks Google
+ * for that one event (events.get) before a delete or move — see resolveOwner in move.ts.
  */
 export async function syncCalendar(
   src: CalendarSource,
@@ -176,6 +176,5 @@ export async function syncCalendar(
 ): Promise<{ events: CalendarEvent[]; token: string | undefined; full: boolean }> {
   const stale = !backfilled && events.some((e) => e.source === "google" && e.calId === calId && e.organizerSelf === undefined);
   const r = await pullCalendar(src, calId, stale ? undefined : token, now);
-  const next = applyPull(events, calId, r, pendingIds).map((e) => (e.source === "google" && e.calId === calId && e.organizerSelf === undefined ? { ...e, organizerSelf: false } : e));
-  return { events: next, token: r.nextSyncToken, full: r.full };
+  return { events: applyPull(events, calId, r, pendingIds), token: r.nextSyncToken, full: r.full };
 }

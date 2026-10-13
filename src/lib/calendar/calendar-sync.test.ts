@@ -192,7 +192,7 @@ test("K2: moveBlock — only whole default events you organize, into a writable 
   assert.match(moveBlock(g({ seriesId: "g-a-r0" }), "b", ["b"])!, /whole series/);
   assert.match(moveBlock(g({ eventType: "outOfOffice" }), "b", ["b"])!, /kind of Google event/);
   assert.match(moveBlock(g({ organizerSelf: false }), "b", ["b"])!, /you organize/);
-  assert.match(moveBlock(g({ organizerSelf: undefined }), "b", ["b"])!, /you organize/);
+  assert.match(moveBlock(g({ organizerSelf: undefined }), "b", ["b"])!, /Finish syncing before moving/, "Card 181: unknown is not not-yours");
   assert.match(moveBlock(g(), "team", ["a", "b"])!, /can't add events/);
   assert.equal(moveBlock(g({ organizerSelf: false }), "local", []), null, "to Atrium only is always allowed");
   assert.equal(guestsToTell(g({ guestCount: 3 })), 3);
@@ -214,9 +214,9 @@ test("K2: Google mapping keeps organizer/eventType/guest count and marks changed
   assert.deepEqual([b!.organizerSelf, b!.eventType, b!.instanceOf], [false, "focusTime", "m0"]);
 });
 
-test("Card 179 N1: ownership backfill is one full pull per calendar; leftovers count as not yours", async () => {
+test("Card 179 N1 (+181): ownership backfill is one full pull per calendar; leftovers stay unknown (blocked), never not-yours", async () => {
   const { syncCalendar } = await import("./sync.ts");
-  const { deleteBlock, guestsToTell, moveBlock } = await import("./move.ts");
+  const { deleteBlock, moveBlock } = await import("./move.ts");
   const now = new Date("2026-10-13T00:00:00Z");
   // cached pre-174: one in the window (refilled), one far outside it (never refilled)
   const cached = [ev("g-c-in", { organizerSelf: undefined }), ev("g-c-old", { organizerSelf: undefined, start: "2020-01-01T01:00:00Z", end: "2020-01-01T02:00:00Z", guestCount: 2 } as never)];
@@ -239,10 +239,44 @@ test("Card 179 N1: ownership backfill is one full pull per calendar; leftovers c
   assert.equal(log[2]!.syncToken, "t2", "a new organiser-less event doesn't re-trigger a full pull");
   for (const id of ["g-c-old", "g-c-noorg", "g-c-new"]) {
     const e = c.events.find((x) => x.id === id)!;
-    assert.equal(e.organizerSelf, false, `${id} treated as not yours`);
-    assert.equal(deleteBlock(e, "2026-10-13T00:00:00Z"), null, `${id} not delete-blocked`);
-    assert.equal(guestsToTell(e), 0, "no guest prompt for not-yours");
-    assert.equal(moveBlock(e, "other", ["c", "other"]), "Only events you organize can move to another calendar.");
+    assert.equal(e.organizerSelf, undefined, `${id} stays unknown (Card 181), not "not yours"`);
+    assert.equal(deleteBlock(e, "2026-10-13T00:00:00Z"), "Finish syncing before deleting Google events.", `${id} delete blocked until Google is asked`);
+    assert.equal(moveBlock(e, "other", ["c", "other"]), "Finish syncing before moving Google events.");
+    assert.equal(moveBlock(e, "local", ["c", "other"]), "Finish syncing before moving Google events.", "leaving Google (delete there) blocked too");
   }
   assert.equal(c.events.find((x) => x.id === "g-c-in")!.organizerSelf, true);
+});
+
+test("Card 181: unknown organiser → events.get → normal rules; fetch fails → stays blocked; not-yours unchanged", async () => {
+  const { resolveOwner, deleteBlock, guestsToTell, moveBlock, tellGuestsQuestion } = await import("./move.ts");
+  const synced = "2026-10-13T00:00:00Z";
+  const unknown = ev("g-c-old", { organizerSelf: undefined, remoteId: "old1", start: "2020-01-01T01:00:00Z", end: "2020-01-01T02:00:00Z" });
+  const asked: string[] = [];
+  // unknown → fetch says you organise it with 2 guests → prompt
+  const p = await resolveOwner(unknown, async (cal, rid) => (asked.push(`${cal}/${rid}`), ev("x", { organizerSelf: true, guestCount: 2, etag: '"5"' })));
+  assert.deepEqual(asked, ["c/old1"], "asks Google for that one event by its Google id");
+  assert.deepEqual(p, { organizerSelf: true, guestCount: 2, etag: '"5"' });
+  const known = { ...unknown, ...p! };
+  assert.equal(deleteBlock(known, synced), null);
+  assert.equal(guestsToTell(known), 2);
+  assert.equal(tellGuestsQuestion(guestsToTell(known)), "Delete and tell 2 guests?");
+  assert.equal(moveBlock(known, "other", ["c", "other"]), null, "organiser → move allowed");
+  // fetch says someone else organises it → normal not-yours rules
+  const theirs = { ...unknown, ...(await resolveOwner(unknown, async () => ev("x", { organizerSelf: false, guestCount: 3 })))! };
+  assert.equal(deleteBlock(theirs, synced), null);
+  assert.equal(guestsToTell(theirs), 0);
+  // fetch fails / no organiser in the answer → null → stays unknown and blocked
+  assert.equal(await resolveOwner(unknown, async () => { throw new Error("offline"); }), null);
+  assert.equal(await resolveOwner(unknown, async () => ev("x", { organizerSelf: undefined })), null);
+  assert.equal(deleteBlock(unknown, synced), "Finish syncing before deleting Google events.");
+  assert.equal(moveBlock(unknown, "local", ["c"]), "Finish syncing before moving Google events.");
+  // not-yours (false) unchanged: no fetch, no block, no prompt, move blocked with the not-yours reason
+  const notYours = ev("n", { organizerSelf: false, guestCount: 2 });
+  let fetched = false;
+  assert.equal(await resolveOwner(notYours, async () => ((fetched = true), notYours)), null);
+  assert.equal(fetched, false);
+  assert.equal(deleteBlock(notYours, synced), null);
+  assert.equal(guestsToTell(notYours), 0);
+  assert.equal(moveBlock(notYours, "other", ["c", "other"]), "Only events you organize can move to another calendar.");
+  assert.equal(moveBlock(notYours, "local", ["c"]), null, "not-yours can still be copied to Atrium (existing rule)");
 });

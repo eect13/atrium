@@ -587,3 +587,30 @@ test("Card 177 (a): PATCH sends explicit sendUpdates (default none; 'all' when a
     assert.match(calls.filter((c) => c.init?.method === "PATCH").at(-1)!.url, new RegExp(`/events/e1\\?sendUpdates=${want}$`));
   }
 });
+
+test("Card 181: GET /events/{id}?cal= → Google events.get, organiser + attendees kept", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 14_000_000 };
+  const calls: Call[] = [];
+  const { d, pair } = await desktopPair(sql, clock, calls);
+  const base = d.fetch!;
+  const d2 = {
+    ...d,
+    fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/events/old1") && (init?.method ?? "GET") === "GET") {
+        calls.push({ url, init });
+        return new Response(JSON.stringify({ id: "old1", etag: '"5"', summary: "Old", start: { dateTime: "2020-01-01T01:00:00Z" }, end: { dateTime: "2020-01-01T02:00:00Z" }, organizer: { email: "alex@example.com", self: true }, attendees: [{ email: "a@x" }, { email: "b@x" }] }), { status: 200 });
+      }
+      return base(input, init);
+    }) as typeof fetch,
+  };
+  const r = await handleCalendar(bearerReq("events/old1?cal=alex%40example.com", pair.access), "events/old1", d2);
+  assert.equal(r.status, 200);
+  const item = ((await r.json()) as { item: Record<string, unknown> }).item;
+  assert.deepEqual(item.organizer, { email: "alex@example.com", self: true });
+  assert.equal((item.attendees as unknown[]).length, 2);
+  assert.match(calls.at(-1)!.url, /\/calendars\/alex%40example\.com\/events\/old1$/);
+  assert.equal((await handleCalendar(bearerReq("events/old1", pair.access), "events/old1", d2)).status, 400, "cal required");
+});

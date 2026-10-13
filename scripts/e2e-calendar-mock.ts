@@ -19,7 +19,7 @@ import type { Sql } from "../src/lib/calendar/store.server.ts";
 import { GoogleSource, type ApiClient } from "../src/lib/calendar/google-source.ts";
 import { unwrapReply } from "../src/lib/calendar/device-secret.ts";
 import { CLAIM_COPY, claimFailKind } from "../src/lib/calendar/claim-errors.ts";
-import { deleteBlock, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "../src/lib/calendar/move.ts";
+import { deleteBlock, resolveOwner, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "../src/lib/calendar/move.ts";
 
 const ORIGIN = "https://atrium.mock";
 // Throwaway values for the in-process run only; nothing real.
@@ -70,6 +70,7 @@ const googleFetch = (async (input: string | URL | Request, init?: RequestInit) =
     const list = (store[cal] ??= []);
     if (!id && method === "GET") return j({ items: list, nextSyncToken: `tok-${cal}` });
     const i = list.findIndex((e) => e.id === id);
+    if (id && !m[3] && method === "GET") return i >= 0 ? j(list[i]) : j({ error: { message: "Not Found" } }, 404);
     if (m[3] && method === "POST") {
       const to = url.searchParams.get("destination")!;
       assert.equal(init?.body ?? null, null, "events.move has no body");
@@ -177,6 +178,16 @@ ok(`before first sync: Delete blocked; after: allowed`);
 assert.equal(guestsToTell(e1), 2);
 ok(`one-off: "${tellGuestsQuestion(guestsToTell(e1))}" → Send cancellation / Don't send`);
 ok(`repeating (all): "${seriesGuestQuestion("all", guestsToTell(s1))}"`);
+
+step(6.5, "Card 181: unknown organiser (old cache) → events.get → normal rules; missing event → stays blocked");
+const unknownE1 = { ...e1, organizerSelf: undefined, guestCount: undefined };
+assert.equal(deleteBlock(unknownE1, "2026-10-13T00:00:00Z"), "Finish syncing before deleting Google events.");
+const own = await resolveOwner(unknownE1, (cal, rid) => src.getEvent(cal, rid));
+assert.deepEqual({ o: own?.organizerSelf, g: own?.guestCount }, { o: true, g: 2 });
+assert.ok(log.some((l) => l.method === "GET" && /\/events\/e1$/.test(new URL(l.url).pathname)), "Google events.get called");
+ok(`events.get → organiser you, 2 guests → "${tellGuestsQuestion(guestsToTell({ ...unknownE1, ...own! }))}"`);
+assert.equal(await resolveOwner({ ...unknownE1, remoteId: "gone" }, (cal, rid) => src.getEvent(cal, rid)), null);
+ok(`events.get fails (404) → stays unknown: "${deleteBlock(unknownE1, "2026-10-13T00:00:00Z")}"`);
 
 step(7, "K2: move Planning to Team with events.move (id, guests, Meet kept; nobody emailed)");
 assert.equal(moveBlock(e1, TEAM, [ME, TEAM]), null);

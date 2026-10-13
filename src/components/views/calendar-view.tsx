@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,9 +49,9 @@ import { DEFAULT_SERIES_SCOPE, planSeriesDelete, planSeriesSave, repeatPhrase, t
 import { isNarrow } from "@/lib/desk";
 import { EMPTY_DAY } from "@/lib/cal-view";
 import { calendarColourOf } from "@/lib/calendar/source";
-import { deleteBlock, GUEST_HELPER, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "@/lib/calendar/move";
+import { deleteBlock, GUEST_HELPER, ownerUnknown, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "@/lib/calendar/move";
 import { usableFocus } from "@/components/ui/focus-return";
-import { addIcsSource, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
+import { addIcsSource, checkOwner, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
 import { fmtTime } from "@/lib/format";
 import { catToken } from "@/lib/event-cats";
 import { onQuickAdd, takeQuickAdd } from "@/lib/calendar/quick-add";
@@ -169,6 +169,17 @@ export function CalendarView() {
   const syncingNow = useCalAccounts((s) => s.syncing);
   /** Card 176: no Google delete until we know who'd be told. */
   const delBlock = moveSrc ? deleteBlock(moveSrc, lastSync) : null;
+  /** Card 181: unknown organiser → ask Google for this one event when it opens; blocked until known. */
+  const [ownerCheck, setOwnerCheck] = useState<"checking" | "failed" | null>(null);
+  const unknownOwner = Boolean(open && moveSrc && ownerUnknown(moveSrc));
+  const runOwnerCheck = useCallback((id: string) => {
+    setOwnerCheck("checking");
+    void checkOwner(id).then((ok) => setOwnerCheck(ok ? null : "failed"));
+  }, []);
+  useEffect(() => {
+    if (unknownOwner && editId) runOwnerCheck(editId);
+    else setOwnerCheck(null);
+  }, [unknownOwner, editId, runOwnerCheck]);
   /** Clicked occurrence of a repeating event (its own start), for Card 168 (a). */
   const [occurStart, setOccurStart] = useState<string | null>(null);
   /** Where the edited event lives now ("local" or a Google calendar id), for moves (d). */
@@ -647,7 +658,7 @@ export function CalendarView() {
                       {c.primary ? (email ?? c.label) : c.label} · Google
                     </option>
                   ))}
-                  <option value="local">Atrium only</option>
+                  <option value="local" disabled={Boolean(editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)))}>Atrium only</option>
                 </select>
                 {editId && moveSrc && target === sourceCal && writable.some((c) => c.id !== sourceCal) && moveSrc.source === "google" && moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id)) ? (
                   <p className="text-xs text-muted-foreground">{moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id))}</p>
@@ -1090,7 +1101,15 @@ export function CalendarView() {
             {editId && !viewOnly && delBlock && !seriesAsk ? (
               <p id="ev-del-block" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
                 <span>{delBlock}</span>
-                {syncingNow ? (
+                {moveSrc && ownerUnknown(moveSrc) ? (
+                  ownerCheck === "checking" ? (
+                    <span>Checking…</span>
+                  ) : (
+                    <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => editId && runOwnerCheck(editId)}>
+                      Check again
+                    </button>
+                  )
+                ) : syncingNow ? (
                   <span>Syncing…</span>
                 ) : (
                   <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => void syncNow()}>

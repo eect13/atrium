@@ -12,6 +12,7 @@ import { uid } from "../format.ts";
 import { useAtrium } from "../store.ts";
 import type { CalendarEvent, GCalDesk } from "../types.ts";
 import { gcalLane } from "../google-cal.ts";
+import { resolveOwner, type OwnerPatch } from "./move.ts";
 import { CLAIM_COPY, claimFailKind, RATE_LIMIT_WAIT_MS, type ClaimFail } from "./claim-errors.ts";
 import { adoptLegacy, claimOnDevice, clearRefresh, refreshOnDevice, type DeviceAccess } from "./device-secret.ts";
 import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus } from "./google-source.ts";
@@ -361,6 +362,25 @@ export async function queueGoogleWrite(kind: PendingOp["kind"], e: CalendarEvent
 }
 
 /** Several writes that belong together (series split, move between calendars), one sync. */
+/**
+ * Card 181: ask Google who organises one unknown-organiser event (events.get) and store the answer
+ * so the normal delete/move rules apply. false = couldn't tell; the event stays blocked.
+ */
+export async function checkOwner(localId: string): Promise<boolean> {
+  const e = useAtrium.getState().events.find((x) => x.id === localId);
+  if (!e) return false;
+  let patch: OwnerPatch | null = null;
+  try {
+    const src = await source();
+    patch = await resolveOwner(e, (cal, rid) => src.getEvent(cal, rid));
+  } catch {
+    patch = null;
+  }
+  if (!patch) return false;
+  useAtrium.setState((s) => ({ events: s.events.map((x) => (x.id === localId ? { ...x, ...patch } : x)) }));
+  return true;
+}
+
 export async function queueGoogleWrites(ops: { kind: PendingOp["kind"]; event: CalendarEvent; moveTo?: string; notify?: "all" | "none" }[]) {
   let q = get().pending;
   for (const { kind, event: e, moveTo, notify } of ops) {

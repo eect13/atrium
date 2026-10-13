@@ -7,6 +7,8 @@
 import type { CalendarEvent } from "../types.ts";
 
 export function moveBlock(e: CalendarEvent, to: string, writableIds: string[]): string | null {
+  // Card 181: leaving Google (to Atrium) deletes it there, so an unknown organiser blocks that too.
+  if (e.source === "google" && e.calId && to !== e.calId && e.organizerSelf === undefined) return "Finish syncing before moving Google events.";
   if (to === "local" || e.source !== "google" || !e.calId || to === e.calId) return null;
   if (e.instanceOf || e.seriesId) return "Only the whole series can move to another calendar.";
   if (e.eventType) return "This kind of Google event can't move to another calendar.";
@@ -40,7 +42,30 @@ export const GUEST_HELPER = "Google emails them a cancellation. If you don't sen
  */
 export function deleteBlock(e: CalendarEvent, lastSync: string | null): string | null {
   if (e.source !== "google") return null;
-  if (e.organizerSelf === undefined) return "Finish syncing before deleting Google events.";
+  // Card 181: unknown stays blocked until resolveOwner learns the organiser from Google.
+  if (ownerUnknown(e)) return "Finish syncing before deleting Google events.";
   if (lastSync === null && (e.guestCount ?? 0) > 0) return "Finish syncing before deleting events that have guests.";
   return null;
+}
+
+/** Card 181: a Google event whose organiser we don't know (not the same as not yours = false). */
+export const ownerUnknown = (e: CalendarEvent) => e.source === "google" && e.organizerSelf === undefined;
+
+export type OwnerPatch = Pick<CalendarEvent, "organizerSelf" | "guestCount" | "etag">;
+
+/**
+ * Card 181 (Critic 180 R-N1b): ask Google for one unknown-organiser event (events.get). If Google
+ * says who organises it, return the ownership fields so the normal rules apply (guest prompt when you
+ * organise and there are guests). If the fetch fails or Google still names no organiser, return null:
+ * the event stays unknown and blocked. Never guess "not yours", so guests are never cancelled silently.
+ */
+export async function resolveOwner(e: CalendarEvent, get: (calId: string, remoteId: string) => Promise<CalendarEvent>): Promise<OwnerPatch | null> {
+  if (!ownerUnknown(e) || !e.calId) return null;
+  try {
+    const g = await get(e.calId, e.remoteId ?? e.id);
+    if (g.organizerSelf === undefined) return null;
+    return { organizerSelf: g.organizerSelf, guestCount: g.guestCount, ...(g.etag ? { etag: g.etag } : {}) };
+  } catch {
+    return null;
+  }
 }

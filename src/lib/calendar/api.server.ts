@@ -12,7 +12,7 @@
  */
 import { CALLBACK_PATH, EDIT_SCOPE, readCalendarConfig, type CalendarConfig } from "./config.server.ts";
 import { open as unseal, randomToken, seal, SealError, sha256 } from "./crypto.server.ts";
-import { deleteEvent, GoogleApiError, insertEvent, listCalendarList, listEventsPage, moveEvent, patchEvent, sendUpdatesOf, type GEvent } from "./google-api.server.ts";
+import { deleteEvent, GoogleApiError, insertEvent, listCalendarList, listEventsPage, moveEvent, patchEvent, sendUpdatesOf, type GEvent, getEvent } from "./google-api.server.ts";
 import { authUrl, exchangeCode, OAuthError, refreshAccess, revoke, userInfo, type Fetch } from "./oauth.server.ts";
 import {
   bindHandoff,
@@ -351,6 +351,11 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
         const r = await listEventsPage(f, token, cal, syncToken ? { syncToken } : { timeMin: u.searchParams.get("timeMin") ?? undefined, timeMax: u.searchParams.get("timeMax") ?? undefined });
         if ("gone" in r) return json(req, { items: [], gone: true }, 200, cookies);
         return json(req, { items: r.items.map(trimEvent), nextSyncToken: r.nextSyncToken, truncated: r.truncated || undefined }, 200, cookies);
+      }
+      if (method === "GET" && id) {
+        const cal = new URL(req.url).searchParams.get("cal");
+        if (!cal) return json(req, { error: "bad_request" }, 400);
+        return json(req, { item: trimEvent(await getEvent(f, token, cal, id)) }, 200, cookies);
       }
       const body = (await req.json().catch(() => ({}))) as { cal?: string; etag?: string; body?: GEvent; notify?: string };
       if (!body.cal) return json(req, { error: "bad_request" }, 400);

@@ -89,6 +89,8 @@ export const insertEvent = (f: Fetch, t: string, cal: string, body: GEvent) => g
 export const patchEvent = (f: Fetch, t: string, cal: string, id: string, body: GEvent, etag?: string, send: SendUpdates = "none") =>
   gcal<GEvent>(f, t, `${evPath(cal, id)}?sendUpdates=${send}`, { method: "PATCH", body: JSON.stringify(body), headers: etag ? { "if-match": etag } : {} }, 2);
 
+/** Card 181: one event, to learn its organiser/guests before a delete or move. */
+export const getEvent = (f: Fetch, t: string, cal: string, id: string) => gcal<GEvent>(f, t, evPath(cal, id), {}, 2);
 export type SendUpdates = "all" | "externalOnly" | "none";
 export const sendUpdatesOf = (v: unknown): SendUpdates => (v === "all" || v === "externalOnly" ? v : "none");
 

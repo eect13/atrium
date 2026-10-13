@@ -113,6 +113,14 @@ export class GoogleSource implements CalendarSource {
     await api(this.client, `/events/${encodeURIComponent(remoteId)}`, { method: "DELETE", body: JSON.stringify({ cal: calendarId, etag, notify }) });
   }
 
+  /** Card 181: fetch one event (events.get) to learn who organises it and who's invited. */
+  async getEvent(calendarId: string, remoteId: string): Promise<CalendarEvent> {
+    const r = await api<{ item: GCalEvent }>(this.client, `/events/${encodeURIComponent(remoteId)}?cal=${encodeURIComponent(calendarId)}`);
+    const mapped = fromGoogleList([r.item], calendarId).events[0];
+    if (!mapped) throw new CalendarApiError(502, "bad_event");
+    return mapped;
+  }
+
   async moveEvent(calendarId: string, remoteId: string, to: string, notify: "all" | "none" = "none") {
     const r = await api<{ item: GCalEvent }>(this.client, `/events/${encodeURIComponent(remoteId)}/move`, { method: "POST", body: JSON.stringify({ cal: calendarId, to, notify }) });
     const mapped = fromGoogleList([r.item], to).events[0];
