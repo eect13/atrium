@@ -3,12 +3,19 @@ import type { ScreenCap, ScreenPe, ScreenVol, ScreenYld, ScreenerId } from "./sc
 export const MODULE_IDS = ["calendar", "weather", "clock", "notes", "finance", "news", "quotes"] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 /** Every routable view; the persisted view is checked against this (no hand list). */
-export const VIEW_IDS = ["dashboard", ...MODULE_IDS, "topics", "options"] as const;
+export const VIEW_IDS = ["dashboard", ...MODULE_IDS, "options"] as const;
 export type ViewId = (typeof VIEW_IDS)[number];
 /** Saved view → current id (legacy aliases, unknown → fallback). */
 export function toViewId(raw: unknown, fallback: ViewId): ViewId {
-  const v = raw === "modules" ? "options" : raw;
+  // Card 188: Topic Finder became Feed › Topics; a saved "topics" view lands on Feed.
+  const v = raw === "modules" ? "options" : raw === "topics" ? "news" : raw;
   return (VIEW_IDS as readonly unknown[]).includes(v) ? (v as ViewId) : fallback;
+}
+/** Feed sub-tabs (Form 185 A): Latest · Topics · Saved · Options. */
+export type FeedPane = "latest" | "topics" | "saved" | "options";
+/** Card 188: a saved Topic Finder view opens Feed › Topics once after the upgrade. */
+export function landingFeedPane(rawView: unknown): FeedPane | undefined {
+  return rawView === "topics" ? "topics" : undefined;
 }
 export type CalMode = "month" | "week" | "day" | "agenda";
 /** Category id — defaults plus user-managed (see event-cats). */

@@ -1,3 +1,4 @@
+import { clientHeaders } from "./client-ua.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { httpText, publicHttpUrl } from "./http.ts";
 import { z } from "zod";
@@ -521,7 +522,7 @@ const FETCH_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 
 async function pull(url: string) {
-  const body = await httpText(url);
+  const body = await httpText(url, clientHeaders());
   return { ok: true, status: 200, type: "application/xml", body, finalUrl: url };
 }
 
@@ -538,7 +539,8 @@ export const fetchFeed = createServerFn({ method: "POST" })
     const url = publicHttpUrl(data.url);
     if (!url) throw new Error("That address is not allowed");
     const place = (data.region ?? "").trim();
-    const xml = await httpText(url);
+    // Card 188 (Scout 186 §5.8): feeds get the same honest client id as Wikiquote.
+    const xml = await httpText(url, clientHeaders());
     return parseRss(xml)
       .map((s) => ({
         ...s,

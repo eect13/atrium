@@ -3,7 +3,7 @@
  * the same Feed items into stories covered by several sources and ranks them by value, and
  * every pick says why. Pure helpers; topics are the user's Feed interests.
  */
-import { DISMISS_DAYS, hostOf, matchesInterest, pruneDismissed, type DismissedPick, type FeedPrefs, type StockOf } from "./feed.ts";
+import { DISMISS_DAYS, hostOf, matchTopic, pruneDismissed, topicTerms, type DismissedPick, type FeedPrefs, type StockOf } from "./feed.ts";
 
 export type TopicStory = { title: string; link: string; desc?: string; src?: string; date?: string; category?: string; region?: string };
 
@@ -76,34 +76,30 @@ export type ScoreCtx = {
   stockOf?: StockOf;
 };
 
-/** Minutes to read the lead's write-up at 200 wpm (feed descriptions only). */
-export function readMinutes(s: TopicStory) {
-  const words = (s.desc ?? "").split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.round(words / 200));
+/** Matched term + field, title hits first across the cluster (Form 185 B9). */
+function bestHit(c: Cluster, topic: string, stockOf?: StockOf) {
+  const hits = c.items.map((s) => matchTopic(s, topic, stockOf)).filter((h) => h !== null);
+  return hits.find((h) => h.field === "title") ?? hits[0] ?? null;
 }
 
-/** Value score + every reason, in the order the why-this popover lists them. */
-export function scorePick(c: Cluster, ctx: ScoreCtx): { score: number; reasons: string[] } {
+/**
+ * Value score + every reason, in the order the why-this popover lists them.
+ * Form 185 Rev 1: "min read" and its boost are gone (B10: feed descriptions are cut to 180 chars);
+ * "In the last 24 h" replaces "New today" and only shows when nothing matched (B11).
+ */
+export function scorePick(c: Cluster, ctx: ScoreCtx): { score: number; reasons: string[]; hit: { term: string; field: "title" | "summary" } | null } {
   const reasons: string[] = [];
   let score = 0;
   const now = ctx.now ?? Date.now();
-  const t = ctx.topic.trim();
-  if (t) {
-    const inTitle = matchesInterest({ ...c.lead, desc: "" }, t, ctx.stockOf);
-    if (inTitle || c.items.some((s) => matchesInterest(s, t, ctx.stockOf))) {
-      score += inTitle ? 3 : 1.5;
-      reasons.push(`Matches ${t}${inTitle ? "" : " in the summary"}`);
-    }
+  const hit = ctx.topic.trim() ? bestHit(c, ctx.topic, ctx.stockOf) : null;
+  if (hit) {
+    score += hit.field === "title" ? 3 : 1.5;
+    reasons.push(`Matches “${hit.term.toLowerCase()}” in the ${hit.field}`);
   }
   const n = c.sources.length;
   if (n > 1) {
     score += Math.min(4, (n - 1) * 1.25);
     reasons.push(`${n} sources covered it`);
-  }
-  const mins = readMinutes(c.lead);
-  if (mins >= 2) {
-    score += Math.min(1.5, mins * 0.3);
-    reasons.push(`${mins} min read`);
   }
   const keep = new Map<string, number>();
   for (const h of ctx.saved) {
@@ -117,22 +113,42 @@ export function scorePick(c: Cluster, ctx: ScoreCtx): { score: number; reasons: 
   }
   const ageH = c.newest ? (now - c.newest) / 3_600_000 : 999;
   score += 2 * Math.exp(-Math.max(0, ageH) / 48);
-  if (ageH < 24) reasons.push("New today");
+  if (ageH < 24 && !hit) reasons.push("In the last 24 h");
   const less = ctx.lessLike ?? [];
   if (less.length) {
     const words = titleWords(c.lead.title);
     if (words.filter((w) => less.includes(w)).length >= 2) score -= 3;
   }
-  return { score: Math.round(score * 100) / 100, reasons };
+  return { score: Math.round(score * 100) / 100, reasons, hit };
 }
 
-export type TopicPick<S extends TopicStory = TopicStory> = Cluster<S> & { score: number; reasons: string[] };
+export type TopicPick<S extends TopicStory = TopicStory> = Cluster<S> & { score: number; reasons: string[]; hit: { term: string; field: "title" | "summary" } | null };
+
+/** Form 185 R1.2: the one "Why: …" line under a pick. */
+export function whyLine(p: Pick<TopicPick, "hit" | "sources" | "reasons">) {
+  const n = p.sources.length;
+  if (p.hit) return `Why: matches “${p.hit.term.toLowerCase()}” in the ${p.hit.field}${n > 1 ? ` · ${n} sources` : ""}`;
+  return p.reasons[0] ? `Why: ${p.reasons[0]}` : "Why this story";
+}
+
+/**
+ * Form 185 R1.1 B6: "Try a shorter word" — the topic's single words (longest first, ≥3 letters),
+ * at most 2, never the topic itself. Empty when there are none.
+ */
+export function shorterWords(topic: string): string[] {
+  const terms = topicTerms(topic);
+  const words = [...new Set(terms.flatMap((t) => t.split(" ")).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, "")).filter((w) => w.length >= 3))];
+  const self = new Set(terms.map((t) => t.toLowerCase()));
+  return words.filter((w) => !self.has(w.toLowerCase())).sort((a, b) => b.length - a.length).slice(0, 2);
+}
 
 export const PICK_WINDOW_DAYS = 7;
 
 /** A topic's picks this week, best first, minus dismissed and hidden stories. */
 export function picksFor<S extends TopicStory>(topic: string, items: readonly S[], prefs: Pick<FeedPrefs, "hidden" | "muted" | "dismissed" | "hub" | "lessLike">, opts: { now?: number; stockOf?: StockOf } = {}) {
   const now = opts.now ?? Date.now();
+  // Scout 186 §4 / Form B7: a blank topic has no picks (it used to mean "everything").
+  if (!topicTerms(topic).length) return { picks: [] as TopicPick<S>[], stories: 0, pool: 0 };
   const cut = now - PICK_WINDOW_DAYS * 86_400_000;
   const hidden = new Set(prefs.hidden);
   const muted = new Set(prefs.muted.map((m) => m.toLowerCase()));
@@ -140,13 +156,13 @@ export function picksFor<S extends TopicStory>(topic: string, items: readonly S[
     const at = timeOf(s);
     return (!at || at >= cut) && !hidden.has(s.link) && !muted.has((s.src ?? "").toLowerCase());
   });
-  const about = week.filter((s) => matchesInterest(s, topic, opts.stockOf));
+  const about = week.filter((s) => matchTopic(s, topic, opts.stockOf) !== null);
   const gone = new Set(pruneDismissed(prefs.dismissed, now).map((d) => d.id));
   const picks: TopicPick<S>[] = clusterStories(about)
     .filter((c) => !gone.has(c.id) && !c.items.some((s) => gone.has(s.link)))
     .map((c) => ({ ...c, ...scorePick(c, { topic, saved: prefs.hub, lessLike: prefs.lessLike, now, stockOf: opts.stockOf }) }))
     .sort((a, b) => b.score - a.score || b.newest - a.newest);
-  return { picks, stories: about.length };
+  return { picks, stories: about.length, pool: week.length };
 }
 
 /** Dismiss (with Undo) and "Less like this". */

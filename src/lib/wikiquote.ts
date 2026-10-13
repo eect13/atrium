@@ -1,4 +1,4 @@
-import { APP_VERSION } from "./version.ts";
+import { CLIENT_CONTACT, CLIENT_LIB, clientLib, clientUserAgent } from "./client-ua.ts";
 
 /** Wikiquote (MediaWiki Action API) adapter: URLs, wikitext → quotes, and a serial loader.
  *  Text is CC BY-SA 4.0; every quote keeps a link to its page for attribution. */
@@ -11,13 +11,13 @@ export const WQ_LICENSE = { label: "CC BY-SA 4.0", href: "https://creativecommon
  * `<client>/<version> (<contact>) <library>/<version>`. Contact is the public issue tracker.
  * Tauri sends it through reqwest 0.12 (Cargo.lock 0.12.28); web goes via the server's fetch.
  */
-export const WQ_CONTACT = "https://github.com/eect13/atrium/issues";
-export function wqUserAgent(lib = "reqwest/0.12") {
-  return `AtriumDesk/${APP_VERSION} (${WQ_CONTACT}) ${lib}`;
+export const WQ_CONTACT = CLIENT_CONTACT;
+export function wqUserAgent(lib: string = CLIENT_LIB.tauri) {
+  return clientUserAgent(lib);
 }
 export const WQ_UA = wqUserAgent();
 /** Library token per transport: Tauri → Rust reqwest; web → the Node 22 server fn's fetch (undici). */
-export const WQ_LIB = { tauri: "reqwest/0.12", web: "Node.js/22 undici" } as const;
+export const WQ_LIB = CLIENT_LIB;
 /** `User-Agent` + `Api-User-Agent` (the only id a plain browser can send) for one transport. */
 export function wqHeaders(lib: string): Record<string, string> {
   const ua = wqUserAgent(lib);
@@ -26,8 +26,7 @@ export function wqHeaders(lib: string): Record<string, string> {
 export const WQ_HEADERS = wqHeaders(WQ_LIB.tauri);
 /** Which transport this call runs on: Tauri webview (IPC → reqwest) or the server fn (Node fetch). */
 function transportHeaders() {
-  const tauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-  return wqHeaders(tauri ? WQ_LIB.tauri : WQ_LIB.web);
+  return wqHeaders(clientLib());
 }
 
 /** Max length for a card; the daily quote (often verse) gets more room. */

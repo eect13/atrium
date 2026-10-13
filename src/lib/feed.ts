@@ -97,6 +97,8 @@ export function cleanInterest(raw: unknown): string {
   if (typeof raw !== "string") return "";
   const k = raw.trim().replace(/\s+/g, " ").slice(0, 40).trim();
   if (!k || k.toLowerCase() === FEED_ALL.toLowerCase()) return "";
+  // Card 188 (Scout 186 §4): a topic needs at least one letter or digit ("  ", "," are not topics).
+  if (!/[\p{L}\p{N}]/u.test(k)) return "";
   return k;
 }
 
@@ -277,26 +279,62 @@ function termHit(text: string, term: string) {
   return text.includes(term);
 }
 
+/** A topic's terms: comma alternatives, trimmed; blanks and punctuation-only parts dropped. */
+export function topicTerms(topic: string): string[] {
+  return topic
+    .split(",")
+    .map((t) => t.trim().replace(/\s+/g, " "))
+    .filter((t) => /[\p{L}\p{N}]/u.test(t));
+}
+
+export type TopicHit = { term: string; field: "title" | "summary" };
+
+/** Every word of a phrase, each with the same edge rule as a single term. */
+function allWordsHit(text: string, phrase: string) {
+  const words = phrase.split(" ").filter((w) => /[\p{L}\p{N}]/u.test(w));
+  return words.length > 1 && words.every((w) => termHit(text, w));
+}
+
 /**
- * Interest is a phrase or comma list (any term matches) over title, desc, source, and tag.
- * When `stockOf` resolves the interest (or a term) to a stock, only stories about that stock pass
- * (same rule as the quote sheet: name or ticker in the title) — no unrelated headlines.
+ * Card 188 (Scout 186 §2–§4): which term of a topic a story matches, and where.
+ * - Matches the title, then the summary (desc + tag + region); never the source name, so
+ *   "Cebu" doesn't hit every "Cebu Daily News" story.
+ * - Exact phrase first; a multi-word term with no exact hit falls back to all of its words
+ *   ("Philippine economy" → "Philippine" and "economy" anywhere in that field).
+ * - Returns the term as typed (for "matches “{term}”"); null for a blank topic or no hit.
+ * A stock-scoped topic/term (`stockOf`) keeps the quote-sheet rule (name or ticker in the title).
+ */
+export function matchTopic(s: Story, topic: string, stockOf?: StockOf): TopicHit | null {
+  const k = topic.trim();
+  if (!k || k.toLowerCase() === FEED_ALL.toLowerCase()) return null;
+  const whole = stockOf?.(k);
+  if (whole) return isRelatedStory(s, whole) ? { term: k, field: "title" } : null;
+  const terms = topicTerms(k);
+  const title = s.title.toLowerCase();
+  const summary = `${s.desc ?? ""} ${tagStory(s)} ${s.region ?? ""}`.toLowerCase();
+  for (const pass of [termHit, allWordsHit]) {
+    for (const t of terms) {
+      const stock = terms.length > 1 ? stockOf?.(t) : null;
+      if (stock) {
+        if (pass === termHit && isRelatedStory(s, stock)) return { term: t, field: "title" };
+        continue;
+      }
+      const low = t.toLowerCase();
+      if (pass(title, low)) return { term: t, field: "title" };
+      if (pass(summary, low)) return { term: t, field: "summary" };
+    }
+  }
+  return null;
+}
+
+/**
+ * Interest is a phrase or comma list (any term matches) over title, desc and tag — not the source
+ * name (Card 188); see matchTopic. All (or empty) shows everything in Latest.
  */
 export function matchesInterest(s: Story, interest: string, stockOf?: StockOf): boolean {
   const k = interest.trim();
   if (!k || k.toLowerCase() === FEED_ALL.toLowerCase()) return true;
-  const whole = stockOf?.(k);
-  if (whole) return isRelatedStory(s, whole);
-  const terms = k
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-  const text = blob(s);
-  return terms.some((t) => {
-    const stock = terms.length > 1 ? stockOf?.(t) : null;
-    if (stock) return isRelatedStory(s, stock);
-    return termHit(text, t.toLowerCase());
-  });
+  return matchTopic(s, k, stockOf) !== null;
 }
 
 export function storiesFor<T extends Story>(items: T[], p: FeedPrefs, query = "", stockOf?: StockOf): T[] {

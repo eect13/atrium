@@ -3,7 +3,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
-  Compass,
   Clock,
   CloudSun,
   LayoutGrid,
@@ -39,9 +38,6 @@ const CalendarView = lazy(() =>
 );
 const NotesView = lazy(() =>
   import("@/components/views/notes-view").then((m) => ({ default: m.NotesView })),
-);
-const TopicFinderView = lazy(() =>
-  import("@/components/views/topic-finder-view").then((m) => ({ default: m.TopicFinderView })),
 );
 const OptionsView = lazy(() =>
   import("@/components/views/options-view").then((m) => ({ default: m.OptionsView })),
@@ -142,10 +138,10 @@ const NAV: {
   { id: "finance", label: "Finance", icon: Wallet, module: "finance" },
   { id: "quotes", label: "Quotes", icon: Quote, module: "quotes" },
   { id: "news", label: "Feed", icon: Newspaper, module: "news" },
-  { id: "topics", label: "Topic Finder", icon: Compass, module: "news" },
 ];
 
-type Briefing = { items: NewsItem[]; missed: string[] };
+/** `items` = the 40 mixed headlines Latest shows; `all` = every story fetched (Topics ranks these, Card 188). */
+type Briefing = { items: NewsItem[]; missed: string[]; all?: NewsItem[] };
 
 async function pullFeeds(list: Feed[]): Promise<{ items: NewsItem[]; missed: string[] }> {
   const batches = await Promise.allSettled(
@@ -309,6 +305,7 @@ export function AtriumApp() {
   const {
     view,
     setView,
+    setFeedPane,
     modules,
     toggleModule,
     addEvent,
@@ -326,6 +323,7 @@ export function AtriumApp() {
     useShallow((s) => ({
       view: s.view,
       setView: s.setView,
+      setFeedPane: s.setFeedPane,
       modules: s.modules,
       toggleModule: s.toggleModule,
       addEvent: s.addEvent,
@@ -413,7 +411,7 @@ export function AtriumApp() {
 
   const enabledIds = feeds.filter((f) => f.enabled).map((f) => f.id);
   const newsOn = modules.news && enabledIds.length > 0;
-  const news = useQuery({
+  const news = useQuery<Briefing>({
     queryKey: ["feeds", enabledIds],
     enabled: newsOn,
     queryFn: async () => {
@@ -430,7 +428,7 @@ export function AtriumApp() {
           if (items.length) {
             const mixed = mixStories(items, 40);
             writeNewsSnap(enabledIds, mixed);
-            queryClient.setQueryData<Briefing>(["feeds", enabledIds], { items: mixed, missed: [...missed] });
+            queryClient.setQueryData<Briefing>(["feeds", enabledIds], { items: mixed, missed: [...missed], all: [...items] });
           }
           await new Promise((resolve) => setTimeout(resolve, 40));
         }
@@ -441,7 +439,7 @@ export function AtriumApp() {
       }
       const mixed = mixStories(items, 40);
       writeNewsSnap(enabledIds, mixed);
-      return { items: mixed, missed } satisfies Briefing;
+      return { items: mixed, missed, all: items } satisfies Briefing;
     },
     staleTime: 15 * 60_000,
     gcTime: 60 * 60_000,
@@ -535,7 +533,10 @@ export function AtriumApp() {
     toast("Nothing matched — try BDO, finance, or Lunch Friday 1pm");
   }
 
-  function go(id: ViewId) {
+  /** `topics` is the old Topic Finder link: it opens Feed › Topics (Form 185). */
+  function go(raw: ViewId | "topics") {
+    const id: ViewId = raw === "topics" ? "news" : raw;
+    if (raw === "topics") setFeedPane("topics");
     const item = NAV.find((n) => n.id === id);
     if (item?.module && !modules[item.module]) toggleModule(item.module);
     setView(id);
@@ -544,6 +545,7 @@ export function AtriumApp() {
 
   const title = view === "options" ? "Options" : (NAV.find((n) => n.id === view)?.label ?? "Atrium");
   const headlines = newsOn ? (news.data?.items ?? []) : [];
+  const allStories = newsOn ? (news.data?.all ?? headlines) : [];
   const newsMissed = newsOn ? (news.data?.missed ?? []) : [];
   const newsLoading = newsOn && news.isLoading && !headlines.length;
   const newsErrorMessage = news.error instanceof Error ? news.error.message : undefined;
@@ -806,17 +808,13 @@ export function AtriumApp() {
             <Suspense fallback={<ViewFallback />}>
               <FeedView
               items={headlines}
+              allItems={allStories}
               loading={news.isFetching}
               error={news.isError}
               errorMessage={newsErrorMessage}
               missed={newsMissed}
               onRefresh={() => void news.refetch()}
             />
-            </Suspense>
-          )}
-          {view === "topics" && modules.news && (
-            <Suspense fallback={<ViewFallback />}>
-              <TopicFinderView items={headlines} />
             </Suspense>
           )}
           {view === "options" && (

@@ -30,7 +30,8 @@ test("scorePick explains itself", () => {
   const c = clusterStories(items).find((x) => x.items.length === 3)!;
   const saved = [{ url: "https://a.example/x", src: "Reuters" }, { url: "https://a.example/y", src: "Reuters" }];
   const r = scorePick(c, { topic: "bus lanes", saved, now: NOW });
-  assert.deepEqual(r.reasons, ["Matches bus lanes", "3 sources covered it", "3 min read", "You save Reuters often", "New today"]);
+  // Form 185 Rev 1: the matched term + field; no "min read" (B10); "In the last 24 h" only without a match (B11).
+  assert.deepEqual(r.reasons, ["Matches “bus lanes” in the title", "3 sources covered it", "You save Reuters often"]);
   const single = clusterStories(items).find((x) => x.lead.title.startsWith("Bus fares"))!;
   assert.ok(scorePick(single, { topic: "bus", saved: [], now: NOW }).score < r.score);
 });

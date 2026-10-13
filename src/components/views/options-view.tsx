@@ -39,7 +39,7 @@ const OPTIONAL = [
   { id: "notes" as const, label: "Sticky notes", blurb: "Board plus pin-to-desktop floating windows. Pencil for freehand." },
   { id: "finance" as const, label: "Finance", blurb: "Watcher, tape, cash books, backup." },
   { id: "quotes" as const, label: "Quotes", blurb: "Daily lines from public feeds. Random shuffles the live set." },
-  { id: "news" as const, label: "Feed", blurb: "Your interests, daily digest, summary, stories, and Topic Finder." },
+  { id: "news" as const, label: "Feed", blurb: "Your interests, daily digest, summary, stories, and Topics." },
 ];
 
 const DESK: { kind: WidgetKind; need?: "finance" | "news" | "quotes" | "weather" | "clock" }[] = [

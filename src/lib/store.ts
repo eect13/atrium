@@ -48,7 +48,8 @@ import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { normalizeDashPrefs, type DashPrefs, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
-import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
+import type { FeedPane } from "./types";
+import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, landingFeedPane, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
 import { DEFAULT_EVENT_CATS, normalizeEventCats, remapCatId, type EventCategory } from "./event-cats";
@@ -196,6 +197,9 @@ type Data = {
 
 type State = Data & {
   setView: (v: ViewId) => void;
+  /** Card 188: Feed sub-tab (not persisted; an old "topics" view opens Topics once). */
+  feedPane: FeedPane;
+  setFeedPane: (p: FeedPane) => void;
   setTheme: (t: "dark" | "light") => void;
   toggleModule: (id: ModuleId) => void;
   setProfile: (p: Partial<Profile>) => void;
@@ -470,6 +474,8 @@ export const useAtrium = create<State>()(
     (set) => ({
       ...initial(),
       setView: (view) => set({ view }),
+      feedPane: "latest",
+      setFeedPane: (feedPane) => set({ feedPane }),
       setTheme: (theme) => {
         applyTheme(theme);
         set({ theme });
@@ -1311,6 +1317,7 @@ export const useAtrium = create<State>()(
         const booksRaw = asBooksName(p.books ?? current.books, profile.name);
         return {
           ...current,
+          ...(landingFeedPane((persisted as { view?: unknown } | null)?.view) ? { feedPane: "topics" as const } : {}),
           ...p,
           view,
           boardQuery: typeof p.boardQuery === "string" ? p.boardQuery : current.boardQuery,

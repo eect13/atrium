@@ -94,10 +94,10 @@ test("add / remove interest moves the active chip", () => {
   assert.equal(p.interest, FEED_ALL);
 });
 
-test("matchesInterest: phrase or comma alternatives over title, source, and tag", () => {
+test("matchesInterest: phrase or comma alternatives over title, summary and tag — never the source name (Card 188)", () => {
   assert.equal(matchesInterest(items[0]!, "alpha"), true);
   assert.equal(matchesInterest(items[1]!, "alpha, beta"), true);
-  assert.equal(matchesInterest(items[2]!, "source a"), true);
+  assert.equal(matchesInterest(items[2]!, "source a"), false, "Scout 186 §3b: source names don't match");
   assert.equal(matchesInterest(items[3]!, "Tech"), true);
   assert.equal(matchesInterest(items[3]!, "zeta"), false);
   assert.equal(matchesInterest(items[3]!, FEED_ALL), true);
@@ -116,8 +116,9 @@ test("curate: hidden and muted drop out; pinned float to the top", () => {
 
 test("storiesFor applies interest then query", () => {
   const p = { ...withInterest(DEFAULT_FEED_PREFS, "Source A") };
-  assert.deepEqual(storiesFor(items, p).map((x) => x.link), ["a1", "a2"]);
-  assert.deepEqual(storiesFor(items, p, "gamma").map((x) => x.link), ["a2"]);
+  assert.deepEqual(storiesFor(items, p).map((x) => x.link), [], "a source name is not a topic (Card 188)");
+  const q = { ...withInterest(DEFAULT_FEED_PREFS, "alpha, gamma") };
+  assert.deepEqual(storiesFor(items, q, "gamma").map((x) => x.link), ["a2"]);
   assert.deepEqual(storiesFor(items, { ...p, interest: FEED_ALL }).length, 4);
 });
 

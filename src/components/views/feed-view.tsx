@@ -16,6 +16,7 @@ import { useAtrium } from "@/lib/store";
 import { WATCH_CATALOG, type NewsItem } from "@/lib/types";
 import { Chip } from "./finance-chip";
 import { FeedSources } from "./feed-sources";
+import { FeedOptions, FeedSaved, FeedTopics } from "./feed-topics";
 import {
   CurateDialog,
   DigestDialog,
@@ -34,6 +35,7 @@ type Hook = "sources" | "digest" | "curate" | "interest" | "hub" | null;
 /** Feed (was News) — layout B: interest chips in the topbar → digest hero → summary → stories, with a hub rail. */
 export function FeedView({
   items,
+  allItems,
   onRefresh,
   loading,
   error = false,
@@ -41,13 +43,15 @@ export function FeedView({
   missed = [],
 }: {
   items: NewsItem[];
+  /** Every story fetched (uncapped); Topics ranks these (Card 188 / Scout 186 §5.1). */
+  allItems?: NewsItem[];
   onRefresh: () => void;
   loading: boolean;
   error?: boolean;
   errorMessage?: string;
   missed?: string[];
 }) {
-  const { feeds, enableStarterFeeds, newsQuery, setNewsQuery, prefs, updateFeed, watch } = useAtrium(
+  const { feeds, enableStarterFeeds, newsQuery, setNewsQuery, prefs, updateFeed, watch, pane, setPane } = useAtrium(
     useShallow((s) => ({
       feeds: s.feeds,
       enableStarterFeeds: s.enableStarterFeeds,
@@ -56,6 +60,8 @@ export function FeedView({
       prefs: s.feedPrefs,
       updateFeed: s.updateFeed,
       watch: s.watch,
+      pane: s.feedPane,
+      setPane: s.setFeedPane,
     })),
   );
   const [hook, setHook] = useState<Hook>(null);
@@ -136,11 +142,10 @@ export function FeedView({
     </div>
   );
 
-  return (
-    <div>
-      {/* Topbar: title · interest chips · hooks (Sources / Digest / Curate). */}
+  const latest = (
+    <>
+      {/* Latest topbar: interest chips · hooks (Sources / Digest / Curate). */}
       <header className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-border pb-3 lg:flex-nowrap">
-        <h2 className="font-display text-2xl font-medium tracking-tight">Feed</h2>
         <div className="order-last w-full min-w-0 lg:order-none lg:w-auto lg:flex-1">{chips}</div>
         <div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0">
           <div className="hidden items-center gap-2 md:flex">
@@ -368,6 +373,44 @@ export function FeedView({
         </div>
 
       </div>
+    </>
+  );
+
+  const PANES = [
+    ["latest", "Latest"],
+    ["topics", "Topics"],
+    ["saved", `Saved · ${prefs.hub.length}`],
+    ["options", "Options"],
+  ] as const;
+  const paneTitle = { latest: "Latest", topics: "Topics", saved: "Saved", options: "Options" }[pane];
+  const addSources = () => {
+    setPane("options");
+    requestAnimationFrame(() => document.getElementById("feed-opt-sources")?.focus());
+  };
+
+  return (
+    <div>
+      {/* Form 185 A: Finance-style sub-tabs; the h2 names the pane. Phone: chips on their own scroll row. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 sm:mb-4">
+        <h2 className="font-display text-xl font-medium tracking-tight sm:text-2xl">{paneTitle}</h2>
+        <div className="grow" />
+        <div className="-mx-3 flex w-full gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:w-auto sm:px-0 sm:pb-0" role="group" aria-label="Feed sections">
+          {PANES.map(([id, label]) => (
+            <Chip key={id} active={pane === id} onClick={() => setPane(id)} className="shrink-0">
+              {label}
+            </Chip>
+          ))}
+        </div>
+      </div>
+      {pane === "latest" ? (
+        latest
+      ) : pane === "topics" ? (
+        <FeedTopics items={allItems ?? items} sourcesOn={onCount} onAddSources={addSources} />
+      ) : pane === "saved" ? (
+        <FeedSaved />
+      ) : (
+        <FeedOptions sourcesOn={onCount} onSources={() => open("sources")} />
+      )}
 
       <FeedSources
         open={hook === "sources"}
