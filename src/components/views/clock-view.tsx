@@ -113,6 +113,34 @@ export function ClockView() {
             aria-labelledby="clock-hour24-label"
           />
         </label>
+        <label className="flex min-h-11 items-center gap-1.5 text-sm text-muted-foreground">
+          <span>Work hours</span>
+          <select
+            aria-label="Work hours start"
+            className="h-11 rounded-md border border-input bg-card px-2 text-sm tabular-nums text-foreground"
+            value={clockPrefs.workHours.start}
+            onChange={(e) => updateClock((p) => ({ ...p, workHours: { ...p.workHours, start: Number(e.target.value) } }))}
+          >
+            {Array.from({ length: 24 }, (_, h) => h)
+              .filter((h) => h < clockPrefs.workHours.end)
+              .map((h) => (
+                <option key={h} value={h}>{`${String(h).padStart(2, "0")}:00`}</option>
+              ))}
+          </select>
+          <span aria-hidden>–</span>
+          <select
+            aria-label="Work hours end"
+            className="h-11 rounded-md border border-input bg-card px-2 text-sm tabular-nums text-foreground"
+            value={clockPrefs.workHours.end}
+            onChange={(e) => updateClock((p) => ({ ...p, workHours: { ...p.workHours, end: Number(e.target.value) } }))}
+          >
+            {Array.from({ length: 24 }, (_, h) => h + 1)
+              .filter((h) => h > clockPrefs.workHours.start)
+              .map((h) => (
+                <option key={h} value={h}>{`${String(h).padStart(2, "0")}:00`}</option>
+              ))}
+          </select>
+        </label>
         <FloatBtn kind="clock" />
       </div>
 

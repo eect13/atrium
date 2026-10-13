@@ -1,20 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  DEFAULT_CLOCK_PREFS,
-  cityFromTz,
-  clockList,
-  formatZoneTime,
-  normalizeClockPrefs,
-  resolveZoneId,
-  withClockZone,
-  withoutClockZone,
-  zoneLabel,
-  formatOffsetVsLocal,
-  formatLocalOffsetLabel,
-  differentCivilDay,
-  reorderClockZones,
-} from "./clock.ts";
+import { DEFAULT_CLOCK_PREFS, cityFromTz, clockList, formatZoneTime, normalizeClockPrefs, resolveZoneId, withClockZone, withoutClockZone, zoneLabel, formatOffsetVsLocal, formatLocalOffsetLabel, differentCivilDay, reorderClockZones, normalizeWorkHours, zoneState, nextClockChange, clockChangeLabel, sharedWorkWindow } from "./clock.ts";
 
 test("normalizeClockPrefs dedupes and keeps hour24 default on", () => {
   const p = normalizeClockPrefs({
@@ -66,11 +52,42 @@ test("offset vs local and civil day for Manila desk", () => {
 });
 
 test("reorderClockZones moves ids", () => {
-  const p = { zones: ["Europe/London", "America/New_York", "Asia/Tokyo"], hour24: true };
+  const p = { zones: ["Europe/London", "America/New_York", "Asia/Tokyo"], hour24: true, workHours: { start: 9, end: 18 } };
   assert.deepEqual(reorderClockZones(p, "Asia/Tokyo", "Europe/London").zones, [
     "Asia/Tokyo",
     "Europe/London",
     "America/New_York",
   ]);
   assert.equal(reorderClockZones(p, "Europe/London", "Europe/London"), p);
+});
+
+test("Card 165 Clock A: work hours default 09–18 and normalise", () => {
+  assert.deepEqual(DEFAULT_CLOCK_PREFS.workHours, { start: 9, end: 18 });
+  assert.deepEqual(normalizeClockPrefs({ zones: [] }).workHours, { start: 9, end: 18 });
+  assert.deepEqual(normalizeClockPrefs({ workHours: { start: 8, end: 17 } }).workHours, { start: 8, end: 17 });
+  assert.deepEqual(normalizeWorkHours({ start: 18, end: 9 }), { start: 9, end: 18 });
+  const noon = new Date("2026-10-13T04:00:00Z"); // 12:00 Manila
+  assert.equal(zoneState(noon, "Asia/Manila"), "work");
+  assert.equal(zoneState(noon, "America/New_York"), "night"); // 00:00
+  assert.equal(zoneState(new Date("2026-10-13T11:00:00Z"), "Asia/Manila"), "night"); // 19:00
+  assert.equal(zoneState(new Date("2026-10-12T22:30:00Z"), "Asia/Manila"), "day"); // 06:30
+});
+
+test("Card 165 Clock A: next clock change from Intl offsets, only within 30 days", () => {
+  const now = new Date("2026-10-13T04:00:00Z");
+  const london = nextClockChange("Europe/London", now);
+  assert.ok(london, "London leaves BST on Sun 25 Oct 2026");
+  assert.equal(london!.delta, -60);
+  assert.equal(london!.at.toISOString(), "2026-10-25T01:00:00.000Z");
+  assert.equal(clockChangeLabel(london!, "Europe/London"), "Clocks −1h Sun 25 Oct");
+  assert.equal(nextClockChange("Asia/Manila", now), null);
+  assert.equal(nextClockChange("America/New_York", now, 10), null, "1 Nov is more than 10 days away");
+});
+
+test("Card 165 Clock A: shared work hours overlap (or none)", () => {
+  const now = new Date("2026-10-13T04:00:00Z");
+  const w = sharedWorkWindow(["Asia/Manila", "Asia/Tokyo"], { start: 9, end: 18 }, now)!;
+  assert.equal(w.from.toISOString(), "2026-10-13T01:00:00.000Z"); // 09:00 Manila
+  assert.equal(w.to.toISOString(), "2026-10-13T09:00:00.000Z"); // 18:00 Tokyo
+  assert.equal(sharedWorkWindow(["Asia/Manila"], undefined, now), null);
 });

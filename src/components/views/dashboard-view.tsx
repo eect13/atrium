@@ -1,5 +1,7 @@
 "use client";
 
+import { WidgetOptionsMenu } from "@/components/widget-options";
+import { hasWidgetOptions } from "@/lib/widget-prefs";
 import { useRef, useState, type ReactNode } from "react";
 import { GripVertical, Lock, LockOpen, RotateCcw } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -222,6 +224,7 @@ export function DashboardView({
                       <TooltipContent>Wider / narrower</TooltipContent>
                     </Tooltip>
                   )}
+                  {hasWidgetOptions(id) ? <WidgetOptionsMenu id={id} label={DASH_LABEL[id]} /> : null}
                   {kind ? <FloatBtn kind={kind} /> : null}
                 </div>
               </CardHeader>

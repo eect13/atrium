@@ -46,6 +46,7 @@ import { normalizeCalViews, type CalView } from "./cal-view";
 import { asNewsTag, keepNewsChip } from "./headline";
 import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
+import { normalizeDashPrefs, type DashPrefs, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
@@ -172,6 +173,8 @@ type Data = {
   dashOrder: DashCard[];
   dashLocked: boolean;
   dashSpan: Partial<Record<DashCard, number>>;
+  /** Per-widget options (Card 161): helper copy off by default. */
+  dashPrefs: DashPrefs;
   /** @deprecated Pre-Card 128 peek mode; superseded by `calViews`. Kept for persisted back-compat. */
   calPeek: "auto" | "month" | "week";
   /** Calendar widget / float view (Today | Week | Month) per widget id. Missing = Month. */
@@ -250,6 +253,7 @@ type State = Data & {
   setNewsTag: (t: string) => void;
   updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
   updateClock: (fn: (p: ClockPrefs) => ClockPrefs) => void;
+  setWidgetOpt: <K extends keyof WidgetOpts>(id: K, key: keyof WidgetOpts[K] & string, on: boolean) => void;
   toggleFeed: (id: string) => void;
   setFeedPack: (packId: string, on: boolean) => void;
   enableStarterFeeds: () => void;
@@ -403,6 +407,7 @@ function blankDesk(): Data {
     dashOrder: [...DEFAULT_DASH],
     dashLocked: true,
     dashSpan: {},
+    dashPrefs: { widgets: {} },
     calPeek: "auto",
     calViews: {},
     newsQuery: "",
@@ -924,6 +929,8 @@ export const useAtrium = create<State>()(
           return { dashSpan: next };
         }),
       resetDash: () => set({ dashOrder: [...DEFAULT_DASH], dashSpan: {} }),
+      setWidgetOpt: (id, key, on) =>
+        set((s) => ({ dashPrefs: { widgets: { ...s.dashPrefs.widgets, [id]: { ...(s.dashPrefs.widgets[id] ?? {}), [key]: on } } } })),
       setCalPeek: (calPeek) => set({ calPeek }),
       setCalView: (widgetId, v) => set((s) => ({ calViews: normalizeCalViews({ ...s.calViews, [widgetId]: v }) })),
       setNewsQuery: (newsQuery) => set({ newsQuery }),
@@ -1275,6 +1282,7 @@ export const useAtrium = create<State>()(
         dashOrder: s.dashOrder,
         dashLocked: s.dashLocked,
         dashSpan: s.dashSpan,
+        dashPrefs: s.dashPrefs,
         calPeek: s.calPeek,
         calViews: s.calViews,
         newsQuery: s.newsQuery,
@@ -1342,6 +1350,7 @@ export const useAtrium = create<State>()(
           dashOrder: normalizeDash(p.dashOrder ?? current.dashOrder),
           dashLocked: (p.dashLocked ?? current.dashLocked) !== false,
           dashSpan: normalizeDashSpan(p.dashSpan ?? current.dashSpan),
+          dashPrefs: normalizeDashPrefs((p as { dashPrefs?: unknown }).dashPrefs ?? (current as Data).dashPrefs),
           calPeek: ((p.calPeek ?? current.calPeek) === "month" || (p.calPeek ?? current.calPeek) === "week" || (p.calPeek ?? current.calPeek) === "auto") ? (p.calPeek ?? current.calPeek) as "auto" | "month" | "week" : "auto",
           calViews: normalizeCalViews((p as { calViews?: unknown }).calViews ?? (current as Data).calViews),
           newsQuery: typeof p.newsQuery === "string" ? p.newsQuery : current.newsQuery,

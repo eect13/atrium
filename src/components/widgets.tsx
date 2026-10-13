@@ -9,6 +9,7 @@ import {
   CircleDot,
   Eye,
   EyeOff,
+  Plus,
   Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +20,7 @@ import {
   fmtDate,
   fmtWhen,
   fromManila,
+  isAllDayEvent,
   isoDate,
   isoMonth,
   manilaAt,
@@ -45,13 +47,25 @@ import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
 import {
   cityFromTz,
+  clockChangeLabel,
   clockList,
+  DAY_END,
+  DAY_START,
   differentCivilDay,
   formatLocalOffsetLabel,
   formatOffsetVsLocal,
+  formatZoneDate,
   formatZoneTime,
-  formatZoneWeekday,
+  nextClockChange,
+  sharedWorkWindow,
+  zoneHours,
+  zoneState,
+  ZONE_STATE_LABEL,
+  type WorkHours,
 } from "@/lib/clock";
+import { widgetOpts } from "@/lib/widget-prefs";
+import { busyBlocks, countdownLabel, freeBusyText, longestFree, minutesUntil, nextHalfHour, upNext } from "@/lib/calendar/day-summary";
+import { requestQuickAdd } from "@/lib/calendar/quick-add";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
@@ -272,6 +286,8 @@ export function CalendarPeek({
   const setView = useAtrium((s) => s.setView);
   const view = useAtrium((s) => calViewFor(s.calViews, widgetId));
   const setCalView = useAtrium((s) => s.setCalView);
+  const dashPrefs = useAtrium((s) => s.dashPrefs);
+  const opts = widgetOpts(dashPrefs, "calendar");
   const [day, setDay] = useState(() => isoDate(date ?? new Date()));
   const [cursor, setCursor] = useState(() => date ?? new Date());
   const [now, setNow] = useState(() => new Date());
@@ -310,6 +326,19 @@ export function CalendarPeek({
     () => painted.filter((e) => eventCoversDay(e, day)).toSorted((a, b) => a.start.localeCompare(b.start)),
     [painted, day],
   );
+
+  const todayKey = isoDate(now);
+  const todayList = useMemo(() => painted.filter((e) => eventCoversDay(e, todayKey)), [painted, todayKey]);
+  const next = embedded || !opts.upNext ? null : upNext(todayList, todayKey, now);
+  const fb = useMemo(() => {
+    const { blocks, merged } = busyBlocks(todayList, todayKey);
+    const nowH = (now.getTime() - manilaAt(todayKey, 0).getTime()) / 3_600_000;
+    return { blocks, text: freeBusyText(todayList.filter((e) => !isAllDayEvent(e)).length, longestFree(merged, Math.max(8, nowH))), nowH };
+  }, [todayList, todayKey, now]);
+  const quickAdd = () => {
+    requestQuickAdd(nextHalfHour(new Date()).toISOString());
+    setView("calendar");
+  };
 
   const pick = (e: CalendarEvent) => {
     if (onSelect) onSelect(e);
@@ -351,6 +380,13 @@ export function CalendarPeek({
         <span className="min-w-0 grow truncate px-1 text-sm font-medium" data-tauri-drag-region aria-live="polite">
           {title}
         </span>
+        {embedded ? null : (
+          <Tip label="New event">
+            <button type="button" data-no-drag className={iconBtn} aria-label="New event" onClick={quickAdd}>
+              <Plus className="size-4" aria-hidden="true" />
+            </button>
+          </Tip>
+        )}
         <Tip label="Go to today">
           <button type="button" data-no-drag className={iconBtn} aria-label="Go to today" onClick={goToday}>
             <CircleDot className="size-4" aria-hidden="true" />
@@ -427,7 +463,47 @@ export function CalendarPeek({
     </div>
   );
 
-  const fullLink = embedded ? null : (
+  const upNextBlock = next ? (
+    <button
+      type="button"
+      className={cn("mb-3 flex min-h-11 w-full items-center gap-3 rounded-lg bg-muted/60 px-3 py-2 text-left", FOCUS_RING)}
+      aria-label={`${next.title} in ${minutesUntil(next.start, now)} minutes`}
+      onClick={() => pick(next)}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] uppercase tracking-[0.06em] text-muted-foreground">Up next</span>
+        <span className="block truncate text-sm font-medium">{next.title}</span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
+          {fmtWhen(next)}
+          <span className="cat-tag shrink-0" style={eventCatTagStyle(eventCats, next.cat, next.color)}>
+            <span>{eventCatLabel(eventCats, next.cat)}</span>
+          </span>
+        </span>
+      </span>
+      <span aria-hidden className="shrink-0 font-mono text-[28px] leading-none tabular-nums">{countdownLabel(minutesUntil(next.start, now))}</span>
+    </button>
+  ) : null;
+
+  const freeBusy = embedded || !opts.freeBusy ? null : (
+    <div className="mb-3">
+      <svg aria-hidden viewBox="0 0 240 10" preserveAspectRatio="none" className="block h-2.5 w-full overflow-visible">
+        <rect x={0} y={0} width={240} height={10} rx={5} fill="var(--color-muted)" />
+        {fb.blocks.map((b) => {
+          const ev = todayList.find((e) => e.id === b.id);
+          return <rect key={b.id} x={((b.from - 8) / 12) * 240} y={0} width={Math.max(2, ((b.to - b.from) / 12) * 240)} height={10} rx={3} style={ev ? { fill: "var(--tag-bg)", ...eventCatTagStyle(eventCats, ev.cat, ev.color) } : undefined} />;
+        })}
+        {fb.nowH >= 8 && fb.nowH <= 20 ? <rect x={((fb.nowH - 8) / 12) * 240 - 1} y={-2} width={2} height={14} fill="var(--color-foreground)" stroke="var(--color-card)" strokeWidth={0.5} /> : null}
+      </svg>
+      <div aria-hidden className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+        {["08:00", "11:00", "14:00", "17:00", "20:00"].map((t) => (
+          <span key={t}>{t}</span>
+        ))}
+      </div>
+      <p className="mt-0.5 text-xs text-muted-foreground">{fb.text}</p>
+    </div>
+  );
+
+  const fullLink = embedded || !opts.helper ? null : (
     <button
       type="button"
       className={cn(
@@ -443,6 +519,8 @@ export function CalendarPeek({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
+      {upNextBlock}
+      {freeBusy}
       {view === "month" ? (
         <div role="grid" aria-label={monthName(cursor)} className="flex flex-col gap-0.5">
           <div role="row" className="grid grid-cols-7 gap-x-0.5">
@@ -831,66 +909,114 @@ export function NewsPeek({
 
 const CLOCK_ROWS_MAX = 6;
 
+/**
+ * Card 161 Clock A: one city's own 24h band. Night `--color-input`, day `--color-border`,
+ * work hours `--today-accent`, now tick in foreground with a card outline. Decorative.
+ */
+export function DayBand({ zone, now, workHours, className }: { zone: string; now: Date; workHours: WorkHours; className?: string }) {
+  const h = zoneHours(now, zone);
+  const seg = (from: number, to: number, fill: string, key: string) => <rect key={key} x={(from / 24) * 240} y={0} width={((to - from) / 24) * 240} height={8} fill={fill} />;
+  return (
+    <svg aria-hidden viewBox="0 0 240 8" preserveAspectRatio="none" className={cn("block h-2 w-full overflow-visible rounded-full", className)}>
+      <clipPath id={`band-${zone}`}>
+        <rect x={0} y={0} width={240} height={8} rx={4} />
+      </clipPath>
+      <g clipPath={`url(#band-${zone})`}>
+        {seg(0, 24, "var(--color-input)", "night")}
+        {seg(DAY_START, DAY_END, "var(--color-border)", "day")}
+        {seg(workHours.start, workHours.end, "var(--today-accent)", "work")}
+      </g>
+      <rect x={(h / 24) * 240 - 1.5} y={-2} width={3} height={12} rx={1.5} fill="var(--color-foreground)" stroke="var(--color-card)" strokeWidth={1} />
+    </svg>
+  );
+}
+
 export function ClockBody({ preview = false }: { preview?: boolean }) {
   const profile = useAtrium((s) => s.profile);
   const clockPrefs = useAtrium((s) => s.clockPrefs);
+  const dashPrefs = useAtrium((s) => s.dashPrefs);
   const setView = useAtrium((s) => s.setView);
+  const opts = widgetOpts(dashPrefs, "clock");
+  const seconds = opts.seconds && !preview;
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
+    const t = setInterval(() => setNow(new Date()), seconds ? 1000 : 15_000);
     return () => clearInterval(t);
-  }, []);
+  }, [seconds]);
   const primary = profile.tz?.trim() || "UTC";
   const zones = clockList(primary, clockPrefs);
   const hour24 = clockPrefs.hour24;
+  const wh = clockPrefs.workHours;
   const locale = profile.locale;
   const main = zones[0]!;
   const rest = zones.slice(1);
   const shown = rest.slice(0, CLOCK_ROWS_MAX);
   const hidden = rest.length - shown.length;
-  const linkLabel = !rest.length
-    ? "Add cities in Clock tab"
-    : hidden > 0
-      ? `+${hidden} more in Clock tab`
-      : "Edit in Clock tab";
+  const shared = opts.shared ? sharedWorkWindow(zones, wh, now) : null;
+  const status = (z: string) => ZONE_STATE_LABEL[zoneState(now, z, wh)];
+  const change = (z: string) => {
+    if (!opts.changes) return null;
+    const c = nextClockChange(z, now);
+    return c ? clockChangeLabel(c, z, locale) : null;
+  };
+  const mainChange = change(main);
   return (
     <div>
-      <p className="font-display text-3xl font-medium tabular-nums tracking-tight">
-        {formatZoneTime(now, main, { hour24, seconds: !preview, locale })}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {preview
-          ? cityFromTz(main)
-          : `${formatZoneWeekday(now, main, locale)} · ${cityFromTz(main)} · ${formatLocalOffsetLabel(now, main)}`}
+      <div className="flex items-end justify-between gap-3">
+        <p className="font-mono text-[44px] font-medium leading-none tabular-nums tracking-tight">{formatZoneTime(now, main, { hour24, seconds, locale })}</p>
+        <p className="min-w-0 pb-1 text-right text-xs leading-snug text-muted-foreground">
+          <span className="block">{formatZoneDate(now, main, locale)}</span>
+          {preview ? null : <span className="block truncate">{`${cityFromTz(main)} · ${formatLocalOffsetLabel(now, main)}`}</span>}
+        </p>
+      </div>
+      {opts.bands ? <DayBand zone={main} now={now} workHours={wh} className="mt-3" /> : null}
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {status(main)}
+        {mainChange ? <span className="text-foreground"> · {mainChange}</span> : null}
       </p>
       {shown.length ? (
         <ul className="mt-3" aria-label="World clocks">
-          {shown.map((z) => (
-            <li key={z} className="flex min-h-11 items-center justify-between gap-3 border-t border-border/70">
-              <span className="min-w-0">
-                <span className="block truncate text-sm">{cityFromTz(z)}</span>
-                <span className="block text-[11px] tabular-nums text-muted-foreground">
-                  {formatOffsetVsLocal(now, z, main)}
-                  {differentCivilDay(now, z, main)
-                    ? ` · ${now.toLocaleDateString(locale || "en-GB", { timeZone: z, weekday: "short" })}`
-                    : ""}
-                </span>
-              </span>
-              <span className="whitespace-nowrap text-[15px] tabular-nums">{formatZoneTime(now, z, { hour24, locale })}</span>
-            </li>
-          ))}
+          {shown.map((z) => {
+            const ch = change(z);
+            return (
+              <li key={z} className="border-t border-border/70 py-2">
+                <div className="flex min-h-9 items-center justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm">{cityFromTz(z)}</span>
+                    <span className="block text-[11px] tabular-nums text-muted-foreground">
+                      {formatOffsetVsLocal(now, z, main)} · {status(z)}
+                      {differentCivilDay(now, z, main) ? ` · ${now.toLocaleDateString(locale || "en-GB", { timeZone: z, weekday: "short" })}` : ""}
+                      {ch ? <span className="text-foreground"> · {ch}</span> : null}
+                    </span>
+                  </span>
+                  <span className="whitespace-nowrap font-mono text-[20px] tabular-nums">{formatZoneTime(now, z, { hour24, locale })}</span>
+                </div>
+                {opts.bands ? <DayBand zone={z} now={now} workHours={wh} className="mt-1.5" /> : null}
+              </li>
+            );
+          })}
         </ul>
-      ) : (
-        <p className="mt-3 text-sm text-muted-foreground">No other cities yet</p>
-      )}
-      <button
-        type="button"
-        className="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
-        onClick={() => setView("clock")}
-      >
-        {linkLabel}
-        <ArrowUpRight className="size-3.5" aria-hidden />
-      </button>
+      ) : null}
+      {opts.shared && rest.length ? (
+        <p className="mt-2 border-t border-border/70 pt-2 text-xs text-muted-foreground">
+          Shared work hours ·{" "}
+          <span className="tabular-nums text-foreground">
+            {shared ? `${formatZoneTime(shared.from, main, { hour24, locale })}–${formatZoneTime(shared.to, main, { hour24, locale })}` : "None today"}
+          </span>
+        </p>
+      ) : null}
+      {opts.helper ? (
+        <button
+          type="button"
+          className="mt-1 inline-flex min-h-11 items-center gap-1.5 rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+          onClick={() => setView("clock")}
+        >
+          {!rest.length ? "Add cities in Clock tab" : hidden > 0 ? `+${hidden} more in Clock tab` : "Edit in Clock tab"}
+          <ArrowUpRight className="size-3.5" aria-hidden />
+        </button>
+      ) : hidden > 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">+{hidden} more</p>
+      ) : null}
     </div>
   );
 }

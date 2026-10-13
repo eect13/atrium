@@ -47,6 +47,7 @@ import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-s
 import { calendarColourOf } from "@/lib/calendar/source";
 import { addIcsSource, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
 import { catToken } from "@/lib/event-cats";
+import { onQuickAdd, takeQuickAdd } from "@/lib/calendar/quick-add";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent } from "@/lib/types";
 
@@ -254,9 +255,22 @@ export function CalendarView() {
     void refreshStatus().then((st) => {
       if (st.state === "connected") void syncNow();
     });
+    const takeAdd = () => {
+      const at = takeQuickAdd();
+      if (!at) return;
+      openDay(isoDate(new Date(at)));
+      setStart(toManilaInput(at));
+      setEnd(toManilaInput(new Date(new Date(at).getTime() + 30 * 60_000)));
+    };
+    takeAdd();
+    const offAdd = onQuickAdd(takeAdd);
     const onOnline = () => void syncNow();
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    return () => {
+      offAdd();
+      window.removeEventListener("online", onOnline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function importFile(f: File) {

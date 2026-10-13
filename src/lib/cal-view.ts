@@ -1,7 +1,7 @@
 /** Calendar widget / float view control — Today | Week | Month, remembered per widget id. */
 
 /** Empty-day copy shared by the Calendar widget and page (Form 149 5f). */
-export const EMPTY_DAY = "Nothing scheduled";
+export const EMPTY_DAY = "Free";
 
 export const CAL_VIEWS = ["today", "week", "month"] as const;
 export type CalView = (typeof CAL_VIEWS)[number];

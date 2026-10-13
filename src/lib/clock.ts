@@ -7,12 +7,28 @@ export type ClockPrefs = {
   zones: string[];
   /** Prefer 24-hour clock in world clocks / clock widget. */
   hour24: boolean;
+  /** Working hours in each city's own local time (Card 161 Clock A). Whole hours, start < end. */
+  workHours: WorkHours;
 };
+
+export type WorkHours = { start: number; end: number };
+
+/** Card 161: 09:00–18:00 by default. */
+export const DEFAULT_WORK_HOURS: WorkHours = { start: 9, end: 18 };
 
 export const DEFAULT_CLOCK_PREFS: ClockPrefs = {
   zones: [],
   hour24: true,
+  workHours: { ...DEFAULT_WORK_HOURS },
 };
+
+export function normalizeWorkHours(raw: unknown): WorkHours {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const start = Number(r.start);
+  const end = Number(r.end);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > 24 || start >= end) return { ...DEFAULT_WORK_HOURS };
+  return { start, end };
+}
 
 const ZONE_MAX = 12;
 
@@ -77,6 +93,7 @@ export function normalizeClockPrefs(raw: unknown): ClockPrefs {
   return {
     zones,
     hour24: r.hour24 !== false,
+    workHours: normalizeWorkHours(r.workHours),
   };
 }
 
@@ -191,3 +208,85 @@ export function reorderClockZones(p: ClockPrefs, fromId: string, toId: string): 
   return { ...p, zones };
 }
 
+
+/** Local wall-clock hours (fractional) in `tz` at `date`. */
+export function zoneHours(date: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+  const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return h + m / 60;
+}
+
+/**
+ * Day/night is a fixed 06:00–18:00 local split (no sunrise data file; Card 161 band).
+ * Work hours come from `clockPrefs.workHours`.
+ */
+export const DAY_START = 6;
+export const DAY_END = 18;
+
+export type ZoneState = "work" | "day" | "night";
+
+export function zoneState(date: Date, tz: string, wh: WorkHours = DEFAULT_WORK_HOURS): ZoneState {
+  const h = zoneHours(date, tz);
+  if (h >= wh.start && h < wh.end) return "work";
+  return h >= DAY_START && h < DAY_END ? "day" : "night";
+}
+
+export const ZONE_STATE_LABEL: Record<ZoneState, string> = { work: "Work hours", day: "Off hours", night: "Night" };
+
+/**
+ * Next DST / offset change in `tz` within `days` (from Intl offsets only), or null.
+ * `delta` is in minutes (negative = clocks go back).
+ */
+export function nextClockChange(tz: string, now: Date = new Date(), days = 30): { at: Date; delta: number } | null {
+  const hour = 3_600_000;
+  const base = zoneOffsetMinutes(now, tz);
+  let lo = now.getTime();
+  let hi = -1;
+  for (let t = lo + hour; t <= now.getTime() + days * 86_400_000; t += hour) {
+    if (zoneOffsetMinutes(new Date(t), tz) !== base) {
+      hi = t;
+      break;
+    }
+    lo = t;
+  }
+  if (hi < 0) return null;
+  while (hi - lo > 60_000) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (zoneOffsetMinutes(new Date(mid), tz) === base) lo = mid;
+    else hi = mid;
+  }
+  return { at: new Date(hi), delta: zoneOffsetMinutes(new Date(hi), tz) - base };
+}
+
+/** "Clocks −1h Sun 25 Oct" (date in that city's zone). */
+export function clockChangeLabel(change: { at: Date; delta: number }, tz: string, locale?: string): string {
+  const abs = Math.abs(change.delta);
+  const amount = abs % 60 ? `${Math.floor(abs / 60) ? `${Math.floor(abs / 60)}h ` : ""}${abs % 60}m` : `${abs / 60}h`;
+  const day = change.at.toLocaleDateString(locale || "en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "short" }).replace(",", "");
+  return `Clocks ${change.delta < 0 ? "−" : "+"}${amount} ${day}`;
+}
+
+/**
+ * Today's overlap of every city's work hours, as instants. Null when they never overlap.
+ * Uses each zone's offset at `now`.
+ */
+export function sharedWorkWindow(zones: string[], wh: WorkHours = DEFAULT_WORK_HOURS, now: Date = new Date()): { from: Date; to: Date } | null {
+  if (zones.length < 2) return null;
+  let from = -Infinity;
+  let to = Infinity;
+  for (const z of zones) {
+    const local = zoneHours(now, z);
+    const startMs = now.getTime() + (wh.start - local) * 3_600_000;
+    let s0 = startMs;
+    let e0 = startMs + (wh.end - wh.start) * 3_600_000;
+    // Use the work window that is current or next for that city.
+    if (e0 <= now.getTime() - 12 * 3_600_000) {
+      s0 += 86_400_000;
+      e0 += 86_400_000;
+    }
+    from = Math.max(from, s0);
+    to = Math.min(to, e0);
+  }
+  return to > from ? { from: new Date(from), to: new Date(to) } : null;
+}
