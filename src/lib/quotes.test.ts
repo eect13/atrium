@@ -95,3 +95,11 @@ test("Card 154 N9: session quote is shared per launch via localStorage; stale la
   assert.equal(readQuoteSession(store), undefined, "new launch → stale quote ignored");
   assert.equal(readQuoteSession({ getItem: () => "{bad", setItem: () => {} }), undefined);
 });
+
+test("Card 170 (Scout 169): 'no path… trail' credited to Muriel Strode in her 1903 wording, not Emerson", () => {
+  const q = LOCAL_QUOTES.find((x) => /where there is no path/.test(x.text))!;
+  assert.equal(q.author, "Muriel Strode");
+  assert.match(q.text, /^I will not follow where the path may lead/);
+  assert.equal(q.href, "https://en.wikiquote.org/wiki/Leadership");
+  assert.ok(!LOCAL_QUOTES.some((x) => x.author === "Ralph Waldo Emerson" && /no path/.test(x.text)));
+});

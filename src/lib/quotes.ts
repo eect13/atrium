@@ -167,6 +167,8 @@ function local(author: string, _slug: string, text: string): DeskQuote {
  * Card 153 Scout: Einstein re-worded to LIFE 1955; Twain ×2, Buddha, Sun Tzu, Confucius, Gandhi swapped for Wikiquote-sourced lines.
  * Twain "secret of getting ahead" (Misattributed) → "Few things are harder to put up with than the annoyance of a
  * good example." (Pudd'nhead Wilson, 1894, ch. 19; Wikiquote › Pudd'nhead Wilson).
+ * Card 169 Scout: "no path… trail" → Muriel Strode (1903), "Wind-Wafted Wild Flowers", The Open Court
+ * (Quote Investigator 2014; not on Wikiquote's Emerson page).
  */
 export const LOCAL_QUOTES: DeskQuote[] = [
   local("Albert Einstein", "albert-einstein", "Life is like riding a bicycle. To keep your balance, you must keep moving."),
@@ -198,7 +200,8 @@ export const LOCAL_QUOTES: DeskQuote[] = [
   local("Mark Twain", "mark-twain", "Few things are harder to put up with than the annoyance of a good example."),
   local("Mark Twain", "mark-twain", "When in doubt, tell the truth."),
   local("Ralph Waldo Emerson", "ralph-waldo-emerson", "What you do speaks so loudly that I cannot hear what you say."),
-  local("Ralph Waldo Emerson", "ralph-waldo-emerson", "Do not go where the path may lead, go instead where there is no path and leave a trail."),
+  // No "Muriel Strode" page on Wikiquote (checked 2026-10-13); its Leadership page carries the line credited to her.
+  { ...local("Muriel Strode", "muriel-strode", "I will not follow where the path may lead, but I will go where there is no path, and I will leave a trail."), href: wqPageHref("Leadership") },
   local("Will Durant", "will-durant", "We are what we repeatedly do. Excellence, then, is not an act, but a habit."),
   local("Aristotle", "aristotle", "Knowing yourself is the beginning of all wisdom."),
   local("Buddha", "buddha", "All that we are is the result of what we have thought."),

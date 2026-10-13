@@ -26,8 +26,11 @@ export function countdownLabel(min: number) {
 
 export type Block = { from: number; to: number };
 
+export const BAND_FROM = 8;
+export const BAND_TO = 20;
+
 /** Busy blocks (hours, fractional, desk zone) clipped to [fromH, toH] on `dayKey`; merged. */
-export function busyBlocks(events: readonly Ev[], dayKey: string, fromH = 8, toH = 20): { blocks: (Block & { id: string })[]; merged: Block[] } {
+export function busyBlocks(events: readonly Ev[], dayKey: string, fromH = BAND_FROM, toH = BAND_TO): { blocks: (Block & { id: string; clipFrom: boolean; clipTo: boolean })[]; merged: Block[] } {
   const base = manilaAt(dayKey, 0).getTime();
   const lo = fromH;
   const hi = toH;
@@ -35,7 +38,7 @@ export function busyBlocks(events: readonly Ev[], dayKey: string, fromH = 8, toH
     .filter((e) => !isAllDayEvent(e))
     .map((e) => ({ id: e.id, from: (new Date(e.start).getTime() - base) / 3_600_000, to: (new Date(e.end).getTime() - base) / 3_600_000 }))
     .filter((b) => b.to > lo && b.from < hi)
-    .map((b) => ({ ...b, from: Math.max(lo, b.from), to: Math.min(hi, b.to) }))
+    .map((b) => ({ ...b, from: Math.max(lo, b.from), to: Math.min(hi, b.to), clipFrom: b.from < lo, clipTo: b.to > hi }))
     .sort((a, b) => a.from - b.from);
   const merged: Block[] = [];
   for (const b of blocks) {
@@ -44,6 +47,17 @@ export function busyBlocks(events: readonly Ev[], dayKey: string, fromH = 8, toH
     else merged.push({ from: b.from, to: b.to });
   }
   return { blocks, merged };
+}
+
+/**
+ * Card 168 (b): timed events that fall wholly outside the band (before `fromH` / after `toH`),
+ * so the strip can say "‹ N" / "N ›" instead of clipping them away silently.
+ */
+export function outsideBand<E extends Ev>(events: readonly E[], dayKey: string, fromH = BAND_FROM, toH = BAND_TO): { before: E[]; after: E[] } {
+  const base = manilaAt(dayKey, 0).getTime();
+  const hours = (iso: string) => (new Date(iso).getTime() - base) / 3_600_000;
+  const timed = events.filter((e) => !isAllDayEvent(e)).toSorted((a, b) => a.start.localeCompare(b.start));
+  return { before: timed.filter((e) => hours(e.end) <= fromH), after: timed.filter((e) => hours(e.start) >= toH) };
 }
 
 /** Longest free window from `startH` (now, or the strip start) to the strip end. */

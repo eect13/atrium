@@ -218,11 +218,12 @@ export function zoneHours(date: Date, tz: string): number {
 }
 
 /**
- * Day/night is a fixed 06:00–18:00 local split (no sunrise data file; Card 161 band).
+ * Day/night is a fixed 08:00–20:00 local split (no sunrise data file). Card 170: Eric's pick
+ * for Card 168 (b), the same 08–20 band as the Calendar free/busy strip.
  * Work hours come from `clockPrefs.workHours`.
  */
-export const DAY_START = 6;
-export const DAY_END = 18;
+export const DAY_START = 8;
+export const DAY_END = 20;
 
 export type ZoneState = "work" | "day" | "night";
 

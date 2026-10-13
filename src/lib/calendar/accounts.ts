@@ -35,9 +35,11 @@ type State = {
   connecting: boolean;
   syncing: boolean;
   handoff: Handoff | null;
+  /** Card 168 (d), Eric's pick: new events go to the Google main calendar by default. */
+  newEventsTo: "google" | "local";
 };
 
-const initial: State = { handoff: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [], icsSources: [], connecting: false, syncing: false };
+const initial: State = { newEventsTo: "google", handoff: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [], icsSources: [], connecting: false, syncing: false };
 
 let legacyRefresh: string | null = null;
 
@@ -349,10 +351,28 @@ export function setCalendarColour(id: string, colour: string) {
  * stays here and syncs on the next successful sync.
  */
 export async function queueGoogleWrite(kind: PendingOp["kind"], e: CalendarEvent) {
-  if (!e.calId) return;
-  const op: PendingOp = { id: uid(), kind, calId: e.calId, localId: e.id, remoteId: e.remoteId, etag: e.etag, write: kind === "delete" ? undefined : writeOf(e), at: new Date().toISOString() };
-  set({ pending: enqueue(get().pending, op) });
+  await queueGoogleWrites([{ kind, event: e }]);
+}
+
+/** Several writes that belong together (series split, move between calendars), one sync. */
+export async function queueGoogleWrites(ops: { kind: PendingOp["kind"]; event: CalendarEvent }[]) {
+  let q = get().pending;
+  for (const { kind, event: e } of ops) {
+    if (!e.calId) continue;
+    q = enqueue(q, { id: uid(), kind, calId: e.calId, localId: e.id, remoteId: e.remoteId, etag: e.etag, write: kind === "delete" ? undefined : writeOf(e), at: new Date().toISOString() });
+  }
+  set({ pending: q });
+  if (syncing) await syncing;
   await syncNow();
+}
+
+export function setNewEventsTo(v: "google" | "local") {
+  set({ newEventsTo: v });
+}
+
+/** Default target for a new event: Google main calendar when writable, else Atrium only. */
+export function defaultEventTarget(writable: GCalDesk[], pref = get().newEventsTo) {
+  return pref === "google" ? (writable[0]?.id ?? "local") : "local";
 }
 
 // ---------- Other calendars (read-only) ----------

@@ -64,7 +64,7 @@ import {
   type WorkHours,
 } from "@/lib/clock";
 import { widgetOpts } from "@/lib/widget-prefs";
-import { busyBlocks, countdownLabel, freeBusyText, longestFree, minutesUntil, nextHalfHour, upNext } from "@/lib/calendar/day-summary";
+import { busyBlocks, outsideBand, countdownLabel, freeBusyText, longestFree, minutesUntil, nextHalfHour, upNext } from "@/lib/calendar/day-summary";
 import { requestQuickAdd } from "@/lib/calendar/quick-add";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -333,7 +333,7 @@ export function CalendarPeek({
   const fb = useMemo(() => {
     const { blocks, merged } = busyBlocks(todayList, todayKey);
     const nowH = (now.getTime() - manilaAt(todayKey, 0).getTime()) / 3_600_000;
-    return { blocks, text: freeBusyText(todayList.filter((e) => !isAllDayEvent(e)).length, longestFree(merged, Math.max(8, nowH))), nowH };
+    return { blocks, out: outsideBand(todayList, todayKey), text: freeBusyText(todayList.filter((e) => !isAllDayEvent(e)).length, longestFree(merged, Math.max(8, nowH))), nowH };
   }, [todayList, todayKey, now]);
   const quickAdd = () => {
     requestQuickAdd(nextHalfHour(new Date()).toISOString());
@@ -484,22 +484,61 @@ export function CalendarPeek({
     </button>
   ) : null;
 
+  const openTodayAgenda = () => {
+    useAtrium.getState().setCalMode("day");
+    useAtrium.getState().setCalCursor(todayKey);
+    setView("calendar");
+  };
+  const chip = cn("inline-flex size-11 shrink-0 items-center justify-center rounded-md text-xs tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground", FOCUS_RING);
+  const X = (h: number) => ((h - 8) / 12) * 240;
   const freeBusy = embedded || !opts.freeBusy ? null : (
     <div className="mb-3">
-      <svg aria-hidden viewBox="0 0 240 10" preserveAspectRatio="none" className="block h-2.5 w-full overflow-visible">
-        <rect x={0} y={0} width={240} height={10} rx={5} fill="var(--color-muted)" />
-        {fb.blocks.map((b) => {
-          const ev = todayList.find((e) => e.id === b.id);
-          return <rect key={b.id} x={((b.from - 8) / 12) * 240} y={0} width={Math.max(2, ((b.to - b.from) / 12) * 240)} height={10} rx={3} style={ev ? { fill: "var(--tag-bg)", ...eventCatTagStyle(eventCats, ev.cat, ev.color) } : undefined} />;
-        })}
-        {fb.nowH >= 8 && fb.nowH <= 20 ? <rect x={((fb.nowH - 8) / 12) * 240 - 1} y={-2} width={2} height={14} fill="var(--color-foreground)" stroke="var(--color-card)" strokeWidth={0.5} /> : null}
-      </svg>
+      <div className="flex items-center gap-1">
+        {fb.out.before.length ? (
+          <button type="button" className={chip} aria-label={`${fb.out.before.length} event${fb.out.before.length === 1 ? "" : "s"} before 08:00`} onClick={openTodayAgenda}>
+            ‹ {fb.out.before.length}
+          </button>
+        ) : null}
+        <svg aria-hidden viewBox="0 0 240 10" preserveAspectRatio="none" className="block h-2.5 min-w-0 flex-1 overflow-visible">
+          <rect x={0} y={0} width={240} height={10} rx={5} fill="var(--color-muted)" />
+          {fb.blocks.map((b) => {
+            const ev = todayList.find((e) => e.id === b.id);
+            const style = ev ? { fill: "var(--tag-bg)", ...eventCatTagStyle(eventCats, ev.cat, ev.color) } : undefined;
+            const x = X(b.from);
+            const w = Math.max(2, X(b.to) - x);
+            return (
+              <g key={b.id}>
+                <rect x={x} y={0} width={w} height={10} rx={3} style={style} />
+                {/* Card 168 (b): a block cut at the band edge gets a square end on that side. */}
+                {b.clipFrom ? <rect x={x} y={0} width={Math.min(4, w)} height={10} style={style} /> : null}
+                {b.clipTo ? <rect x={x + w - Math.min(4, w)} y={0} width={Math.min(4, w)} height={10} style={style} /> : null}
+              </g>
+            );
+          })}
+          {fb.nowH >= 8 && fb.nowH <= 20 ? <rect x={X(fb.nowH) - 1} y={-2} width={2} height={14} fill="var(--color-foreground)" stroke="var(--color-card)" strokeWidth={0.5} /> : null}
+        </svg>
+        {fb.out.after.length ? (
+          <button type="button" className={chip} aria-label={`${fb.out.after.length} event${fb.out.after.length === 1 ? "" : "s"} after 20:00`} onClick={openTodayAgenda}>
+            {fb.out.after.length} ›
+          </button>
+        ) : null}
+      </div>
       <div aria-hidden className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
         {["08:00", "11:00", "14:00", "17:00", "20:00"].map((t) => (
           <span key={t}>{t}</span>
         ))}
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{fb.text}</p>
+      {fb.out.before.length || fb.out.after.length ? (
+        <p className="mt-1 truncate rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
+          {[
+            fb.out.before.length ? `Earlier · ${fb.out.before.map((e) => `${fmtWhen(e)} ${e.title}`).join(", ")}` : "",
+            fb.out.after.length ? `Later · ${fb.out.after.map((e) => `${fmtWhen(e)} ${e.title}`).join(", ")}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      ) : null}
     </div>
   );
 

@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { ConfirmRow } from "@/components/ui/confirm-row";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -43,9 +44,13 @@ import { PAGE_SPAN_CAP, PHONE_SPAN_CAP, UNCAPPED_SPAN, layoutSpanRows, spanCellL
 import { CalendarToolbar } from "@/components/calendar/calendar-toolbar";
 import { MonthGrid, SpanButton } from "@/components/calendar/month-grid";
 import { DayAgenda } from "@/components/calendar/day-agenda";
-import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
+import { CalendarAccountsSheet, SyncBanner } from "@/components/calendar/calendar-accounts-sheet";
+import { DEFAULT_SERIES_SCOPE, planSeriesDelete, planSeriesSave, repeatPhrase, type SeriesPlan, type SeriesScope } from "@/lib/calendar/series-edit";
+import { isNarrow } from "@/lib/desk";
+import { EMPTY_DAY } from "@/lib/cal-view";
 import { calendarColourOf } from "@/lib/calendar/source";
-import { addIcsSource, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
+import { addIcsSource, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
+import { fmtTime } from "@/lib/format";
 import { catToken } from "@/lib/event-cats";
 import { onQuickAdd, takeQuickAdd } from "@/lib/calendar/quick-add";
 import { useAtrium } from "@/lib/store";
@@ -110,7 +115,7 @@ export function CalendarView() {
       gcalOff: s.gcalOff,
     })),
   );
-  const { icsSources, canEdit, email } = useCalAccounts(useShallow((s) => ({ icsSources: s.icsSources, canEdit: s.canEdit, email: s.email })));
+  const { icsSources, canEdit, email, banner, pendingN, lastSync } = useCalAccounts(useShallow((s) => ({ icsSources: s.icsSources, canEdit: s.canEdit, email: s.email, banner: s.banner, pendingN: s.pending.length, lastSync: s.lastSync })));
   const listed = useMemo(() => {
     const hiddenIcs = hiddenIcsSources(icsSources);
     const colours = new Map<string, string>();
@@ -156,6 +161,14 @@ export function CalendarView() {
   const [meet, setMeet] = useState("");
   const [occurDay, setOccurDay] = useState<string | null>(null);
   const [fromGoogle, setFromGoogle] = useState(false);
+  /** Clicked occurrence of a repeating event (its own start), for Card 168 (a). */
+  const [occurStart, setOccurStart] = useState<string | null>(null);
+  /** Where the edited event lives now ("local" or a Google calendar id), for moves (d). */
+  const [sourceCal, setSourceCal] = useState("local");
+  const [seriesAsk, setSeriesAsk] = useState<{ kind: "save" | "delete"; payload?: Partial<CalendarEvent> } | null>(null);
+  const [seriesScope, setSeriesScope] = useState<SeriesScope>(DEFAULT_SERIES_SCOPE);
+  /** Card 168 (e): phone day tap opens this day's agenda sheet. */
+  const [daySheet, setDaySheet] = useState<string | null>(null);
   /** FORM-WCAG #13 / O5: restore focus to the control that opened the dialog. */
   const returnFocus = useRef<HTMLElement | null>(null);
   const shown = useMemo(() => {
@@ -181,7 +194,17 @@ export function CalendarView() {
     setMode("day");
   }
 
+  /** Card 168 (e): a day tap never creates an event. Desktop → Day view; phone → day sheet. */
+  function tapDay(date: string) {
+    if (isNarrow()) setDaySheet(date);
+    else showDay(date);
+  }
+
   function openDay(date: string) {
+    setDaySheet(null);
+    setSeriesAsk(null);
+    setOccurStart(null);
+    setSourceCal("local");
     setConfirmDelete(false);
     setEditId(null);
     setStart(toManilaInput(manilaAt(date, 9)));
@@ -202,13 +225,18 @@ export function CalendarView() {
     setOccurDay(null);
     setFromGoogle(false);
     setViewOnly(null);
-    setTarget(writable[0]?.id ?? "local");
+    setTarget(defaultEventTarget(writable));
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setOpen(true);
   }
 
   function openEvent(ev: CalendarEvent) {
     const master = ev.seriesId ? (events.find((e) => e.id === ev.seriesId) ?? ev) : ev;
+    setDaySheet(null);
+    setSeriesAsk(null);
+    setSeriesScope(DEFAULT_SERIES_SCOPE);
+    setOccurStart(ev.seriesId ? ev.start : null);
+    setSourceCal(master.source === "google" && master.calId ? master.calId : "local");
     setConfirmDelete(false);
     setEditId(master.id);
     setTitle(master.title);
@@ -282,6 +310,31 @@ export function CalendarView() {
     }
   }
 
+  function applyPlan(plan: SeriesPlan) {
+    if (plan.update) updateEvent(plan.update.id, plan.update.patch);
+    if (plan.remove) removeEvent(plan.remove);
+    if (plan.add) addEvent(plan.add);
+    if (plan.google.length) void queueGoogleWrites(plan.google);
+  }
+
+  /**
+   * Card 168 (d): the Calendar select moves an event. Atrium only → Google: created there.
+   * Google → Atrium only: removed from Google, kept here. Google A → Google B: delete + create.
+   */
+  function moveEvent(prev: CalendarEvent, payload: Partial<CalendarEvent>, to: string) {
+    const writes: { kind: "create" | "delete"; event: CalendarEvent }[] = [];
+    if (prev.source === "google" && prev.calId) writes.push({ kind: "delete", event: prev });
+    removeEvent(prev.id);
+    const base = { ...prev, ...payload, skip: prev.skip, remoteId: undefined, etag: undefined, seriesId: undefined, id: uid() };
+    if (to === "local") addEvent({ ...base, source: "local", calId: undefined });
+    else {
+      const ev: CalendarEvent = { ...base, source: "google", calId: to };
+      addEvent(ev);
+      writes.push({ kind: "create", event: ev });
+    }
+    if (writes.length) void queueGoogleWrites(writes);
+  }
+
   /** Remove locally, then from Google when the event lives there (Card 163 two-way). */
   function deleteEvent(id: string) {
     const ev = events.find((e) => e.id === id);
@@ -339,8 +392,12 @@ export function CalendarView() {
         onNew={() => openDay(isoDate(cursor))}
       />
 
+      {email && (banner === "disconnected" || banner === "expired") ? (
+        <SyncBanner kind={banner} at={lastSync ? fmtTime(lastSync) : "—"} pending={pendingN} onRetry={() => void syncNow()} onSignIn={() => void connectGoogle({ loginHint: email }).catch((e: unknown) => toast(e instanceof Error ? e.message : "Couldn't start Google sign-in"))} onAllow={() => setAccountsOpen(true)} />
+      ) : null}
+
       {mode === "month" && (
-        <MonthGrid cursor={cursor} rows={monthRows} phoneRows={phoneRows} outside={outside} cats={eventCats} onDay={openDay} onShowDay={showDay} onEvent={openEvent} />
+        <MonthGrid cursor={cursor} rows={monthRows} phoneRows={phoneRows} outside={outside} cats={eventCats} onDay={tapDay} onShowDay={showDay} onEvent={openEvent} />
       )}
 
       {mode === "month" && (
@@ -386,7 +443,7 @@ export function CalendarView() {
                     className={`z-[1] min-h-11 rounded-lg px-3 text-left text-xs text-muted-foreground ${FOCUS}`}
                     aria-label={spanCellLabel(date, weekRow.cells[i]!.all)}
                     aria-current={isToday ? "date" : undefined}
-                    onClick={() => openDay(key)}
+                    onClick={() => showDay(key)}
                   >
                     {weekdays[i]} {manilaParts(date).day}
                   </button>
@@ -419,7 +476,7 @@ export function CalendarView() {
                   key={key}
                   className={`rounded-lg border bg-card p-3 ${sameDay(date, new Date()) ? "border-[var(--today-accent)]" : "border-border"}`}
                 >
-                  <button type="button" className={`min-h-11 w-full rounded-sm text-left text-xs text-muted-foreground ${FOCUS}`} onClick={() => openDay(key)}>
+                  <button type="button" className={`min-h-11 w-full rounded-sm text-left text-xs text-muted-foreground ${FOCUS}`} onClick={() => tapDay(key)}>
                     {weekdays[i]} {manilaParts(date).day}
                   </button>
                   {weekRow.cells[i]!.all.map((e) => (
@@ -520,15 +577,24 @@ export function CalendarView() {
             {!viewOnly && (writable.length || (editId && fromGoogle)) ? (
               <div className="space-y-1">
                 <Label htmlFor="ev-cal">Calendar</Label>
-                <select id="ev-cal" className={FIELD_SELECT} value={target} disabled={Boolean(editId)} onChange={(e) => setTarget(e.target.value)}>
-                  {editId && fromGoogle && !writable.some((c) => c.id === target) ? <option value={target}>{gcalCals.find((c) => c.id === target)?.label ?? "Google"}</option> : null}
+                <select id="ev-cal" className={FIELD_SELECT} value={target} aria-describedby={editId && target !== sourceCal ? "ev-cal-move" : undefined} onChange={(e) => setTarget(e.target.value)}>
+                  {editId && fromGoogle && !writable.some((c) => c.id === sourceCal) ? <option value={sourceCal}>{gcalCals.find((c) => c.id === sourceCal)?.label ?? "Google"}</option> : null}
                   {writable.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.primary ? (email ?? c.label) : c.label} · Google
                     </option>
                   ))}
-                  {!editId || !fromGoogle ? <option value="local">Atrium only</option> : null}
+                  <option value="local">Atrium only</option>
                 </select>
+                {editId && target !== sourceCal ? (
+                  <p id="ev-cal-move" className="text-xs text-muted-foreground">
+                    {target === "local"
+                      ? "Removes it from Google when you save; it stays in Atrium."
+                      : sourceCal === "local"
+                        ? "Moves from Atrium only to Google when you save. It will sync to your other devices."
+                        : "Moves to the other Google calendar when you save. It will sync to your other devices."}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <div className="space-y-1">
@@ -721,8 +787,49 @@ export function CalendarView() {
               </div>
             </div>
             </fieldset>
-            {fromGoogle && !viewOnly && occurDay ? (
-              <p className="text-xs text-muted-foreground">Changes apply to every date in this series in Google.</p>
+            {seriesAsk ? (
+              <div role="radiogroup" aria-labelledby="series-q" className="space-y-2 rounded-md border border-border p-3">
+                <p id="series-q" className="text-sm font-semibold">Change a repeating event</p>
+                <p className="text-xs text-muted-foreground">“{title.trim() || "Event"}” {repeatPhrase({ repeat: repeat === "none" ? undefined : repeat, repeatInterval: Number(repeatEvery) || 1, start: events.find((x) => x.id === editId)?.start ?? new Date().toISOString() })}. Which events should {seriesAsk.kind === "delete" ? "go" : "change"}?</p>
+                {(
+                  [
+                    ["this", "This event", `Only ${occurStart ? fmtDate(occurStart) : "this date"}.`],
+                    ["following", "This and following", `${occurStart ? fmtDate(occurStart) : "This date"} and every repeat after it.`],
+                    ["all", "All events", "Every repeat, past and future."],
+                  ] as const
+                ).map(([v, label, hint]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={seriesScope === v}
+                    onClick={() => setSeriesScope(v)}
+                    className={cn("flex min-h-14 w-full flex-col items-start justify-center rounded-md px-3 text-left", FOCUS, seriesScope === v ? "ring-2 ring-foreground" : "ring-1 ring-[var(--color-input)]")}
+                  >
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="text-xs text-muted-foreground">{hint}</span>
+                  </button>
+                ))}
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="outline" onClick={() => setSeriesAsk(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant={seriesAsk.kind === "delete" ? "destructive" : "default"}
+                    onClick={() => {
+                      const master = events.find((x) => x.id === editId);
+                      if (!master || !occurStart || !occurDay) return setSeriesAsk(null);
+                      if (seriesAsk.kind === "delete") applyPlan(planSeriesDelete(seriesScope, master, occurStart, occurDay));
+                      else applyPlan(planSeriesSave(seriesScope, master, seriesAsk.payload ?? {}, occurStart, occurDay, uid));
+                      toast(seriesAsk.kind === "delete" ? "Event removed" : "Event updated");
+                      setSeriesAsk(null);
+                      setOpen(false);
+                    }}
+                  >
+                    {seriesAsk.kind === "delete" ? "Delete" : "Save changes"}
+                  </Button>
+                </div>
+              </div>
             ) : null}
             {guests ? <p className="text-xs text-muted-foreground">Guests: {guests}</p> : null}
             {meet ? (
@@ -730,7 +837,7 @@ export function CalendarView() {
                 Meet
               </a>
             ) : null}
-            {editId && confirmDelete ? (
+            {seriesAsk ? null : editId && confirmDelete ? (
               <ConfirmRow
                 subject={title.trim() || "this event"}
                 verb="Delete"
@@ -749,20 +856,8 @@ export function CalendarView() {
               <Button variant="outline" onClick={() => setOpen(false)}>
                 {viewOnly ? "Close" : "Cancel"}
               </Button>
-              {viewOnly ? null : editId && occurDay ? (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    skipDate(editId, occurDay);
-                    setOpen(false);
-                    toast("Skipped this date");
-                  }}
-                >
-                  Skip this date
-                </Button>
-              ) : null}
               {editId && !viewOnly ? (
-                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => setConfirmDelete(true)}>
+                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => (occurStart && events.find((x) => x.id === editId)?.repeat ? setSeriesAsk({ kind: "delete" }) : setConfirmDelete(true))}>
                   Delete
                 </Button>
               ) : null}
@@ -809,8 +904,19 @@ export function CalendarView() {
                     color: color || undefined,
                   };
                   if (editId) {
-                    updateEvent(editId, payload);
                     const prev = events.find((x) => x.id === editId);
+                    if (prev && target !== sourceCal) {
+                      moveEvent(prev, payload, target);
+                      toast(target === "local" ? "Moved to Atrium only" : "Moved to Google");
+                      setOpen(false);
+                      return;
+                    }
+                    if (prev?.repeat && occurStart && occurDay) {
+                      setSeriesScope(DEFAULT_SERIES_SCOPE);
+                      setSeriesAsk({ kind: "save", payload });
+                      return;
+                    }
+                    updateEvent(editId, payload);
                     if (prev?.source === "google") void queueGoogleWrite("update", { ...prev, ...payload });
                     toast("Event updated");
                   } else if (target !== "local") {
@@ -832,6 +938,43 @@ export function CalendarView() {
           </div>
         </DialogContent>
       </Dialog>
+      <Sheet open={Boolean(daySheet)} onOpenChange={(o) => !o && setDaySheet(null)}>
+        <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto" aria-describedby={undefined}>
+          <div aria-hidden className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--color-input)]" />
+          <SheetTitle className="text-base font-semibold">{daySheet ? manilaAt(daySheet, 12).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : ""}</SheetTitle>
+          {daySheet ? (
+            (() => {
+              const from = manilaAt(daySheet, 0);
+              const list = expandEvents(listed, from, addDays(from, 1))
+                .filter((e) => eventCoverDays(e).includes(daySheet))
+                .toSorted((a, b) => a.start.localeCompare(b.start));
+              return (
+                <div className="mt-3">
+                  {list.length ? (
+                    <ul>
+                      {list.map((e) => (
+                        <li key={e.id}>
+                          <button type="button" className={cn("flex min-h-[52px] w-full items-center gap-3 border-b border-border text-left", FOCUS)} onClick={() => openEvent(e)}>
+                            <span className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">{spanWhen(e, daySheet)}</span>
+                            <span className="cat-tag min-w-0 truncate" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
+                              <span>{e.title}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="py-3 text-sm text-muted-foreground">{EMPTY_DAY}</p>
+                  )}
+                  <Button className="mt-3 h-11 w-full" onClick={() => openDay(daySheet)}>
+                    + Add event on {manilaAt(daySheet, 12).toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}
+                  </Button>
+                </div>
+              );
+            })()
+          ) : null}
+        </SheetContent>
+      </Sheet>
       <EventCatManager open={catsOpen} onOpenChange={setCatsOpen} />
       <CalendarAccountsSheet open={accountsOpen} onOpenChange={setAccountsOpen} />
     </div>

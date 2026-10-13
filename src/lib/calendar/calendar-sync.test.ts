@@ -34,7 +34,7 @@ test("GoogleSource sends Bearer on desktop and maps list results + deletions", a
     seen.push({ url, auth: (init?.headers as Record<string, string>).authorization, cred: init?.credentials });
     return new Response(JSON.stringify({ items: [{ id: "e1", etag: '"3"', summary: "A", start: { dateTime: "2026-10-13T01:00:00Z" }, end: { dateTime: "2026-10-13T02:00:00Z" } }, { id: "gone", status: "cancelled" }], nextSyncToken: "t2" }), { status: 200 });
   }) as typeof fetch;
-  const src = new GoogleSource({ base: "https://atrium.example", session: "sess", fetch: f });
+  const src = new GoogleSource({ base: "https://atrium.example", native: true, session: "sess", fetch: f });
   const r = await src.listEvents("c@x", { syncToken: "t1" });
   assert.equal(seen[0]!.url, "https://atrium.example/api/calendar/events?cal=c%40x&syncToken=t1");
   assert.equal(seen[0]!.auth, "Bearer sess");

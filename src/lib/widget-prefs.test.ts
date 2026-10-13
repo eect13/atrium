@@ -32,3 +32,21 @@ test("Calendar A: up next, countdown, free/busy text", () => {
   assert.equal(nextHalfHour(new Date(at("13:35"))).toISOString(), at("14:00"));
   assert.equal(nextHalfHour(new Date(at("13:05"))).toISOString(), at("13:30"));
 });
+
+test("Card 170 (b): events outside 08–20 are counted, clipped blocks flagged", async () => {
+  const { busyBlocks, outsideBand } = await import("./calendar/day-summary.ts");
+  const at = (h: number, m = 0) => new Date(Date.UTC(2026, 9, 13, h - 8, m)).toISOString(); // Manila hours
+  const evs = [
+    { id: "gym", title: "Gym", start: at(6, 30), end: at(7, 30) },
+    { id: "early", title: "Early", start: at(7), end: at(9) },
+    { id: "call", title: "Call home", start: at(21), end: at(21, 30) },
+    { id: "mid", title: "Mid", start: at(12), end: at(13) },
+  ];
+  const o = outsideBand(evs, "2026-10-13");
+  assert.deepEqual(o.before.map((e) => e.id), ["gym"]);
+  assert.deepEqual(o.after.map((e) => e.id), ["call"]);
+  const b = busyBlocks(evs, "2026-10-13").blocks.find((x) => x.id === "early")!;
+  assert.equal(b.from, 8);
+  assert.equal(b.clipFrom, true);
+  assert.equal(b.clipTo, false);
+});

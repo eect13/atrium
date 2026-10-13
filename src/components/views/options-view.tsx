@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
+import { setNewEventsTo, useCalAccounts } from "@/lib/calendar/accounts";
 import { APP_LABEL } from "@/lib/version";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -69,16 +70,29 @@ const JUMP = [
 /** Options › Calendar › Calendar accounts (Card 164): opens the same sheet as the Calendar toolbar. */
 function CalendarOptionsCard() {
   const [open, setOpen] = useState(false);
+  const newEventsTo = useCalAccounts((s) => s.newEventsTo);
+  const email = useCalAccounts((s) => s.email);
+  const canEdit = useCalAccounts((s) => s.canEdit);
   return (
     <Card id="opt-calendar" className="scroll-mt-4">
       <CardHeader>
         <CardTitle>Calendar</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <span className="min-w-0">
+            <label htmlFor="opt-new-events" className="block text-sm font-medium">New events go to</label>
+            <span className="mt-0.5 block text-xs text-muted-foreground">You can change it for each event.{newEventsTo === "google" && !(email && canEdit) ? " Until Google is connected, they stay in Atrium only." : ""}</span>
+          </span>
+          <select id="opt-new-events" className={cn(FIELD_SELECT, "sm:w-64")} value={newEventsTo} onChange={(e) => setNewEventsTo(e.target.value === "local" ? "local" : "google")}>
+            <option value="google">{email ? `${email} · Google` : "Google main calendar"}</option>
+            <option value="local">Atrium only</option>
+          </select>
+        </div>
         <div className="flex min-h-11 items-center justify-between gap-4">
           <span className="min-w-0">
             <span className="block text-sm font-medium">Calendar accounts</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">Google, iCal URLs and imported ICS files.</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Google, secret iCal addresses and imported ICS files.</span>
           </span>
           <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
             Open

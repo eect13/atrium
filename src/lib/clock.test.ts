@@ -69,8 +69,10 @@ test("Card 165 Clock A: work hours default 09–18 and normalise", () => {
   const noon = new Date("2026-10-13T04:00:00Z"); // 12:00 Manila
   assert.equal(zoneState(noon, "Asia/Manila"), "work");
   assert.equal(zoneState(noon, "America/New_York"), "night"); // 00:00
-  assert.equal(zoneState(new Date("2026-10-13T11:00:00Z"), "Asia/Manila"), "night"); // 19:00
-  assert.equal(zoneState(new Date("2026-10-12T22:30:00Z"), "Asia/Manila"), "day"); // 06:30
+  assert.equal(zoneState(new Date("2026-10-13T11:00:00Z"), "Asia/Manila"), "day"); // 19:00 (band 08–20)
+  assert.equal(zoneState(new Date("2026-10-13T12:30:00Z"), "Asia/Manila"), "night"); // 20:30
+  assert.equal(zoneState(new Date("2026-10-12T22:30:00Z"), "Asia/Manila"), "night"); // 06:30
+  assert.equal(zoneState(new Date("2026-10-13T00:00:00Z"), "Asia/Manila"), "day"); // 08:00
 });
 
 test("Card 165 Clock A: next clock change from Intl offsets, only within 30 days", () => {
