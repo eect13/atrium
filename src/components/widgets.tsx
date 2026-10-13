@@ -523,10 +523,15 @@ export function CalendarPeek({
           </button>
         ) : null}
       </div>
-      <div aria-hidden className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
-        {["08:00", "11:00", "14:00", "17:00", "20:00"].map((t) => (
-          <span key={t}>{t}</span>
-        ))}
+      <div aria-hidden className="mt-1 flex gap-1 text-[10px] tabular-nums text-muted-foreground">
+        {/* Keep the hour labels under the bar when overflow chips take room on either side. */}
+        {fb.out.before.length ? <span className="w-11 shrink-0" /> : null}
+        <div className="flex min-w-0 flex-1 justify-between">
+          {["08:00", "11:00", "14:00", "17:00", "20:00"].map((t) => (
+            <span key={t}>{t}</span>
+          ))}
+        </div>
+        {fb.out.after.length ? <span className="w-11 shrink-0" /> : null}
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{fb.text}</p>
       {fb.out.before.length || fb.out.after.length ? (
