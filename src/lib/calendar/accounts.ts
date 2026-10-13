@@ -17,7 +17,7 @@ import { adoptLegacy, claimOnDevice, clearRefresh, refreshOnDevice, type DeviceA
 import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus } from "./google-source.ts";
 import { LEGACY_ICS, withoutSource, type IcsSourceMeta } from "./ics-source.ts";
 import { isWritableRole } from "./source.ts";
-import { applyFlush, applyPull, bannerFor, enqueue, flushPending, pullCalendar, writeOf, type PendingOp } from "./sync.ts";
+import { applyFlush, bannerFor, enqueue, flushPending, syncCalendar, writeOf, type PendingOp } from "./sync.ts";
 
 export type Banner = "failed" | "expired" | "disconnected" | "offline" | "partial" | null;
 
@@ -31,6 +31,8 @@ type State = {
   lastSync: string | null;
   banner: Banner;
   syncTokens: Record<string, string>;
+  /** Card 179: calendars that have had their one ownership-backfill pull. */
+  ownerBackfill: Record<string, true>;
   pending: PendingOp[];
   icsSources: IcsSourceMeta[];
   connecting: boolean;
@@ -42,7 +44,7 @@ type State = {
   notice?: string | null;
 };
 
-const initial: State = { newEventsTo: "google", handoff: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [], icsSources: [], connecting: false, syncing: false };
+const initial: State = { newEventsTo: "google", handoff: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, ownerBackfill: {}, pending: [], icsSources: [], connecting: false, syncing: false };
 
 let legacyRefresh: string | null = null;
 
@@ -153,7 +155,7 @@ export function discardPending() {
   const ops = get().pending;
   const created = new Set(ops.filter((o) => o.kind === "create").map((o) => o.localId));
   useAtrium.setState((s) => ({ events: s.events.filter((e) => !(e.source === "google" && created.has(e.id) && !e.remoteId)) }));
-  set({ pending: [], syncTokens: {} });
+  set({ pending: [], syncTokens: {}, ownerBackfill: {} });
 }
 
 function b64url(bytes: Uint8Array) {
@@ -265,7 +267,7 @@ export async function disconnectGoogle() {
 
 function dropGoogleLocal() {
   useAtrium.setState((s) => ({ events: s.events.filter((e) => e.source !== "google"), gcalCals: [], gcalOff: [] }));
-  set({ email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [] });
+  set({ email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, ownerBackfill: {}, pending: [] });
 }
 
 /** Calendars the user can write to, primary first (Card 164 Q2: new events default to primary). */
@@ -314,20 +316,20 @@ export function syncNow(): Promise<void> {
       useAtrium.getState().setGcalCals(cals);
       const off = new Set(useAtrium.getState().gcalOff);
       const tokens = { ...get().syncTokens };
+      const backfill = { ...get().ownerBackfill };
       const pendingIds = new Set(get().pending.map((p) => p.localId));
       for (const c of cals) {
         if (off.has(c.id)) continue;
-        // Card 177 (b): events cached before Card 174 lack organiser info, and an incremental
-        // pull would never refill them; a full pull does, which lifts the pre-sync delete block.
-        const stale = useAtrium.getState().events.some((e) => e.source === "google" && e.calId === c.id && e.organizerSelf === undefined);
-        const r = await pullCalendar(src, c.id, stale ? undefined : tokens[c.id]);
-        useAtrium.setState((s) => ({ events: applyPull(s.events, c.id, r, pendingIds) }));
-        if (r.nextSyncToken) tokens[c.id] = r.nextSyncToken;
+        // Card 179 (N1): backfill full pull at most once per calendar; see syncCalendar.
+        const r = await syncCalendar(src, useAtrium.getState().events, c.id, tokens[c.id], Boolean(backfill[c.id]), pendingIds);
+        useAtrium.setState({ events: r.events });
+        backfill[c.id] = true;
+        if (r.token) tokens[c.id] = r.token;
         else delete tokens[c.id];
       }
       const known = new Set(cals.map((c) => c.id));
       useAtrium.setState((s) => ({ events: s.events.filter((e) => e.source !== "google" || !e.calId || known.has(e.calId)) }));
-      set({ syncTokens: tokens, lastSync: new Date().toISOString(), banner: null });
+      set({ syncTokens: tokens, ownerBackfill: backfill, lastSync: new Date().toISOString(), banner: null });
     } catch (e) {
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "offline");
       set({ banner: bannerFor({ code: err.code, status: err.status }, online()) });

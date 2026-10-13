@@ -213,3 +213,36 @@ test("K2: Google mapping keeps organizer/eventType/guest count and marks changed
   assert.deepEqual([a!.organizerSelf, a!.guestCount, a!.eventType, a!.instanceOf], [true, 2, undefined, undefined]);
   assert.deepEqual([b!.organizerSelf, b!.eventType, b!.instanceOf], [false, "focusTime", "m0"]);
 });
+
+test("Card 179 N1: ownership backfill is one full pull per calendar; leftovers count as not yours", async () => {
+  const { syncCalendar } = await import("./sync.ts");
+  const { deleteBlock, guestsToTell, moveBlock } = await import("./move.ts");
+  const now = new Date("2026-10-13T00:00:00Z");
+  // cached pre-174: one in the window (refilled), one far outside it (never refilled)
+  const cached = [ev("g-c-in", { organizerSelf: undefined }), ev("g-c-old", { organizerSelf: undefined, start: "2020-01-01T01:00:00Z", end: "2020-01-01T02:00:00Z", guestCount: 2 } as never)];
+  const log: ListEventsQuery[] = [];
+  const src = fakeSource(
+    [
+      { events: [ev("g-c-in", { organizerSelf: true }), ev("g-c-noorg", { organizerSelf: undefined })], deleted: [], nextSyncToken: "t1" },
+      { events: [], deleted: [], nextSyncToken: "t2" },
+      { events: [ev("g-c-new", { organizerSelf: undefined })], deleted: [], nextSyncToken: "t3" },
+    ],
+    log,
+  );
+  const a = await syncCalendar(src, cached, "c", "t0", false, new Set(), now);
+  assert.equal(a.full, true, "first sync: backfill full pull");
+  assert.ok(log[0]!.timeMin && !log[0]!.syncToken);
+  const b = await syncCalendar(src, a.events, "c", a.token, true, new Set(), now);
+  assert.equal(b.full, false, "second sync: incremental");
+  assert.equal(log[1]!.syncToken, "t1");
+  const c = await syncCalendar(src, b.events, "c", b.token, true, new Set(), now);
+  assert.equal(log[2]!.syncToken, "t2", "a new organiser-less event doesn't re-trigger a full pull");
+  for (const id of ["g-c-old", "g-c-noorg", "g-c-new"]) {
+    const e = c.events.find((x) => x.id === id)!;
+    assert.equal(e.organizerSelf, false, `${id} treated as not yours`);
+    assert.equal(deleteBlock(e, "2026-10-13T00:00:00Z"), null, `${id} not delete-blocked`);
+    assert.equal(guestsToTell(e), 0, "no guest prompt for not-yours");
+    assert.equal(moveBlock(e, "other", ["c", "other"]), "Only events you organize can move to another calendar.");
+  }
+  assert.equal(c.events.find((x) => x.id === "g-c-in")!.organizerSelf, true);
+});
