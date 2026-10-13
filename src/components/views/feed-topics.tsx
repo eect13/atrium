@@ -4,20 +4,34 @@
  * Card 188 (Form 185 A + Rev 1): Topics, Saved and Options panes inside Feed (formerly a separate view).
  * One data model: topics = feedPrefs.interests, Saved = the Hub, dismissed / less-like = feedPrefs.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Bookmark, BookmarkCheck, Info, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { OptionsSwitchRow } from "@/components/ui/options-switch-row";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
+import { Switch } from "@/components/ui/switch";
 import { Hub, HubAddDialog, InterestDialog } from "@/components/views/feed-panels";
-import { interestStock, interestSuggestions, withHub, withoutHub, withoutInterest, type FeedPrefs, type StockRef } from "@/lib/feed";
+import { HUB_TOPIC_OTHER, cleanInterest, hubTopics, interestStock, interestSuggestions, moveInterest, renameInterest, withHub, withInterest, withoutHub, withoutInterest, type FeedPrefs, type StockRef } from "@/lib/feed";
 import { picksFor, shorterWords, whyLine, withDismissed, withLessLike, withoutDismissed, type TopicPick } from "@/lib/topic-finder";
 import { useAtrium } from "@/lib/store";
 import { uid } from "@/lib/format";
 import { WATCH_CATALOG, type NewsItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Chip } from "./finance-chip";
+
+/** Options › "Show helper text" (Form 185: off by default). */
+const HELP = {
+  topics: "Picks rank this week's stories from your sources: more sources, a title match and things you save rank higher.",
+  saved: "Each saved story is filed under the followed topic it matched. Anything else is under Other.",
+  topicsCard: "Order here is the order on Topics. Use ⋯, or Alt+↑ / Alt+↓ on a topic, to move it.",
+  why: "One line under each pick saying why it was chosen.",
+  hide: "Dismissed stories stay out of Topics for 30 days.",
+  helper: "Short explanations like this one.",
+} as const;
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
 const EYEBROW = "text-xs uppercase tracking-[0.08em] text-muted-foreground";
@@ -56,7 +70,7 @@ function WhyThis({ pick }: { pick: TopicPick }) {
   );
 }
 
-function PickRow({ pick, lead, saved, onSave, onDismiss }: { pick: TopicPick; lead?: boolean; saved: boolean; onSave: () => void; onDismiss: () => void }) {
+function PickRow({ pick, lead, saved, why, onSave, onDismiss }: { pick: TopicPick; lead?: boolean; saved: boolean; why: boolean; onSave: () => void; onDismiss: () => void }) {
   const s = pick.lead;
   return (
     <article className={cn("flex gap-2", lead ? "rounded-xl bg-card p-5 shadow-[var(--shadow-border)]" : "border-b border-border py-3")}>
@@ -69,7 +83,7 @@ function PickRow({ pick, lead, saved, onSave, onDismiss }: { pick: TopicPick; le
           {s.title}
         </a>
         {lead && s.desc ? <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{s.desc}</p> : null}
-        <WhyThis pick={pick} />
+        {why ? <WhyThis pick={pick} /> : null}
       </div>
       <div className={cn("flex shrink-0", lead ? "flex-row items-start" : "flex-col items-center sm:flex-row sm:items-start")}>
         <button type="button" aria-pressed={saved} aria-label={saved ? `Saved: ${s.title}` : `Save ${s.title}`} className={cn("inline-flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground", saved && "text-foreground", FOCUS)} onClick={onSave}>
@@ -97,7 +111,7 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
   const catalog = useMemo<StockRef[]>(() => [...watch, ...WATCH_CATALOG], [watch]);
   const stockOf = useCallback((i: string) => interestStock(i, catalog), [catalog]);
   const topic = sel && prefs.interests.includes(sel) ? sel : (prefs.interests[0] ?? null);
-  const result = useMemo(() => (topic ? picksFor(topic, items, prefs, { stockOf }) : { picks: [], stories: 0, pool: 0 }), [topic, items, prefs, stockOf]);
+  const result = useMemo(() => (topic ? picksFor(topic, items, prefs, { stockOf, hideDismissed: prefs.hideDismissed }) : { picks: [], stories: 0, pool: 0 }), [topic, items, prefs, stockOf]);
   const savedUrls = new Set(prefs.hub.map((h) => h.url));
   const suggestions = useMemo(() => interestSuggestions(items, prefs.interests), [items, prefs.interests]);
   const shorter = useMemo(() => (topic ? shorterWords(topic) : []), [topic]);
@@ -111,7 +125,7 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
       return;
     }
     const id = uid();
-    updateFeed((f) => withHub(f, { id, url, title: p.lead.title, src: p.lead.src, at: new Date().toISOString() }));
+    updateFeed((f) => withHub(f, { id, url, title: p.lead.title, src: p.lead.src, at: new Date().toISOString(), topic: topic ?? undefined, stockOf }));
     toast("Saved", { action: { label: "Undo", onClick: () => updateFeed((f) => withoutHub(f, id)) } });
   }
 
@@ -138,6 +152,7 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
     <section aria-labelledby="topic-head">
       <h3 id="topic-head" className="font-display text-xl font-medium tracking-tight">{topic}</h3>
       <p className="mb-3 text-xs text-muted-foreground">{count}</p>
+      {prefs.showHelper ? <p className="mb-3 text-sm text-muted-foreground">{HELP.topics}</p> : null}
       {n === 0 ? (
         <div role="status" className="rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
           <p className="font-display text-lg font-medium tracking-tight">No stories on “{topic}” yet</p>
@@ -163,10 +178,10 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
         </div>
       ) : (
         <>
-          <PickRow lead pick={result.picks[0]!} saved={savedUrls.has(result.picks[0]!.lead.link)} onSave={() => save(result.picks[0]!)} onDismiss={() => dismiss(result.picks[0]!)} />
+          <PickRow lead pick={result.picks[0]!} saved={savedUrls.has(result.picks[0]!.lead.link)} why={prefs.showWhy} onSave={() => save(result.picks[0]!)} onDismiss={() => dismiss(result.picks[0]!)} />
           <div className="mt-2">
             {result.picks.slice(1).map((p) => (
-              <PickRow key={p.id} pick={p} saved={savedUrls.has(p.lead.link)} onSave={() => save(p)} onDismiss={() => dismiss(p)} />
+              <PickRow key={p.id} pick={p} saved={savedUrls.has(p.lead.link)} why={prefs.showWhy} onSave={() => save(p)} onDismiss={() => dismiss(p)} />
             ))}
           </div>
         </>
@@ -212,26 +227,120 @@ export function FeedTopics({ items, sourcesOn, onAddSources }: { items: NewsItem
   );
 }
 
-/** Feed › Saved: the Hub, with Export (.md / PDF). */
+/** Feed › Saved: topic filter chips (Form 185 B4) + the Hub with Export (.md / PDF) of what is shown. */
 export function FeedSaved() {
   const { prefs, updateFeed } = useAtrium(useShallow((s) => ({ prefs: s.feedPrefs, updateFeed: s.updateFeed })));
   const [add, setAdd] = useState(false);
+  const [pick, setPick] = useState<string | null>(null);
+  const topics = useMemo(() => hubTopics(prefs), [prefs]);
+  const active = pick && topics.includes(pick) ? pick : null;
+  const shown = active ? prefs.hub.filter((h) => (h.topic ?? HUB_TOPIC_OTHER) === active) : prefs.hub;
   return (
     <div className="max-w-3xl">
-      <Hub prefs={prefs} update={updateFeed} onAdd={() => setAdd(true)} layout="rail" title="Saved" />
+      {prefs.showHelper ? <p className="mb-3 text-sm text-muted-foreground">{HELP.saved}</p> : null}
+      {topics.some((t) => t !== HUB_TOPIC_OTHER) ? (
+        <div className="-mx-3 mb-3 flex gap-2 overflow-x-auto px-3 pb-1" role="group" aria-label="Filter saved by topic">
+          <Chip active={!active} onClick={() => setPick(null)} className="shrink-0">
+            All
+          </Chip>
+          {topics.map((t) => (
+            <Chip key={t} active={active === t} onClick={() => setPick(t)} className="shrink-0">
+              {t}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
+      <Hub prefs={prefs} items={shown} update={updateFeed} onAdd={() => setAdd(true)} layout="rail" title={active ? `Saved · ${active}` : "Saved"} />
       <HubAddDialog open={add} setOpen={setAdd} update={updateFeed} />
     </div>
+  );
+}
+
+/** One followed topic in Options: ⋯ (move) · name / inline Edit · Edit · Unfollow. Alt+↑/↓ moves it. */
+function TopicRow({ label, index, count, onMove, onRename, onUnfollow }: { label: string; index: number; count: number; onMove: (delta: number) => void; onRename: (to: string) => boolean; onUnfollow: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [draft, setDraft] = useState(label);
+  const first = index === 0;
+  const last = index === count - 1;
+  const items = [
+    ...(first ? [] : [{ label: "Move to top", onSelect: () => onMove(-index) }, { label: "Move up", onSelect: () => onMove(-1) }]),
+    ...(last ? [] : [{ label: "Move down", onSelect: () => onMove(1) }, { label: "Move to bottom", onSelect: () => onMove(count - 1 - index) }]),
+  ];
+  return (
+    <li
+      className="flex min-h-11 items-center gap-2 border-b border-border"
+      onKeyDown={(e) => {
+        if (edit || !e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+        e.preventDefault();
+        onMove(e.key === "ArrowUp" ? -1 : 1);
+      }}
+    >
+      {count > 1 ? <OverflowMenu label={`Move ${label} (${index + 1} of ${count})`} items={items} menuClassName="w-44" /> : null}
+      {edit ? (
+        <form
+          className="flex min-w-0 flex-1 items-center gap-2 py-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (onRename(draft)) setEdit(false);
+          }}
+        >
+          <Input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`Edit ${label}`} className="h-11 min-w-0 flex-1" onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), setDraft(label), setEdit(false))} />
+          <Button type="submit" variant="outline" className="min-h-11" disabled={!cleanInterest(draft)}>
+            Save
+          </Button>
+          <Button type="button" variant="ghost" className="min-h-11" onClick={() => (setDraft(label), setEdit(false))}>
+            Cancel
+          </Button>
+        </form>
+      ) : (
+        <>
+          <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+          <Button variant="ghost" className="min-h-11" aria-label={`Edit ${label}`} onClick={() => (setDraft(label), setEdit(true))}>
+            Edit
+          </Button>
+          <Button variant="ghost" size="icon" className="size-11" aria-label={`Unfollow ${label}`} onClick={onUnfollow}>
+            <X className="size-4" aria-hidden />
+          </Button>
+        </>
+      )}
+    </li>
   );
 }
 
 /** Feed › Options (Finance pattern): Sources · Followed topics · Picks. */
 export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSources: () => void }) {
   const { prefs, updateFeed } = useAtrium(useShallow((s) => ({ prefs: s.feedPrefs, updateFeed: s.updateFeed })));
-  const [follow, setFollow] = useState(false);
   const [review, setReview] = useState(false);
+  const [manage, setManage] = useState(false);
+  const [follow, setFollow] = useState("");
+  const [said, setSaid] = useState("");
+  const list = useRef<HTMLUListElement | null>(null);
+  const help = prefs.showHelper;
+
+  function move(label: string, delta: number) {
+    const from = prefs.interests.indexOf(label);
+    const to = Math.max(0, Math.min(prefs.interests.length - 1, from + delta));
+    if (from < 0 || to === from) return;
+    updateFeed((p) => moveInterest(p, label, delta));
+    setSaid(`${label} moved to ${to + 1} of ${prefs.interests.length}`);
+    // Keep focus on the moved row's ⋯ so Alt+↑/↓ can repeat.
+    requestAnimationFrame(() => list.current?.querySelectorAll<HTMLElement>("li")[to]?.querySelector<HTMLElement>("button")?.focus());
+  }
+  function rename(from: string, raw: string) {
+    const to = cleanInterest(raw);
+    if (!to) return false;
+    if (to.toLowerCase() !== from.toLowerCase() && prefs.interests.some((i) => i.toLowerCase() === to.toLowerCase())) {
+      toast(`Already following ${to}`);
+      return false;
+    }
+    updateFeed((p) => renameInterest(p, from, to));
+    return true;
+  }
+  const followOk = cleanInterest(follow) && !prefs.interests.some((i) => i.toLowerCase() === cleanInterest(follow).toLowerCase());
+
   return (
-    <div className="max-w-2xl space-y-4">
-      <Card>
+    <div className="grid max-w-5xl items-start gap-4 lg:grid-cols-2">
+      <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle id="feed-opt-sources" tabIndex={-1}>
             Sources
@@ -249,22 +358,32 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           <CardTitle>Followed topics</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
+          {help ? <p className="text-sm text-muted-foreground">{HELP.topicsCard}</p> : null}
+          <p className="sr-only" aria-live="polite">
+            {said}
+          </p>
           {prefs.interests.length ? (
-            <ul>
-              {prefs.interests.map((i) => (
-                <li key={i} className="flex min-h-11 items-center gap-2 border-b border-border">
-                  <span className="min-w-0 flex-1 truncate text-sm">{i}</span>
-                  <Button variant="ghost" size="icon" className="size-11" aria-label={`Unfollow ${i}`} onClick={() => updateFeed((p) => withoutInterest(p, i))}>
-                    <X className="size-4" aria-hidden />
-                  </Button>
-                </li>
+            <ul ref={list} aria-label="Followed topics, in order">
+              {prefs.interests.map((i, n) => (
+                <TopicRow key={i} label={i} index={n} count={prefs.interests.length} onMove={(d) => move(i, d)} onRename={(to) => rename(i, to)} onUnfollow={() => updateFeed((p) => withoutInterest(p, i))} />
               ))}
             </ul>
           ) : null}
-          <Button variant="outline" className="mt-2 min-h-11" onClick={() => setFollow(true)}>
-            <Plus className="size-4" aria-hidden />
-            Follow a topic
-          </Button>
+          <form
+            className="flex items-center gap-2 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!followOk) return;
+              updateFeed((p) => withInterest(p, follow));
+              setFollow("");
+            }}
+          >
+            <Input value={follow} onChange={(e) => setFollow(e.target.value)} placeholder="Topic or phrase, e.g. heat pumps" aria-label="Follow a topic" className="h-11 min-w-0 flex-1" />
+            <Button type="submit" variant="outline" className="min-h-11" disabled={!followOk}>
+              <Plus className="size-4" aria-hidden />
+              Follow
+            </Button>
+          </form>
         </CardContent>
       </Card>
       <Card>
@@ -272,13 +391,40 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           <CardTitle>Picks</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
-          <div className="flex min-h-11 items-center gap-2">
+          <OptionsSwitchRow title="Show why lines" hint={help ? HELP.why : null} className="border-b border-border">
+            <Switch checked={prefs.showWhy} onCheckedChange={(v) => updateFeed((p) => ({ ...p, showWhy: v }))} aria-label="Show why lines" />
+          </OptionsSwitchRow>
+          <OptionsSwitchRow title="Hide stories I dismissed" hint={help ? HELP.hide : null} className="border-b border-border">
+            <Switch checked={prefs.hideDismissed} onCheckedChange={(v) => updateFeed((p) => ({ ...p, hideDismissed: v }))} aria-label="Hide stories I dismissed" />
+          </OptionsSwitchRow>
+          <OptionsSwitchRow title="Show helper text" hint={help ? HELP.helper : null} className="border-b border-border">
+            <Switch checked={prefs.showHelper} onCheckedChange={(v) => updateFeed((p) => ({ ...p, showHelper: v }))} aria-label="Show helper text" />
+          </OptionsSwitchRow>
+          <div className="flex min-h-11 items-center gap-2 border-b border-border py-1">
             <p className="min-w-0 flex-1 text-sm">Less like this · {prefs.lessLike.length}</p>
-            <Button variant="outline" className="min-h-11" disabled={!prefs.lessLike.length} onClick={() => (updateFeed((p) => ({ ...p, lessLike: [] })), toast("Less like this cleared"))}>
-              Clear
+            <Button variant="outline" className="min-h-11" aria-expanded={manage} disabled={!prefs.lessLike.length} onClick={() => setManage((v) => !v)}>
+              Manage
             </Button>
           </div>
-          <div className="flex min-h-11 items-center gap-2">
+          {manage && prefs.lessLike.length ? (
+            <section aria-label="Less like this">
+              <ul className="flex flex-wrap gap-2 py-2">
+                {prefs.lessLike.map((w) => (
+                  <li key={w}>
+                    <Chip active={false} onClick={() => updateFeed((p) => ({ ...p, lessLike: p.lessLike.filter((x) => x !== w) }))}>
+                      <span className="sr-only">Remove </span>
+                      {w}
+                      <X className="size-3.5" aria-hidden />
+                    </Chip>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="ghost" className="min-h-11" onClick={() => (updateFeed((p) => ({ ...p, lessLike: [] })), setManage(false), toast("Less like this cleared"))}>
+                Clear all
+              </Button>
+            </section>
+          ) : null}
+          <div className="flex min-h-11 items-center gap-2 py-1">
             <p className="min-w-0 flex-1 text-sm">Dismissed · {prefs.dismissed.length}</p>
             <Button variant="outline" className="min-h-11" aria-expanded={review} disabled={!prefs.dismissed.length} onClick={() => setReview((v) => !v)}>
               Review
@@ -301,7 +447,6 @@ export function FeedOptions({ sourcesOn, onSources }: { sourcesOn: number; onSou
           ) : null}
         </CardContent>
       </Card>
-      <InterestDialog open={follow} setOpen={setFollow} prefs={prefs} update={updateFeed} suggestions={[]} />
     </div>
   );
 }

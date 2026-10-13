@@ -9,7 +9,12 @@ export type StockRef = { id?: string; label: string; symbol: string; name?: stri
 export type StockOf = (interest: string) => StockRef | null | undefined;
 
 export type HubKind = "link" | "video" | "doc";
-export type HubItem = { id: string; url: string; title: string; kind: HubKind; src?: string; at: string; note?: string };
+/** `topic`: the followed topic it was saved under (Card 190 / Form 185 B4), or HUB_TOPIC_OTHER. */
+export type HubItem = { id: string; url: string; title: string; kind: HubKind; src?: string; at: string; note?: string; topic?: string };
+/** Saved-filter label for items that match no followed topic. */
+export const HUB_TOPIC_OTHER = "Other";
+/** Version of the saved-item topic backfill (feedPrefs.hubTopicV). */
+export const HUB_TOPIC_V = 1;
 export type DigestFreq = "daily" | "weekdays" | "weekly";
 
 export type FeedPrefs = {
@@ -40,6 +45,14 @@ export type FeedPrefs = {
   dismissed: DismissedPick[];
   /** Topic Finder "Less like this": title keywords that rank lower. */
   lessLike: string[];
+  /** Options › Picks (Form 185): one "Why: …" line per pick. Default on. */
+  showWhy: boolean;
+  /** Options › Picks: leave dismissed stories out of Topics. Default on. */
+  hideDismissed: boolean;
+  /** Options › Picks: short helper copy across Feed › Topics / Saved / Options. Default off. */
+  showHelper: boolean;
+  /** Saved-item topic backfill version run so far (0 = never). */
+  hubTopicV: number;
 };
 
 export type DismissedPick = { id: string; at: string; title?: string; link?: string };
@@ -77,6 +90,10 @@ export const DEFAULT_FEED_PREFS: FeedPrefs = {
   hub: [],
   dismissed: [],
   lessLike: [],
+  showWhy: true,
+  hideDismissed: true,
+  showHelper: false,
+  hubTopicV: 0,
   pinned: [],
   hidden: [],
   muted: [],
@@ -139,6 +156,7 @@ function asHub(raw: unknown): HubItem | null {
     src: typeof r.src === "string" && r.src.trim() ? r.src.trim() : undefined,
     at: typeof r.at === "string" ? r.at : "",
     ...(note ? { note } : {}),
+    ...(typeof r.topic === "string" && r.topic.trim() ? { topic: r.topic.trim().slice(0, 40) } : {}),
   };
 }
 
@@ -186,7 +204,66 @@ export function normalizeFeedPrefs(raw: unknown): FeedPrefs {
         .map((d) => ({ id: d.id, at: d.at, ...(typeof d.title === "string" ? { title: d.title.slice(0, 300) } : {}), ...(typeof d.link === "string" ? { link: d.link } : {}) })),
     ).slice(0, DISMISS_MAX),
     lessLike: strList(r.lessLike, LESS_MAX),
+    showWhy: r.showWhy !== false,
+    hideDismissed: r.hideDismissed !== false,
+    showHelper: r.showHelper === true,
+    hubTopicV: typeof r.hubTopicV === "number" && Number.isFinite(r.hubTopicV) ? Math.max(0, Math.floor(r.hubTopicV)) : 0,
   };
+}
+
+/** Move a followed topic by `delta` places (−1 up, +1 down); clamped. Order is the Topics order. */
+export function moveInterest(p: FeedPrefs, label: string, delta: number): FeedPrefs {
+  const from = p.interests.findIndex((i) => i.toLowerCase() === label.toLowerCase());
+  if (from < 0 || !delta) return p;
+  const to = Math.max(0, Math.min(p.interests.length - 1, from + delta));
+  if (to === from) return p;
+  const interests = [...p.interests];
+  const [it] = interests.splice(from, 1);
+  interests.splice(to, 0, it!);
+  return { ...p, interests };
+}
+
+/** Edit a followed topic in place (keeps its position); saved items filed under it follow. */
+export function renameInterest(p: FeedPrefs, from: string, raw: string): FeedPrefs {
+  const to = cleanInterest(raw);
+  const k = from.toLowerCase();
+  if (!to || !p.interests.some((i) => i.toLowerCase() === k)) return p;
+  if (to.toLowerCase() !== k && p.interests.some((i) => i.toLowerCase() === to.toLowerCase())) return p;
+  return {
+    ...p,
+    interests: p.interests.map((i) => (i.toLowerCase() === k ? to : i)),
+    interest: p.interest.toLowerCase() === k ? to : p.interest,
+    hub: p.hub.map((h) => (h.topic?.toLowerCase() === k ? { ...h, topic: to } : h)),
+  };
+}
+
+/**
+ * Which followed topic a story belongs to (Form 185 B4): the active chip when it matches,
+ * else the first followed topic (in Topics order) that matches, else HUB_TOPIC_OTHER.
+ */
+export function topicFor(s: Story, p: Pick<FeedPrefs, "interests" | "interest">, stockOf?: StockOf): string {
+  if (p.interest !== FEED_ALL && matchTopic(s, p.interest, stockOf)) return p.interest;
+  return p.interests.find((i) => matchTopic(s, i, stockOf)) ?? HUB_TOPIC_OTHER;
+}
+
+/**
+ * Versioned migration (v1): saved items with no topic get one by re-matching title + note against
+ * the current followed topics, else HUB_TOPIC_OTHER. Items that already have a topic are untouched.
+ */
+export function backfillHubTopics(p: FeedPrefs, stockOf?: StockOf): FeedPrefs {
+  if (p.hubTopicV >= HUB_TOPIC_V) return p;
+  const hub = p.hub.map((h) =>
+    h.topic ? h : { ...h, topic: topicFor({ title: h.title, link: h.url, desc: h.note }, { interests: p.interests, interest: FEED_ALL }, stockOf) },
+  );
+  return { ...p, hub, hubTopicV: HUB_TOPIC_V };
+}
+
+/** Saved filter chips: topics present, in Topics order, then any others A–Z, "Other" last. */
+export function hubTopics(p: Pick<FeedPrefs, "hub" | "interests">): string[] {
+  const have = new Set(p.hub.map((h) => h.topic ?? HUB_TOPIC_OTHER));
+  const followed = p.interests.filter((i) => have.has(i));
+  const rest = [...have].filter((t) => t !== HUB_TOPIC_OTHER && !followed.includes(t)).sort((a, b) => a.localeCompare(b));
+  return [...followed, ...rest, ...(have.has(HUB_TOPIC_OTHER) ? [HUB_TOPIC_OTHER] : [])];
 }
 
 export function withInterest(p: FeedPrefs, raw: string): FeedPrefs {
@@ -202,12 +279,22 @@ export function withoutInterest(p: FeedPrefs, label: string): FeedPrefs {
   return { ...p, interests, interest: p.interest.toLowerCase() === k ? FEED_ALL : p.interest };
 }
 
-export function withHub(p: FeedPrefs, item: Omit<HubItem, "kind"> & { kind?: HubKind }): FeedPrefs {
+/**
+ * Save a link. The followed topic it belongs to is recorded (Form 185 B4): `item.topic` when the
+ * caller knows it (Topics page), else re-matched from title + `match` (story summary fields).
+ */
+export function withHub(
+  p: FeedPrefs,
+  item: Omit<HubItem, "kind"> & { kind?: HubKind; match?: Pick<Story, "desc" | "category" | "region">; stockOf?: StockOf },
+): FeedPrefs {
   const url = item.url.trim();
   if (!/^https?:\/\//i.test(url) || p.hub.some((h) => h.url === url)) return p;
   const note = typeof item.note === "string" ? item.note.trim().slice(0, 2000) : "";
+  const { match, stockOf, ...rest } = item;
+  const topic = cleanInterest(rest.topic ?? "") || topicFor({ title: rest.title, link: url, desc: match?.desc ?? note, category: match?.category, region: match?.region }, p, stockOf);
   const next: HubItem = {
-    ...item,
+    ...rest,
+    topic,
     url,
     title: item.title.trim() || hostOf(url),
     kind: item.kind ?? hubKind(url),

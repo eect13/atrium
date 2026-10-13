@@ -44,7 +44,7 @@ import { normalizeScreen, normalizeScreenCap, normalizeScreenPe, normalizeScreen
 import { DEFAULT_DASH, DASH_SPAN_N, normalizeDash, normalizeDashSpan, type DashCard } from "./dash";
 import { normalizeCalViews, type CalView } from "./cal-view";
 import { asNewsTag, keepNewsChip } from "./headline";
-import { DEFAULT_FEED_PREFS, normalizeFeedPrefs, type FeedPrefs } from "./feed";
+import { DEFAULT_FEED_PREFS, backfillHubTopics, normalizeFeedPrefs, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { normalizeDashPrefs, type DashPrefs, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
@@ -992,7 +992,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 34,
+      version: 35,
       storage: createJSONStorage(() => ({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
@@ -1261,6 +1261,11 @@ export const useAtrium = create<State>()(
               ...(p.modules ?? {}),
             },
           };
+        }
+        if (version < 35) {
+          // Card 190 (Form 185 B4): file existing saved items under a followed topic (else "Other").
+          const fp = (p as { feedPrefs?: unknown }).feedPrefs;
+          if (fp) p = { ...p, feedPrefs: backfillHubTopics(normalizeFeedPrefs(fp)) };
         }
         return p as Data;
       },

@@ -203,7 +203,10 @@ function HubCard({
       <div className="flex items-start gap-2">
         <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={onExternalAnchorClick} className="min-w-0 grow">
           <p className="line-clamp-2 text-sm font-medium leading-snug">{item.title}</p>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.src || hostOf(item.url)}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {item.src || hostOf(item.url)}
+            {item.topic ? ` · ${item.topic}` : ""}
+          </p>
         </a>
         <OverflowMenu
           label={`More for ${item.title}`}
@@ -251,7 +254,9 @@ function HubCard({
 }
 
 /** B · resource hub. `rail` = desktop 320px column; `strip` = phone horizontal scroller. */
-export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: FeedPrefs; update: Update; onAdd: () => void; layout: "rail" | "strip"; title?: string }) {
+export function Hub({ prefs, items, update, onAdd, layout, title = "Saved" }: { prefs: FeedPrefs; items?: HubItem[]; update: Update; onAdd: () => void; layout: "rail" | "strip"; title?: string }) {
+  /** Feed › Saved passes the topic-filtered list; Export follows what is shown. */
+  const hub = items ?? prefs.hub;
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -279,7 +284,7 @@ export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: 
           aria-expanded={exportOpen}
           aria-haspopup="menu"
           onClick={() => setExportOpen((v) => !v)}
-          disabled={!prefs.hub.length}
+          disabled={!hub.length}
         >
           Export
         </Button>
@@ -290,7 +295,7 @@ export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: 
               role="menuitem"
               className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
               onClick={() => {
-                downloadHubMarkdown(prefs.hub);
+                downloadHubMarkdown(hub);
                 setExportOpen(false);
                 toast("Exported saved .md");
               }}
@@ -302,7 +307,7 @@ export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: 
               role="menuitem"
               className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
               onClick={() => {
-                downloadHubPdf(prefs.hub);
+                downloadHubPdf(hub);
                 setExportOpen(false);
                 toast("Exported saved PDF");
               }}
@@ -318,7 +323,7 @@ export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: 
     </div>
   );
 
-  if (!prefs.hub.length) {
+  if (!hub.length) {
     return (
       <section aria-label={title}>
         {head}
@@ -333,13 +338,13 @@ export function Hub({ prefs, update, onAdd, layout, title = "Saved" }: { prefs: 
       {head}
       {layout === "rail" ? (
         <div className="space-y-3">
-          {prefs.hub.map((h) => (
+          {hub.map((h) => (
             <HubCard key={h.id} item={h} update={update} />
           ))}
         </div>
       ) : (
         <div className="scroll-auto -mx-3 flex gap-3 overflow-x-auto px-3 pb-1">
-          {prefs.hub.map((h) => (
+          {hub.map((h) => (
             <HubCard key={h.id} item={h} compact update={update} />
           ))}
         </div>
@@ -610,7 +615,7 @@ export function CurateDialog({
                         className="min-h-11"
                         disabled={inHub.has(s.link)}
                         onClick={() => {
-                          update((p) => withHub(p, { id: uid(), url: s.link, title: s.title, src: s.src, at: new Date().toISOString() }));
+                          update((p) => withHub(p, { id: uid(), url: s.link, title: s.title, src: s.src, at: new Date().toISOString(), match: s }));
                           toast("Saved");
                         }}
                       >

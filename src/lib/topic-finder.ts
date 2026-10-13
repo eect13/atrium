@@ -145,7 +145,7 @@ export function shorterWords(topic: string): string[] {
 export const PICK_WINDOW_DAYS = 7;
 
 /** A topic's picks this week, best first, minus dismissed and hidden stories. */
-export function picksFor<S extends TopicStory>(topic: string, items: readonly S[], prefs: Pick<FeedPrefs, "hidden" | "muted" | "dismissed" | "hub" | "lessLike">, opts: { now?: number; stockOf?: StockOf } = {}) {
+export function picksFor<S extends TopicStory>(topic: string, items: readonly S[], prefs: Pick<FeedPrefs, "hidden" | "muted" | "dismissed" | "hub" | "lessLike">, opts: { now?: number; stockOf?: StockOf; hideDismissed?: boolean } = {}) {
   const now = opts.now ?? Date.now();
   // Scout 186 §4 / Form B7: a blank topic has no picks (it used to mean "everything").
   if (!topicTerms(topic).length) return { picks: [] as TopicPick<S>[], stories: 0, pool: 0 };
@@ -157,7 +157,8 @@ export function picksFor<S extends TopicStory>(topic: string, items: readonly S[
     return (!at || at >= cut) && !hidden.has(s.link) && !muted.has((s.src ?? "").toLowerCase());
   });
   const about = week.filter((s) => matchTopic(s, topic, opts.stockOf) !== null);
-  const gone = new Set(pruneDismissed(prefs.dismissed, now).map((d) => d.id));
+  // Options › "Hide stories I dismissed" (default on). Off: dismissed picks rank as normal.
+  const gone = new Set(opts.hideDismissed === false ? [] : pruneDismissed(prefs.dismissed, now).map((d) => d.id));
   const picks: TopicPick<S>[] = clusterStories(about)
     .filter((c) => !gone.has(c.id) && !c.items.some((s) => gone.has(s.link)))
     .map((c) => ({ ...c, ...scorePick(c, { topic, saved: prefs.hub, lessLike: prefs.lessLike, now, stockOf: opts.stockOf }) }))
