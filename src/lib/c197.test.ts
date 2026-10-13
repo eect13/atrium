@@ -70,8 +70,8 @@ test("C197 lows: toast 44px, one announcement, Back closes drawer, tablet hint +
   assert.doesNotMatch(u, /announce\??[(:]|announce,/);
   assert.doesNotMatch(src("components/views/feed-topics.tsx"), /announce: setSaid/);
   const app = src("components/atrium-app.tsx");
-  assert.match(app, /pushState\(\{ \.\.\.\(prev \?\? \{\}\), atriumDrawer: true \}/);
-  assert.match(app, /addEventListener\("popstate", onPop\)/);
+  // Card 199 supersedes the history-marker approach with native Back → window.__atriumBack.
+  assert.match(app, /w\.__atriumBack = \(\) => androidBack\(/);
   assert.match(app, /md:pointer-fine:inline/);
   assert.doesNotMatch(app, / md:inline">\s*\{modHint\}/);
   assert.match(app, /pt-\[max\(env\(safe-area-inset-top\),1\.5rem\)\]/);

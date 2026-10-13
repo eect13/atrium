@@ -53,7 +53,7 @@ import type { FeedPane } from "./types";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, landingFeedPane, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
 import { resolveIndexPair } from "./desk-market";
-import { DEFAULT_EVENT_CATS, normalizeEventCats, remapCatId, type EventCategory } from "./event-cats";
+import { DEFAULT_EVENT_CATS, normalizeEventCats, normalizeEvents, remapCatId, type EventCategory } from "./event-cats";
 
 export const STARTER_FEED_IDS = starterFeedIds("PH");
 
@@ -1313,7 +1313,7 @@ export const useAtrium = create<State>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
-        const view = safeLaunchView(toViewId((persisted as { view?: unknown } | null)?.view, current.view), "dashboard");
+        const view = safeLaunchView(toViewId((persisted as { view?: unknown } | null)?.view, current.view), "dashboard", "options");
         const demo = demoBooks(p.profile?.name ?? current.profile.name);
         const accounts = (p.accounts ?? current.accounts)
           .map((a, i) => normalizeAccount(a, i))
@@ -1335,6 +1335,7 @@ export const useAtrium = create<State>()(
           gcalOff: Array.isArray(p.gcalOff) ? p.gcalOff : (current as Data).gcalOff ?? [],
           digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
           eventCats: normalizeEventCats(p.eventCats ?? (current as Data).eventCats),
+          events: normalizeEvents(p.events, current.events),
           profile,
           windows: (p.windows ?? current.windows).map((w) => ({
             ...w,

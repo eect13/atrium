@@ -21,6 +21,7 @@ const SheetContent = React.forwardRef<
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/90" />
     <DialogPrimitive.Content
       ref={ref}
+      data-atrium-layer="sheet"
       className={cn(
         "fixed z-50 bg-card text-card-foreground shadow-[var(--shadow-border)] focus:outline-none",
         side === "left" &&

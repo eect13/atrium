@@ -77,6 +77,7 @@ import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
 import { cn } from "@/lib/utils";
 import { markCrashedView } from "@/lib/view-crash";
+import { androidBack } from "@/lib/android-back";
 
 
 class ViewCrash extends Component<{ children: ReactNode; view: string }, { err: Error | null }> {
@@ -347,22 +348,18 @@ export function AtriumApp() {
   // FORM-WCAG #2 (2.4.11): while keyboard focus is in main, the float layer drops under it.
   const [floatsUnder, setFloatsUnder] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Card 197: in the phone/tablet app, Android Back (history.back) closes the open drawer instead of exiting.
+  // Card 199: Android hardware/gesture Back (MainActivity → window.__atriumBack): drawer, then sheet,
+  // then dialog; false = nothing open, so the native side falls back to the default exit.
+  const menuOpenRef = useRef(menuOpen);
+  menuOpenRef.current = menuOpen;
   useEffect(() => {
-    if (floats || !menuOpen || typeof window === "undefined") return;
-    const prev = window.history.state as Record<string, unknown> | null;
-    window.history.pushState({ ...(prev ?? {}), atriumDrawer: true }, "");
-    let popped = false;
-    const onPop = () => {
-      popped = true;
-      setMenuOpen(false);
-    };
-    window.addEventListener("popstate", onPop);
+    if (floats || typeof window === "undefined") return;
+    const w = window as Window & { __atriumBack?: () => boolean };
+    w.__atriumBack = () => androidBack(menuOpenRef.current, () => setMenuOpen(false));
     return () => {
-      window.removeEventListener("popstate", onPop);
-      if (!popped && (window.history.state as { atriumDrawer?: boolean } | null)?.atriumDrawer) window.history.back();
+      delete w.__atriumBack;
     };
-  }, [floats, menuOpen]);
+  }, [floats]);
   const [hit, setHit] = useState(-1);
   const [omniBox, setOmniBox] = useState<{ top: number; left: number; width: number } | null>(null);
   const omniWrap = useRef<HTMLDivElement>(null);
@@ -594,6 +591,8 @@ export function AtriumApp() {
         className={cn(
           "relative z-50 hidden shrink-0 flex-col border-r border-border bg-sidebar lg:flex",
           railCollapsed ? "w-[4.5rem] p-2" : "w-56 p-4",
+          // Card 199: tablet app: keep the brand below the status bar (edge-to-edge).
+          !floats && "pt-[max(env(safe-area-inset-top),1.5rem)] pl-[max(env(safe-area-inset-left),0.5rem)]",
         )}
       >
         <div className={cn("mb-6 flex items-center gap-3", railCollapsed ? "justify-center px-0" : "px-2")}>

@@ -64,4 +64,10 @@ if (!html.includes("atrium-root") || !/assets\/[^"' ]+\.js/.test(html)) {
   fail("index.html does not look like the Atrium desktop shell.");
 }
 
+// Card 199: Android-native sources live in src-tauri/android (tracked); put them into gen/android.
+if (/^android$/i.test(tauriEnv.TAURI_ENV_PLATFORM)) {
+  const overlay = spawnSync(process.execPath, [join(ROOT, "scripts", "android-overlay.mjs")], { cwd: ROOT, stdio: "inherit", env: tauriEnv, windowsHide: true });
+  if ((overlay.status ?? 1) !== 0) fail("Could not apply the Android overlay (src-tauri/android).");
+}
+
 banner("Atrium — phase 2/3: compile Rust", "  cargo / tauri continues after this script exits.\n");

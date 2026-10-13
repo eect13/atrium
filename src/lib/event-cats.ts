@@ -217,3 +217,19 @@ export function catsWithOrphans(cats: EventCategory[], usedIds: string[]): Event
   }
   return out;
 }
+
+/**
+ * Card 199: load-time hardening for persisted events. An event without a string `cat` crashed
+ * Dashboard and Calendar (`.replace` on undefined); default it to "other" (and title/loc to "").
+ * Entries without an id/start are not events and are dropped. Unchanged events keep their identity.
+ */
+export function normalizeEvents<E extends { id: string; start: string; cat: string; title: string; loc: string }>(raw: unknown, fallback: E[] = []): E[] {
+  if (!Array.isArray(raw)) return fallback;
+  const out: E[] = [];
+  for (const e of raw as Partial<E>[]) {
+    if (!e || typeof e !== "object" || typeof e.id !== "string" || typeof e.start !== "string") continue;
+    const ok = typeof e.cat === "string" && e.cat !== "" && typeof e.title === "string" && typeof e.loc === "string";
+    out.push(ok ? (e as E) : ({ ...e, cat: typeof e.cat === "string" && e.cat ? e.cat : REMAP_CAT_ID, title: typeof e.title === "string" ? e.title : "", loc: typeof e.loc === "string" ? e.loc : "" } as E));
+  }
+  return out;
+}

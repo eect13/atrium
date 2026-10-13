@@ -9,14 +9,17 @@ export function markCrashedView(view: string) {
   }
 }
 
-/** Returns `fallback` (and clears the mark) when `view` is the one that crashed last session. */
-export function safeLaunchView<V extends string>(view: V, fallback: V): V {
+/**
+ * Returns `fallback` (and clears the mark) when `view` is the one that crashed last session.
+ * Card 199: if the fallback itself crashed (Dashboard), use `second` (Options) instead.
+ */
+export function safeLaunchView<V extends string>(view: V, fallback: V, second: V = fallback): V {
   try {
     if (typeof localStorage === "undefined") return view;
     const crashed = localStorage.getItem(CRASHED_VIEW_KEY);
     if (crashed === null) return view;
     localStorage.removeItem(CRASHED_VIEW_KEY);
-    return crashed === view ? fallback : view;
+    return crashed === view ? (view === fallback ? second : fallback) : view;
   } catch {
     return view;
   }
