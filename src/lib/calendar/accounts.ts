@@ -37,6 +37,8 @@ type State = {
   handoff: Handoff | null;
   /** Card 168 (d), Eric's pick: new events go to the Google main calendar by default. */
   newEventsTo: "google" | "local";
+  /** Card 174 K2: one-off message for the Calendar view (e.g. a refused move). Not persisted. */
+  notice?: string | null;
 };
 
 const initial: State = { newEventsTo: "google", handoff: null, status: null, email: null, canEdit: false, lastSync: null, banner: null, syncTokens: {}, pending: [], icsSources: [], connecting: false, syncing: false };
@@ -48,7 +50,7 @@ export const useCalAccounts = create<State>()(
     name: "atrium.calendar.v1",
     version: 2,
     storage: createJSONStorage(() => (typeof localStorage === "undefined" ? (undefined as unknown as Storage) : localStorage)),
-    partialize: ({ connecting: _c, syncing: _s, status: _st, handoff: _h, ...keep }) => keep,
+    partialize: ({ connecting: _c, syncing: _s, status: _st, handoff: _h, notice: _n, ...keep }) => keep,
     // v1 kept a long-lived Bearer sid in localStorage. Migration 0003 turned it into a refresh
     // handle on the server; move it to the device store and drop it from localStorage.
     migrate: (persisted, version) => {
@@ -300,6 +302,11 @@ export function syncNow(): Promise<void> {
         const r = await flushPending(src, get().pending);
         useAtrium.setState((s) => ({ events: applyFlush(s.events, r) }));
         set({ pending: r.left });
+        const refused = r.conflicts.find((c) => c.kind === "move");
+        if (refused) {
+          const name = useAtrium.getState().gcalCals.find((c) => c.id === refused.moveTo)?.label ?? "that calendar";
+          set({ notice: `Couldn't move to ${name}. Nothing changed.` });
+        }
         if (r.stopped) {
           set({ banner: bannerFor(r.stopped, online()) });
           return;
@@ -355,11 +362,11 @@ export async function queueGoogleWrite(kind: PendingOp["kind"], e: CalendarEvent
 }
 
 /** Several writes that belong together (series split, move between calendars), one sync. */
-export async function queueGoogleWrites(ops: { kind: PendingOp["kind"]; event: CalendarEvent }[]) {
+export async function queueGoogleWrites(ops: { kind: PendingOp["kind"]; event: CalendarEvent; moveTo?: string; notify?: "all" | "none" }[]) {
   let q = get().pending;
-  for (const { kind, event: e } of ops) {
+  for (const { kind, event: e, moveTo, notify } of ops) {
     if (!e.calId) continue;
-    q = enqueue(q, { id: uid(), kind, calId: e.calId, localId: e.id, remoteId: e.remoteId, etag: e.etag, write: kind === "delete" ? undefined : writeOf(e), at: new Date().toISOString() });
+    q = enqueue(q, { id: uid(), kind, calId: e.calId, localId: e.id, remoteId: e.remoteId, etag: e.etag, write: kind === "delete" || kind === "move" ? undefined : writeOf(e), moveTo, notify, at: new Date().toISOString() });
   }
   set({ pending: q });
   if (syncing) await syncing;
@@ -406,4 +413,8 @@ export function hiddenIcsSources(sources: IcsSourceMeta[] = get().icsSources) {
 
 export function updateIcsSource(id: string, patch: Partial<IcsSourceMeta>) {
   set({ icsSources: get().icsSources.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
+}
+
+export function clearNotice() {
+  set({ notice: null });
 }

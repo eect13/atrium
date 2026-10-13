@@ -12,7 +12,7 @@
  */
 import { CALLBACK_PATH, EDIT_SCOPE, readCalendarConfig, type CalendarConfig } from "./config.server.ts";
 import { open as unseal, randomToken, seal, SealError, sha256 } from "./crypto.server.ts";
-import { deleteEvent, GoogleApiError, insertEvent, listCalendarList, listEventsPage, patchEvent, type GEvent } from "./google-api.server.ts";
+import { deleteEvent, GoogleApiError, insertEvent, listCalendarList, listEventsPage, moveEvent, patchEvent, sendUpdatesOf, type GEvent } from "./google-api.server.ts";
 import { authUrl, exchangeCode, OAuthError, refreshAccess, revoke, userInfo, type Fetch } from "./oauth.server.ts";
 import {
   bindHandoff,
@@ -131,7 +131,7 @@ async function accessFor(d: Deps, cfg: Ready, sql: Sql, conn: Connection) {
 }
 
 function trimEvent(g: GEvent) {
-  const keep = ["id", "etag", "status", "summary", "start", "end", "originalStartTime", "location", "recurrence", "recurringEventId", "hangoutLink", "attendees", "reminders", "colorId"];
+  const keep = ["id", "etag", "status", "summary", "start", "end", "originalStartTime", "location", "recurrence", "recurringEventId", "hangoutLink", "attendees", "reminders", "colorId", "organizer", "eventType"];
   const out: Record<string, unknown> = {};
   for (const k of keep) if (g[k] !== undefined) out[k] = g[k];
   return out;
@@ -333,6 +333,12 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
       const calendars: CalendarMeta[] = list.map((c) => ({ id: c.id, name: (c.summaryOverride || c.summary || c.id).trim(), accessRole: (c.accessRole as CalendarMeta["accessRole"]) ?? "reader", primary: c.primary || undefined, googleColor: c.backgroundColor }));
       return json(req, { calendars, canEdit: conn.scopes.includes(EDIT_SCOPE) }, 200, cookies);
     }
+    const mvMatch = /^\/events\/([^/]+)\/move$/.exec(path);
+    if (mvMatch && method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { cal?: string; to?: string; notify?: string };
+      if (!body.cal || !body.to || body.to === body.cal) return json(req, { error: "bad_request" }, 400);
+      return json(req, { item: trimEvent(await moveEvent(f, token, body.cal, decodeURIComponent(mvMatch[1]!), body.to, sendUpdatesOf(body.notify))) }, 200, cookies);
+    }
     const evMatch = /^\/events(?:\/([^/]+))?$/.exec(path);
     if (evMatch) {
       const id = evMatch[1] ? decodeURIComponent(evMatch[1]) : undefined;
@@ -345,12 +351,12 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
         if ("gone" in r) return json(req, { items: [], gone: true }, 200, cookies);
         return json(req, { items: r.items.map(trimEvent), nextSyncToken: r.nextSyncToken, truncated: r.truncated || undefined }, 200, cookies);
       }
-      const body = (await req.json().catch(() => ({}))) as { cal?: string; etag?: string; body?: GEvent };
+      const body = (await req.json().catch(() => ({}))) as { cal?: string; etag?: string; body?: GEvent; notify?: string };
       if (!body.cal) return json(req, { error: "bad_request" }, 400);
       if (method === "POST" && !id && body.body) return json(req, { item: trimEvent(await insertEvent(f, token, body.cal, body.body)) }, 200, cookies);
       if (method === "PATCH" && id && body.body) return json(req, { item: trimEvent(await patchEvent(f, token, body.cal, id, body.body, body.etag)) }, 200, cookies);
       if (method === "DELETE" && id) {
-        await deleteEvent(f, token, body.cal, id, body.etag);
+        await deleteEvent(f, token, body.cal, id, body.etag, sendUpdatesOf(body.notify));
         return json(req, { ok: true }, 200, cookies);
       }
     }

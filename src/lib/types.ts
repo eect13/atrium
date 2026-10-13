@@ -128,6 +128,11 @@ export type CalendarEvent = {
   color?: string;
   /** Display only. Google is not written back. */
   guests?: string;
+  /** Card 174 K2 (Google): guests other than you, whether you organize it, its eventType when not "default", and the series it is a changed instance of. */
+  guestCount?: number;
+  organizerSelf?: boolean;
+  eventType?: string;
+  instanceOf?: string;
   meet?: string;
 };
 

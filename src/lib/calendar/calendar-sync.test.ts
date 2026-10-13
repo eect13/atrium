@@ -136,3 +136,80 @@ test("toGoogleBody: all-day end is exclusive; rule + reminder carried; colour ne
   assert.equal(calendarColourOf("same-id"), calendarColourOf("same-id"));
   assert.equal(calendarColourOf("x", "mint"), "mint");
 });
+
+// ---------- Card 174 K2 ----------
+import { guestsToTell, moveBlock, tellGuestsQuestion } from "./move.ts";
+
+const gsrc = (calls: string[], over: Partial<CalendarSource> = {}): CalendarSource => ({
+  id: "g",
+  kind: "google",
+  capabilities: { read: true, write: true, push: false },
+  listCalendars: async () => [],
+  listEvents: async () => ({ events: [], deleted: [] }),
+  createEvent: async () => (calls.push("create"), ev("g-b-new")),
+  updateEvent: async (_c, id) => (calls.push(`update:${id}`), ev("g-a-r1", { remoteId: "r1", calId: "a" })),
+  deleteEvent: async (c, id, _e, notify) => void calls.push(`delete:${c}/${id}:${notify}`),
+  moveEvent: async (c, id, to, notify) => (calls.push(`move:${c}/${id}->${to}:${notify}`), ev(`g-${to}-${id}`, { remoteId: id, calId: to, etag: '"5"' })),
+  ...over,
+});
+
+test("K2: move uses events.move, keeps the id, swaps in Google's copy, never deletes", async () => {
+  const calls: string[] = [];
+  let q = enqueue([], op("update", "g-a-r1", { remoteId: "r1", calId: "a" }));
+  q = enqueue(q, op("move", "g-a-r1", { remoteId: "r1", calId: "a", moveTo: "b", write: undefined }));
+  assert.deepEqual(q.map((o) => o.kind), ["update", "move"], "a move is never folded into the edit");
+  const r = await flushPending(gsrc(calls), q);
+  assert.deepEqual(calls, ["update:r1", "move:a/r1->b:none"]);
+  assert.ok(!calls.some((c) => c.startsWith("delete") || c === "create"));
+  const out = applyFlush([ev("g-a-r1", { remoteId: "r1", calId: "a", cat: "work" })], r);
+  assert.deepEqual([out[0]!.id, out[0]!.calId, out[0]!.remoteId, out[0]!.etag, out[0]!.cat], ["g-b-r1", "b", "r1", '"5"', "work"]);
+});
+
+test("K2: move refused by Google (403/404) → source event untouched, 0 deletes, queue goes on", async () => {
+  for (const status of [403, 404]) {
+    const calls: string[] = [];
+    const src = gsrc(calls, { moveEvent: async () => { throw new CalendarApiError(status, status === 404 ? "not_found" : "forbidden"); } });
+    const r = await flushPending(src, [op("move", "g-a-r1", { remoteId: "r1", calId: "a", moveTo: "b" }), op("delete", "x", { remoteId: "rx" })]);
+    assert.equal(r.conflicts.length, 1);
+    assert.equal(r.conflicts[0]!.kind, "move");
+    assert.equal(r.stopped, undefined);
+    assert.deepEqual(calls, ["delete:c/rx:none"], "only the unrelated delete ran");
+    const out = applyFlush([ev("g-a-r1", { remoteId: "r1", calId: "a" })], r);
+    assert.deepEqual([out[0]!.id, out[0]!.calId], ["g-a-r1", "a"]);
+  }
+});
+
+test("K2: delete always says who is told (notify none by default, all when chosen)", async () => {
+  const calls: string[] = [];
+  await flushPending(gsrc(calls), [op("delete", "a", { remoteId: "r1" }), op("delete", "b", { remoteId: "r2", notify: "all" })]);
+  assert.deepEqual(calls, ["delete:c/r1:none", "delete:c/r2:all"]);
+});
+
+test("K2: moveBlock — only whole default events you organize, into a writable calendar", () => {
+  const g = (x: Partial<CalendarEvent> = {}) => ev("g-a-r1", { source: "google", calId: "a", remoteId: "r1", organizerSelf: true, ...x });
+  assert.equal(moveBlock(g(), "b", ["a", "b"]), null);
+  assert.match(moveBlock(g({ instanceOf: "r0" }), "b", ["b"])!, /whole series/);
+  assert.match(moveBlock(g({ seriesId: "g-a-r0" }), "b", ["b"])!, /whole series/);
+  assert.match(moveBlock(g({ eventType: "outOfOffice" }), "b", ["b"])!, /kind of Google event/);
+  assert.match(moveBlock(g({ organizerSelf: false }), "b", ["b"])!, /you organize/);
+  assert.match(moveBlock(g({ organizerSelf: undefined }), "b", ["b"])!, /you organize/);
+  assert.match(moveBlock(g(), "team", ["a", "b"])!, /can't add events/);
+  assert.equal(moveBlock(g({ organizerSelf: false }), "local", []), null, "to Atrium only is always allowed");
+  assert.equal(guestsToTell(g({ guestCount: 3 })), 3);
+  assert.equal(guestsToTell(g({ guestCount: 3, organizerSelf: false })), 0, "not your event → Google tells nobody on your behalf");
+  assert.equal(guestsToTell(g()), 0);
+  assert.equal(tellGuestsQuestion(1), "Delete and tell 1 guest?");
+  assert.equal(tellGuestsQuestion(4), "Delete and tell 4 guests?");
+});
+
+test("K2: Google mapping keeps organizer/eventType/guest count and marks changed instances", () => {
+  const [a, b] = fromGoogleList(
+    [
+      { id: "m", summary: "Planning", start: { dateTime: "2026-10-13T01:00:00Z" }, end: { dateTime: "2026-10-13T02:00:00Z" }, organizer: { self: true }, attendees: [{ email: "me@x", self: true }, { email: "a@x" }, { email: "room@x", resource: true }, { email: "b@x" }] },
+      { id: "m_20261014T010000Z", recurringEventId: "m0", summary: "Changed", start: { dateTime: "2026-10-14T01:00:00Z" }, end: { dateTime: "2026-10-14T02:00:00Z" }, organizer: { email: "boss@x" }, eventType: "focusTime" },
+    ],
+    "c",
+  ).events;
+  assert.deepEqual([a!.organizerSelf, a!.guestCount, a!.eventType, a!.instanceOf], [true, 2, undefined, undefined]);
+  assert.deepEqual([b!.organizerSelf, b!.eventType, b!.instanceOf], [false, "focusTime", "m0"]);
+});

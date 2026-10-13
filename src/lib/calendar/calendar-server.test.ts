@@ -506,3 +506,43 @@ test("L1: on Vercel, rotating client X-Forwarded-For doesn't change the start bu
     else process.env.VERCEL = old;
   }
 });
+
+test("K2 (Scout 172): POST /events/{id}/move → Google events.move with destination + explicit sendUpdates, no body; DELETE always sends sendUpdates", async () => {
+  _resetAccessCache();
+  const sql = await db();
+  const clock = { t: 11_000_000 };
+  const calls: Call[] = [];
+  const { d, pair } = await desktopPair(sql, clock, calls);
+  const base = d.fetch!;
+  const d2 = {
+    ...d,
+    fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/events/e1/move")) {
+        calls.push({ url, init });
+        return new Response(JSON.stringify({ id: "e1", etag: '"7"', summary: "Standup", start: { dateTime: "2026-10-13T01:00:00Z" }, end: { dateTime: "2026-10-13T01:30:00Z" }, organizer: { email: "team@x", self: true }, attendees: [{ email: "a@x" }], hangoutLink: "https://meet.google.com/abc" }), { status: 200 });
+      }
+      if (url.includes("/events/e1") && init?.method === "DELETE") {
+        calls.push({ url, init });
+        return new Response(null, { status: 204 });
+      }
+      return base(input, init);
+    }) as typeof fetch,
+  };
+  const mv = await handleCalendar(bearerReq("events/e1/move", pair.access, { method: "POST", body: JSON.stringify({ cal: "alex@example.com", to: "team@x", notify: "bogus" }) }), "events/e1/move", d2);
+  assert.equal(mv.status, 200);
+  const item = ((await mv.json()) as { item: Record<string, unknown> }).item;
+  assert.equal(item.id, "e1");
+  assert.deepEqual(item.organizer, { email: "team@x", self: true }, "organizer kept for the move rules");
+  assert.equal(item.hangoutLink, "https://meet.google.com/abc");
+  const m = calls.find((c) => c.url.includes("/move"))!;
+  assert.match(m.url, /\/calendars\/alex%40example\.com\/events\/e1\/move\?destination=team%40x&sendUpdates=none$/);
+  assert.equal(m.init?.method, "POST");
+  assert.equal(m.init?.body ?? null, null, "events.move takes no request body");
+  assert.equal((await handleCalendar(bearerReq("events/e1/move", pair.access, { method: "POST", body: JSON.stringify({ cal: "a", to: "a" }) }), "events/e1/move", d2)).status, 400);
+  for (const [notify, want] of [[undefined, "none"], ["all", "all"]] as const) {
+    const del = await handleCalendar(bearerReq("events/e1", pair.access, { method: "DELETE", body: JSON.stringify({ cal: "alex@example.com", notify }) }), "events/e1", d2);
+    assert.equal(del.status, 200);
+    assert.match(calls.filter((c) => c.init?.method === "DELETE").at(-1)!.url, new RegExp(`/events/e1\\?sendUpdates=${want}$`));
+  }
+});

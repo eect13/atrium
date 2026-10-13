@@ -50,7 +50,9 @@ export interface CalendarSource {
   listEvents(calendarId: string, query: ListEventsQuery): Promise<ListEventsResult>;
   createEvent?(calendarId: string, ev: EventWrite): Promise<CalendarEvent>;
   updateEvent?(calendarId: string, remoteId: string, ev: EventWrite): Promise<CalendarEvent>;
-  deleteEvent?(calendarId: string, remoteId: string, etag?: string): Promise<void>;
+  deleteEvent?(calendarId: string, remoteId: string, etag?: string, notify?: "all" | "none"): Promise<void>;
+  /** Card 174 K2: Google events.move; resolves with the event as Google now has it (in `to`). */
+  moveEvent?(calendarId: string, remoteId: string, to: string, notify?: "all" | "none"): Promise<CalendarEvent>;
 }
 
 export class ReadOnlyCalendarError extends Error {

@@ -49,7 +49,8 @@ import { DEFAULT_SERIES_SCOPE, planSeriesDelete, planSeriesSave, repeatPhrase, t
 import { isNarrow } from "@/lib/desk";
 import { EMPTY_DAY } from "@/lib/cal-view";
 import { calendarColourOf } from "@/lib/calendar/source";
-import { addIcsSource, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
+import { guestsToTell, moveBlock, tellGuestsQuestion } from "@/lib/calendar/move";
+import { addIcsSource, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
 import { fmtTime } from "@/lib/format";
 import { catToken } from "@/lib/event-cats";
 import { onQuickAdd, takeQuickAdd } from "@/lib/calendar/quick-add";
@@ -142,6 +143,8 @@ export function CalendarView() {
   );
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Card 174 K2: "Delete and tell {n} guests?" for events you organize that have guests. */
+  const [tellAsk, setTellAsk] = useState<null | { kind: "delete" } | { kind: "move"; payload: Partial<CalendarEvent> }>(null);
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -161,6 +164,7 @@ export function CalendarView() {
   const [meet, setMeet] = useState("");
   const [occurDay, setOccurDay] = useState<string | null>(null);
   const [fromGoogle, setFromGoogle] = useState(false);
+  const moveSrc = editId ? events.find((x) => x.id === editId) : undefined;
   /** Clicked occurrence of a repeating event (its own start), for Card 168 (a). */
   const [occurStart, setOccurStart] = useState<string | null>(null);
   /** Where the edited event lives now ("local" or a Google calendar id), for moves (d). */
@@ -206,6 +210,7 @@ export function CalendarView() {
     setOccurStart(null);
     setSourceCal("local");
     setConfirmDelete(false);
+    setTellAsk(null);
     setEditId(null);
     setStart(toManilaInput(manilaAt(date, 9)));
     setEnd(toManilaInput(manilaAt(date, 10)));
@@ -238,6 +243,7 @@ export function CalendarView() {
     setOccurStart(ev.seriesId ? ev.start : null);
     setSourceCal(master.source === "google" && master.calId ? master.calId : "local");
     setConfirmDelete(false);
+    setTellAsk(null);
     setEditId(master.id);
     setTitle(master.title);
     setStart(toManilaInput(master.start));
@@ -318,29 +324,47 @@ export function CalendarView() {
   }
 
   /**
-   * Card 168 (d): the Calendar select moves an event. Atrium only → Google: created there.
-   * Google → Atrium only: removed from Google, kept here. Google A → Google B: delete + create.
+   * Card 168 (d) + Card 174 K2: the Calendar select moves an event.
+   * Atrium only → Google: created there. Google → Atrium only: a local copy is kept, then it is
+   * removed from Google. Google A → Google B: events.move (same event; edits are saved first and
+   * the event stays on A until Google confirms). Nothing is deleted before the new copy exists.
    */
-  function moveEvent(prev: CalendarEvent, payload: Partial<CalendarEvent>, to: string) {
-    const writes: { kind: "create" | "delete"; event: CalendarEvent }[] = [];
-    if (prev.source === "google" && prev.calId) writes.push({ kind: "delete", event: prev });
-    removeEvent(prev.id);
-    const base = { ...prev, ...payload, skip: prev.skip, remoteId: undefined, etag: undefined, seriesId: undefined, id: uid() };
-    if (to === "local") addEvent({ ...base, source: "local", calId: undefined });
-    else {
-      const ev: CalendarEvent = { ...base, source: "google", calId: to };
-      addEvent(ev);
-      writes.push({ kind: "create", event: ev });
+  function moveEvent(prev: CalendarEvent, payload: Partial<CalendarEvent>, to: string, notify: "all" | "none" = "none") {
+    if (prev.source === "google" && prev.calId && to !== "local") {
+      const next: CalendarEvent = { ...prev, ...payload };
+      updateEvent(prev.id, payload);
+      const writes: Parameters<typeof queueGoogleWrites>[0] = [];
+      if (Object.keys(payload).length) writes.push({ kind: "update", event: next });
+      writes.push({ kind: "move", event: next, moveTo: to, notify: "none" });
+      void queueGoogleWrites(writes);
+      return;
     }
-    if (writes.length) void queueGoogleWrites(writes);
+    const base = { ...prev, ...payload, skip: prev.skip, remoteId: undefined, etag: undefined, seriesId: undefined, id: uid(), guestCount: undefined, organizerSelf: undefined, eventType: undefined, instanceOf: undefined };
+    if (to === "local") {
+      addEvent({ ...base, source: "local", calId: undefined });
+      removeEvent(prev.id);
+      if (prev.source === "google" && prev.calId) void queueGoogleWrites([{ kind: "delete", event: prev, notify }]);
+      return;
+    }
+    const ev: CalendarEvent = { ...base, source: "google", calId: to };
+    addEvent(ev);
+    removeEvent(prev.id);
+    void queueGoogleWrites([{ kind: "create", event: ev }]);
   }
 
   /** Remove locally, then from Google when the event lives there (Card 163 two-way). */
-  function deleteEvent(id: string) {
+  function deleteEvent(id: string, notify: "all" | "none" = "none") {
     const ev = events.find((e) => e.id === id);
     removeEvent(id);
-    if (ev?.source === "google" && !isReadOnlyEvent(ev, gcalCals, canEdit)) void queueGoogleWrite("delete", ev);
+    if (ev?.source === "google" && !isReadOnlyEvent(ev, gcalCals, canEdit)) void queueGoogleWrites([{ kind: "delete", event: ev, notify }]);
   }
+
+  const notice = useCalAccounts((s) => s.notice);
+  useEffect(() => {
+    if (!notice) return;
+    toast(notice);
+    clearNotice();
+  }, [notice]);
 
   function skipDate(id: string, day: string) {
     const master = events.find((x) => x.id === id);
@@ -580,12 +604,15 @@ export function CalendarView() {
                 <select id="ev-cal" className={FIELD_SELECT} value={target} aria-describedby={editId && target !== sourceCal ? "ev-cal-move" : undefined} onChange={(e) => setTarget(e.target.value)}>
                   {editId && fromGoogle && !writable.some((c) => c.id === sourceCal) ? <option value={sourceCal}>{gcalCals.find((c) => c.id === sourceCal)?.label ?? "Google"}</option> : null}
                   {writable.map((c) => (
-                    <option key={c.id} value={c.id}>
+                    <option key={c.id} value={c.id} disabled={Boolean(editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)))}>
                       {c.primary ? (email ?? c.label) : c.label} · Google
                     </option>
                   ))}
                   <option value="local">Atrium only</option>
                 </select>
+                {editId && moveSrc && target === sourceCal && writable.some((c) => c.id !== sourceCal) && moveSrc.source === "google" && moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id)) ? (
+                  <p className="text-xs text-muted-foreground">{moveBlock(moveSrc, writable.find((c) => c.id !== sourceCal)!.id, writable.map((w) => w.id))}</p>
+                ) : null}
                 {editId && target !== sourceCal ? (
                   <p id="ev-cal-move" className="text-xs text-muted-foreground">
                     {target === "local"
@@ -837,7 +864,38 @@ export function CalendarView() {
                 Meet
               </a>
             ) : null}
-            {seriesAsk ? null : editId && confirmDelete ? (
+            {editId && tellAsk && moveSrc ? (
+              <div role="group" aria-labelledby="tell-guests-q" className="space-y-2 rounded-md border border-border p-3">
+                <p id="tell-guests-q" className="text-sm font-medium">{tellGuestsQuestion(guestsToTell(moveSrc))}</p>
+                <p className="text-xs text-muted-foreground">
+                  {tellAsk.kind === "move" ? "Moving it to Atrium only removes it from Google and from your guests' calendars." : "It leaves your calendar and your guests' calendars."}
+                </p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" autoFocus onClick={() => setTellAsk(null)}>
+                    Cancel
+                  </Button>
+                  {(["none", "all"] as const).map((n) => (
+                    <Button
+                      key={n}
+                      variant={n === "all" ? "destructive" : "outline"}
+                      onClick={() => {
+                        if (tellAsk.kind === "move") {
+                          moveEvent(moveSrc, tellAsk.payload, "local", n);
+                          toast("Moved to Atrium only");
+                        } else {
+                          deleteEvent(editId, n);
+                          toast("Event removed");
+                        }
+                        setTellAsk(null);
+                        setOpen(false);
+                      }}
+                    >
+                      {n === "all" ? "Tell guests" : "Don't tell"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : seriesAsk ? null : editId && confirmDelete ? (
               <ConfirmRow
                 subject={title.trim() || "this event"}
                 verb="Delete"
@@ -857,7 +915,12 @@ export function CalendarView() {
                 {viewOnly ? "Close" : "Cancel"}
               </Button>
               {editId && !viewOnly ? (
-                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => (occurStart && events.find((x) => x.id === editId)?.repeat ? setSeriesAsk({ kind: "delete" }) : setConfirmDelete(true))}>
+                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => {
+                  const cur = events.find((x) => x.id === editId);
+                  if (occurStart && cur?.repeat) setSeriesAsk({ kind: "delete" });
+                  else if (cur && guestsToTell(cur)) setTellAsk({ kind: "delete" });
+                  else setConfirmDelete(true);
+                }}>
                   Delete
                 </Button>
               ) : null}
@@ -906,6 +969,15 @@ export function CalendarView() {
                   if (editId) {
                     const prev = events.find((x) => x.id === editId);
                     if (prev && target !== sourceCal) {
+                      const block = moveBlock(prev, target, writable.map((w) => w.id));
+                      if (block) {
+                        toast(block);
+                        return;
+                      }
+                      if (target === "local" && guestsToTell(prev)) {
+                        setTellAsk({ kind: "move", payload });
+                        return;
+                      }
                       moveEvent(prev, payload, target);
                       toast(target === "local" ? "Moved to Atrium only" : "Moved to Google");
                       setOpen(false);

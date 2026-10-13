@@ -67,8 +67,12 @@ export function applyPull(events: CalendarEvent[], calId: string, r: PullResult,
 
 export type PendingOp = {
   id: string;
-  kind: "create" | "update" | "delete";
+  kind: "create" | "update" | "delete" | "move";
   calId: string;
+  /** move: destination calendar. */
+  moveTo?: string;
+  /** delete/move: who Google emails ("none" unless the user chose to tell guests). */
+  notify?: "all" | "none";
   /** Desk id of the event (a temporary id until a create lands). */
   localId: string;
   remoteId?: string;
@@ -79,8 +83,9 @@ export type PendingOp = {
 
 /** Add an op, folding it into what is already queued for the same event. */
 export function enqueue(queue: PendingOp[], op: PendingOp): PendingOp[] {
-  const prev = queue.find((q) => q.localId === op.localId);
-  if (!prev) return [...queue, op];
+  const prev = queue.find((q) => q.localId === op.localId && q.kind !== "move");
+  // Card 174 K2: a move is its own step after any queued edit (never folded into one).
+  if (!prev || op.kind === "move" || queue.some((q) => q.localId === op.localId && q.kind === "move")) return [...queue, op];
   const rest = queue.filter((q) => q !== prev);
   if (op.kind === "delete") return prev.kind === "create" ? rest : [...rest, { ...op, remoteId: prev.remoteId ?? op.remoteId, etag: prev.etag ?? op.etag }];
   if (prev.kind === "create") return [...rest, { ...prev, write: op.write, calId: op.calId }];
@@ -104,12 +109,18 @@ export async function flushPending(src: CalendarSource, queue: PendingOp[]): Pro
     try {
       if (op.kind === "create") res.done.push({ op, event: await src.createEvent!(op.calId, op.write!) });
       else if (op.kind === "update") res.done.push({ op, event: await src.updateEvent!(op.calId, op.remoteId!, { ...op.write!, etag: op.etag }) });
+      else if (op.kind === "move") res.done.push({ op, event: await src.moveEvent!(op.calId, op.remoteId!, op.moveTo!, op.notify ?? "none") });
       else {
-        await src.deleteEvent!(op.calId, op.remoteId!, op.etag);
+        await src.deleteEvent!(op.calId, op.remoteId!, op.etag, op.notify ?? "none");
         res.done.push({ op });
       }
     } catch (e) {
       const err = e instanceof CalendarApiError ? e : new CalendarApiError(0, "offline", e instanceof Error ? e.message : String(e));
+      // A refused move (no access, not organizer, wrong event type) leaves the event where it is.
+      if (op.kind === "move" && [400, 403, 404, 409, 412].includes(err.status)) {
+        res.conflicts.push(op);
+        continue;
+      }
       if (err.code === "conflict" || err.code === "not_found") {
         if (op.kind === "delete" && err.code === "not_found") res.done.push({ op });
         else res.conflicts.push(op);

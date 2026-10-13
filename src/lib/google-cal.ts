@@ -15,6 +15,9 @@ export type GCalEvent = {
   recurringEventId?: string;
   hangoutLink?: string;
   attendees?: { email?: string; displayName?: string; self?: boolean; resource?: boolean }[];
+  /** Card 174 K2: who may move/cancel; only "default" events can be moved. */
+  organizer?: { email?: string; self?: boolean };
+  eventType?: string;
   reminders?: { overrides?: { minutes?: number }[] };
   colorId?: string;
 };
@@ -199,6 +202,10 @@ export function mapGoogleEvents(events: GCalEvent[], calendarId?: string): Calen
       color: g.colorId ? GOOGLE_COLORS[g.colorId] : undefined,
       guests: guests || undefined,
       meet: g.hangoutLink || undefined,
+      guestCount: (g.attendees ?? []).filter((a) => !a.self && !a.resource).length || undefined,
+      organizerSelf: g.organizer ? Boolean(g.organizer.self) : undefined,
+      eventType: g.eventType && g.eventType !== "default" ? g.eventType : undefined,
+      instanceOf: !rule && g.recurringEventId ? g.recurringEventId : undefined,
       reminder: reminder && reminder > 0 ? Math.min(10080, Math.floor(reminder)) : undefined,
     };
     if (rule) masters.push(row);

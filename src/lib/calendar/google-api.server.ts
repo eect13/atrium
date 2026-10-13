@@ -89,5 +89,19 @@ export const insertEvent = (f: Fetch, t: string, cal: string, body: GEvent) => g
 export const patchEvent = (f: Fetch, t: string, cal: string, id: string, body: GEvent, etag?: string) =>
   gcal<GEvent>(f, t, evPath(cal, id), { method: "PATCH", body: JSON.stringify(body), headers: etag ? { "if-match": etag } : {} }, 2);
 
-export const deleteEvent = (f: Fetch, t: string, cal: string, id: string, etag?: string) =>
-  gcal<void>(f, t, evPath(cal, id), { method: "DELETE", headers: etag ? { "if-match": etag } : {} }, 2);
+export type SendUpdates = "all" | "externalOnly" | "none";
+export const sendUpdatesOf = (v: unknown): SendUpdates => (v === "all" || v === "externalOnly" ? v : "none");
+
+/**
+ * Card 174 K2: always say who gets an email. Google documents no default for delete
+ * (https://developers.google.com/workspace/calendar/api/v3/reference/events/delete).
+ */
+export const deleteEvent = (f: Fetch, t: string, cal: string, id: string, etag?: string, send: SendUpdates = "none") =>
+  gcal<void>(f, t, `${evPath(cal, id)}?sendUpdates=${send}`, { method: "DELETE", headers: etag ? { "if-match": etag } : {} }, 2);
+
+/**
+ * Card 174 K2: events.move — same event changes calendar/organizer, no request body, returns the
+ * event (https://developers.google.com/workspace/calendar/api/v3/reference/events/move).
+ */
+export const moveEvent = (f: Fetch, t: string, cal: string, id: string, destination: string, send: SendUpdates = "none") =>
+  gcal<GEvent>(f, t, `${evPath(cal, id)}/move?destination=${encodeURIComponent(destination)}&sendUpdates=${send}`, { method: "POST" }, 2);
