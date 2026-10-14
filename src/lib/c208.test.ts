@@ -19,12 +19,12 @@ test("C208 floats returning: a move patch for a float main already closed does n
 });
 
 test("C208 K1 launch pick: the file wins only when newer, or when localStorage lost the blob", () => {
-  const f = { savedAt: 200, blob: "FILE" };
-  assert.equal(pickLaunchBlob(f, null, 0), "FILE", "WebView2 lost atrium.v1 on a hard kill");
-  assert.equal(pickLaunchBlob(f, "LS", 100), "FILE", "file newer");
-  assert.equal(pickLaunchBlob(f, "LS", 200), null, "same save: keep localStorage");
-  assert.equal(pickLaunchBlob(f, "LS", 300), null, "localStorage newer");
-  assert.equal(pickLaunchBlob(null, "LS", 0), null);
+  const f = { rev: 200, blob: "FILE" };
+  assert.equal(pickLaunchBlob(f, null, {}), "FILE", "WebView2 lost atrium.v1 on a hard kill");
+  assert.equal(pickLaunchBlob(f, "LS", { rev: 100 }), "FILE", "file newer");
+  assert.equal(pickLaunchBlob(f, "LS", { rev: 200 }), null, "same save: keep localStorage");
+  assert.equal(pickLaunchBlob(f, "LS", { rev: 300 }), null, "localStorage newer");
+  assert.equal(pickLaunchBlob(null, "LS", {}), null);
   assert.equal(parseFileBlob("{torn"), null);
   assert.deepEqual(parseFileBlob(JSON.stringify(f)), f);
 });
@@ -36,13 +36,13 @@ test("C208 K1 mirror: one write in flight, later saves coalesce, latest wins", a
     wrote.push(t);
     return wrote.length === 1 ? new Promise<void>((r) => (release = r)) : Promise.resolve();
   });
-  m("v1", 1);
-  m("v2", 2);
-  m("v3", 3);
+  m("v1");
+  m("v2");
+  m("v3");
   assert.equal(wrote.length, 1);
   release();
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(wrote.map((t) => parseFileBlob(t)!.blob), ["v1", "v3"]);
+  assert.deepEqual(wrote, ["v1", "v3"]);
 });
 
 test("C208 wiring: main-only mirror, restore before the store loads, Rust atomic write + commands", () => {

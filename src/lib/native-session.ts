@@ -2,6 +2,7 @@ import { nativeWindows } from "@/lib/platform";
 import { writeLocal } from "@/lib/quota";
 import { closeAllNativeFloatsForExit } from "@/lib/native-float";
 import { FLUSH_EVENT } from "@/lib/realm-sync";
+import { mirrorStateToFile } from "@/lib/state-file";
 
 const KEY = "atrium.win";
 
@@ -62,6 +63,7 @@ export function rememberMainWindow(beforeExit?: () => Promise<void> | void) {
           h: Math.round(size.height / scale),
         };
         writeLocal(KEY, JSON.stringify(box));
+        mirrorStateToFile(); // Card 211: the box survives a hard kill too
       } catch {
         /* ignore a bad window read */
       }

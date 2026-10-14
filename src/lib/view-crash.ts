@@ -1,9 +1,12 @@
+import { mirrorStateToFile } from "./state-file.ts";
+
 /** Card 197: a tab that crashed is remembered so the next launch opens the Dashboard instead of re-crashing. */
 export const CRASHED_VIEW_KEY = "atrium.crashedView";
 
 export function markCrashedView(view: string) {
   try {
     localStorage.setItem(CRASHED_VIEW_KEY, view);
+    mirrorStateToFile(); // Card 211: survives a hard kill after the crash
   } catch {
     /* storage unavailable: nothing to remember */
   }

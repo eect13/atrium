@@ -575,9 +575,43 @@ fn state_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 /// Card 208: main's atrium.v1 save, mirrored to an app-data file (atomic). Main is the only caller.
 #[tauri::command]
 async fn state_save(app: tauri::AppHandle, text: String) -> Result<(), String> {
-    let dir = state_dir(&app)?;
-    off_worker(move || state_file::write_atomic(&dir, &text)).await?
+    state_file::stash(&state_dir(&app)?, text);
+    off_worker(state_file::write_pending).await?
 }
+
+/// Card 211: Windows logoff/shutdown. WM_QUERYENDSESSION / WM_ENDSESSION reach the main window's
+/// proc on the UI thread; write any pending state synchronously before Windows ends the process,
+/// and ask main to save its window box (best effort; the per-save file already holds the rest).
+#[cfg(windows)]
+mod endsession {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ENDSESSION, WM_QUERYENDSESSION};
+
+    static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+        if msg == WM_QUERYENDSESSION || (msg == WM_ENDSESSION && wp != 0) {
+            if let Some(app) = APP.get() {
+                use tauri::Emitter;
+                let _ = app.emit_to("main", "atrium:flush", ());
+            }
+            let _ = super::state_file::write_pending();
+        }
+        DefSubclassProc(hwnd, msg, wp, lp)
+    }
+
+    pub fn install(app: &tauri::AppHandle, win: &tauri::WebviewWindow) {
+        let _ = APP.set(app.clone());
+        if let Ok(h) = win.hwnd() {
+            unsafe {
+                SetWindowSubclass(h.0 as HWND, Some(proc), 0x0A7_211, 0);
+            }
+        }
+    }
+}
+
+
 
 #[tauri::command]
 async fn state_load(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -886,6 +920,8 @@ pub fn run() {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_icon(tauri::include_image!("icons/icon.png"));
+                #[cfg(windows)]
+                endsession::install(app.handle(), &win);
             }
             let _ = app;
             Ok(())
