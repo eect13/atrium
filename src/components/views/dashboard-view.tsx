@@ -9,7 +9,9 @@ import { useShallow } from "zustand/react/shallow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FloatBtn } from "@/components/desk-chrome";
-import { AgendaBody, CalendarPeek, ClockBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
+import { CalendarTiles } from "@/components/calendar-tiles";
+import { NotesHeaderActions } from "@/components/notes-header";
+import { AgendaBody, ClockBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
 import {
   DASH_LABEL,
   DASH_SPAN_N,
@@ -117,7 +119,7 @@ export function DashboardView({
       );
     },
     news: () => <NewsPeek headlines={headlines} loading={newsLoading} error={newsError} missed={newsMissed} />,
-    calendar: () => <CalendarPeek widgetId="dash-calendar" />,
+    calendar: () => <CalendarTiles />,
     clock: () => <ClockBody />,
   };
 
@@ -190,7 +192,7 @@ export function DashboardView({
             <Card
               key={id}
               data-dash={id}
-              className={cn(dashSpanClass(id, dashSpan[id]), drag === id && "ring-1 ring-ring")}
+              className={cn("@container", dashSpanClass(id, dashSpan[id]), drag === id && "ring-1 ring-ring")}
               onPointerMove={over}
               onPointerUp={drop}
               onPointerCancel={drop}
@@ -227,7 +229,7 @@ export function DashboardView({
                     </Tooltip>
                   )}
                   {hasWidgetOptions(id) ? <WidgetOptionsMenu id={id} label={DASH_LABEL[id]} /> : null}
-                  {kind ? <FloatBtn kind={kind} /> : null}
+                  {id === "notes" ? <NotesHeaderActions /> : kind ? <FloatBtn kind={kind} /> : null}
                 </div>
               </CardHeader>
               <CardContent>{body(id)}</CardContent>

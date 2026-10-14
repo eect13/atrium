@@ -9,8 +9,11 @@ import { NoteInk } from "@/components/note-ink";
 import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { inkOnPaper, noteTitle } from "@/lib/format";
-import { closeThisWindow, setNativeAlwaysOnTop, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
+import { closeThisWindow, setNativeAlwaysOnTop, snapThisWindow, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
+import { cardAlpha, snapBox } from "@/lib/desk-snap";
+import { widgetLook } from "@/lib/widget-prefs";
 import { useAtrium } from "@/lib/store";
+import { startRealmSync } from "@/lib/realm-wire";
 import type { NewsItem } from "@/lib/types";
 import { WIDGET_LABEL } from "@/lib/types";
 
@@ -79,17 +82,29 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
     })),
   );
   const [drawing, setDrawing] = useState(false);
-  const [pinnedTop, setPinnedTop] = useState(false);
+  const savedTop = useAtrium((s) => (kind === "note" ? s.notes.find((n) => n.id === id)?.onTop : s.windows.find((w) => w.id === id)?.onTop) === true);
+  const [pinnedTop, setPinnedTop] = useState(savedTop);
   const [headlines] = useState(readHeadlines);
   const inkRedo = useInkRedo();
+  const deskOpacity = useAtrium((s) => widgetLook(s.dashPrefs).deskOpacity);
+  useEffect(() => {
+    // Card 204: the widget window is transparent; only the card paints (with its opacity).
+    if (kind !== "widget") return;
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+  }, [kind]);
   const note = notes.find((n) => n.id === id);
   const win = windows.find((w) => w.id === id);
   const gone = (kind === "note" && !note) || (kind === "widget" && !win);
+
+  useEffect(() => startRealmSync(useAtrium), []);
 
   useEffect(() => {
     return watchNativeBounds((box) => {
       if (kind === "note") updateNote(id, box);
       else updateWindow(id, box);
+      const snap = widgetLook(useAtrium.getState().dashPrefs).deskSnap;
+      if (snap !== "off") void snapThisWindow(box, (b, area) => snapBox(b, area, snap));
     });
   }, [kind, id, updateNote, updateWindow]);
 
@@ -113,6 +128,8 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
     const next = !pinnedTop;
     setPinnedTop(next);
     void setNativeAlwaysOnTop(next);
+    if (kind === "note") updateNote(id, { onTop: next });
+    else updateWindow(id, { onTop: next });
   }
 
   if (kind === "note" && note) {
@@ -162,7 +179,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
 
   if (kind === "widget" && win) {
     return (
-      <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-card text-card-foreground">
+      <div className="flex h-dvh max-h-dvh flex-col overflow-hidden rounded-lg text-card-foreground" style={{ background: cardAlpha(deskOpacity) }}>
         <Chrome
           title={WIDGET_LABEL[win.kind]}
           pinnedTop={pinnedTop}

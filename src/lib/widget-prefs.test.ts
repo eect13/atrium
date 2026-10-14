@@ -7,7 +7,7 @@ test("widget options: helper text is off by default; stored picks win; junk is d
   assert.equal(WIDGET_DEFAULTS.clock.helper, false);
   assert.equal(WIDGET_DEFAULTS.calendar.helper, false);
   assert.equal(WIDGET_DEFAULTS.clock.shared, false);
-  assert.equal(widgetOpts(undefined, "calendar").freeBusy, true);
+  assert.equal(widgetOpts(undefined, "calendar").upNext, true);
   assert.equal(widgetOpts({ widgets: { clock: { helper: true } } }, "clock").helper, true);
   assert.deepEqual(normalizeDashPrefs({ widgets: { clock: { helper: "yes", seconds: false }, bogus: { a: true } } }), { widgets: { clock: { seconds: false } } });
   assert.deepEqual(normalizeDashPrefs(null), { widgets: {} });

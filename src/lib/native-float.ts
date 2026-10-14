@@ -48,7 +48,7 @@ function releaseFloatKeepSoon() {
   window.setTimeout(() => endFloatKeep(), 400);
 }
 
-function labelFor(kind: "note" | "widget", id: string) {
+export function labelFor(kind: "note" | "widget", id: string) {
   const safe = id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "x";
   return `${kind}-${safe}`;
 }
@@ -95,6 +95,9 @@ export async function openNativeFloat(
     x: Math.round(opts.x),
     y: Math.round(opts.y),
     decorations: false,
+    // Card 204: frameless + see-through so the widget opacity setting shows the desktop.
+    transparent: kind === "widget",
+    shadow: kind !== "widget",
     alwaysOnTop: Boolean(opts.pinned),
     skipTaskbar: kind === "note",
     resizable: true,
@@ -169,6 +172,30 @@ export async function closeAllNativeFloatsForExit(timeoutMs = 1500) {
   }
 }
 
+/** Card 204 (Card 203 S3c): read every open float's box from main before closing, so a pending debounce is not lost. */
+export async function captureFloatBoxes(): Promise<{ label: string; box: { x: number; y: number; w: number; h: number } }[]> {
+  if (!nativeWindows()) return [];
+  try {
+    const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const self = getCurrentWebviewWindow().label;
+    const out: { label: string; box: { x: number; y: number; w: number; h: number } }[] = [];
+    for (const w of await getAllWebviewWindows()) {
+      if (w.label === self) continue;
+      try {
+        const scale = await w.scaleFactor();
+        const pos = await w.outerPosition();
+        const size = await w.innerSize();
+        out.push({ label: w.label, box: { x: Math.round(pos.x / scale), y: Math.round(pos.y / scale), w: Math.round(size.width / scale), h: Math.round(size.height / scale) } });
+      } catch {
+        /* window already gone */
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export async function closeThisWindow() {
   if (!nativeWindows()) return;
   const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -240,6 +267,25 @@ export function watchNativeBounds(onBox: (box: { x: number; y: number; w: number
     un1?.();
     un2?.();
   };
+}
+
+/** Card 204: move this float to a snapped spot on its monitor's work area (logical px). */
+export async function snapThisWindow(box: { x: number; y: number; w: number; h: number }, place: (box: { x: number; y: number; w: number; h: number }, area: { x: number; y: number; w: number; h: number }) => { x: number; y: number }) {
+  if (!nativeWindows()) return;
+  try {
+    const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const { currentMonitor } = await import("@tauri-apps/api/window");
+    const { LogicalPosition } = await import("@tauri-apps/api/dpi");
+    const mon = await currentMonitor();
+    if (!mon) return;
+    const sc = mon.scaleFactor || 1;
+    const wa = mon.workArea ?? { position: mon.position, size: mon.size };
+    const area = { x: wa.position.x / sc, y: wa.position.y / sc, w: wa.size.width / sc, h: wa.size.height / sc };
+    const to = place(box, area);
+    if (Math.round(to.x) !== box.x || Math.round(to.y) !== box.y) await getCurrentWebviewWindow().setPosition(new LogicalPosition(Math.round(to.x), Math.round(to.y)));
+  } catch {
+    /* monitor unavailable */
+  }
 }
 
 export function parseFloatHash(href = typeof location !== "undefined" ? location.href : "") {

@@ -47,7 +47,8 @@ import { asNewsTag, keepNewsChip } from "./headline";
 import { safeLaunchView } from "./view-crash";
 import { DEFAULT_FEED_PREFS, HUB_TOPIC_KEEP_KEY, backfillHubTopics, hubTopicSnapshot, normalizeFeedPrefs, readHubTopicKeep, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
-import { normalizeDashPrefs, type DashPrefs, type WidgetOpts } from "./widget-prefs";
+import { realmRole, realmStorage, sendPatchToMain } from "./realm-wire";
+import { normalizeDashPrefs, type DashPrefs, type WidgetLook, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import type { FeedPane } from "./types";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, landingFeedPane, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
@@ -254,6 +255,7 @@ type State = Data & {
   resetDash: () => void;
   setCalPeek: (v: "auto" | "month" | "week") => void;
   setCalView: (widgetId: string, v: CalView) => void;
+  setWidgetLook: (patch: Partial<WidgetLook>) => void;
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
   updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
@@ -937,7 +939,8 @@ export const useAtrium = create<State>()(
         }),
       resetDash: () => set({ dashOrder: [...DEFAULT_DASH], dashSpan: {} }),
       setWidgetOpt: (id, key, on) =>
-        set((s) => ({ dashPrefs: { widgets: { ...s.dashPrefs.widgets, [id]: { ...(s.dashPrefs.widgets[id] ?? {}), [key]: on } } } })),
+        set((s) => ({ dashPrefs: { ...s.dashPrefs, widgets: { ...s.dashPrefs.widgets, [id]: { ...(s.dashPrefs.widgets[id] ?? {}), [key]: on } } } })),
+      setWidgetLook: (patch) => set((s) => ({ dashPrefs: normalizeDashPrefs({ ...s.dashPrefs, look: { ...(s.dashPrefs.look ?? {}), ...patch } }) })),
       setCalPeek: (calPeek) => set({ calPeek }),
       setCalView: (widgetId, v) => set((s) => ({ calViews: normalizeCalViews({ ...s.calViews, [widgetId]: v }) })),
       setNewsQuery: (newsQuery) => set({ newsQuery }),
@@ -994,7 +997,7 @@ export const useAtrium = create<State>()(
     {
       name: "atrium.v1",
       version: 35,
-      storage: createJSONStorage(() => ({
+      storage: createJSONStorage(() => realmStorage({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
           try {
@@ -1020,7 +1023,7 @@ export const useAtrium = create<State>()(
             /* ignore */
           }
         },
-      })),
+      }, realmRole(), sendPatchToMain)),
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {

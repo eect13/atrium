@@ -72,6 +72,8 @@ import { useAtrium } from "@/lib/store";
 import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { rememberMainWindow } from "@/lib/native-session";
+import { captureDeskBoxes } from "@/lib/desk-capture";
+import { startRealmSync } from "@/lib/realm-wire";
 import { useFloatsAllowed } from "@/lib/use-platform";
 import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
@@ -381,7 +383,8 @@ export function AtriumApp() {
     setHit(-1);
   }, [cmd]);
 
-  useEffect(() => rememberMainWindow(), []);
+  useEffect(() => rememberMainWindow(captureDeskBoxes), []);
+  useEffect(() => startRealmSync(useAtrium), []);
 
   useEffect(() => onStorageQuota((message) => toast(message)), []);
 

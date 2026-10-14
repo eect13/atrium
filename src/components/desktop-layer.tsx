@@ -81,11 +81,11 @@ export function DesktopLayer({
     for (const id of liveNative.current.wins) if (!winIds.has(id)) void closeNativeFloat("widget", id);
     for (const n of liveNotes) {
       if (liveNative.current.notes.has(n.id)) continue;
-      void openNativeFloat("note", n.id, { x: n.x, y: n.y, w: n.w, h: n.h, title: n.title || "Note" }, () => unpinNote(n.id));
+      void openNativeFloat("note", n.id, { x: n.x, y: n.y, w: n.w, h: n.h, title: n.title || "Note", pinned: n.onTop }, () => unpinNote(n.id));
     }
     for (const w of liveWins) {
       if (liveNative.current.wins.has(w.id)) continue;
-      void openNativeFloat("widget", w.id, { x: w.x, y: w.y, w: w.w, h: w.h, title: WIDGET_LABEL[w.kind] }, () => closeWindow(w.id));
+      void openNativeFloat("widget", w.id, { x: w.x, y: w.y, w: w.w, h: w.h, title: WIDGET_LABEL[w.kind], pinned: w.onTop }, () => closeWindow(w.id));
     }
     liveNative.current = { notes: noteIds, wins: winIds };
   }, [pinnedKey, floatingKey]);

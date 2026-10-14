@@ -5,11 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   ChevronLeft,
-  ChevronRight,
-  CircleDot,
   Eye,
   EyeOff,
-  Plus,
   Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,28 +14,18 @@ import { useShallow } from "zustand/react/shallow";
 import {
   addDays,
   eventCoversDay,
-  fmtDate,
   fmtWhen,
-  fromManila,
-  isAllDayEvent,
   isoDate,
   isoMonth,
   manilaAt,
-  manilaParts,
   maskedMoney,
   moneyShort,
-  monthCells,
-  monthName,
   moneyQuote,
   noteTitle,
   pct,
-  sameDay,
-  deskZone,
-  WEEKDAY_NAMES,
 } from "@/lib/format";
 import { eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
-import { CAL_VIEWS, CAL_VIEW_LABEL, EMPTY_DAY, calViewFor, type CalView } from "@/lib/cal-view";
-import { WIDGET_SPAN_CAP, layoutSpanRows, spanCellLabel, spanWhen, type SpanRow, type SpanSegment } from "@/lib/span-layout";
+import { type SpanSegment } from "@/lib/span-layout";
 import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
@@ -49,23 +36,19 @@ import {
   cityFromTz,
   clockChangeLabel,
   clockList,
-  DAY_END,
-  DAY_START,
   differentCivilDay,
-  formatLocalOffsetLabel,
   formatOffsetVsLocal,
   formatZoneDate,
   formatZoneTime,
   nextClockChange,
   sharedWorkWindow,
-  zoneHours,
+  zoneHMS,
   zoneState,
   ZONE_STATE_LABEL,
-  type WorkHours,
 } from "@/lib/clock";
-import { widgetOpts } from "@/lib/widget-prefs";
-import { busyBlocks, outsideBand, countdownLabel, freeBusyText, longestFree, minutesUntil, nextHalfHour, upNext } from "@/lib/calendar/day-summary";
-import { requestQuickAdd } from "@/lib/calendar/quick-add";
+import { widgetLook, widgetOpts } from "@/lib/widget-prefs";
+import { AnalogClock } from "@/components/analog-clock";
+import { CalendarTiles } from "@/components/calendar-tiles";
 import type { CalendarEvent, NewsItem, QuoteCcy, WatchItem, WidgetKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WeatherGlance } from "@/components/weather-panel";
@@ -74,7 +57,6 @@ import { LOCAL_QUOTES, loadDeskQuotes, quoteFromStorageEvent, readQuoteSeed, rea
 import { storyAge, storyDesk, tagStory } from "@/lib/headline";
 import { Spark } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tip } from "@/components/ui/tooltip";
 import { QuoteAttribution } from "@/components/quote-attribution";
 
 export function WeatherBody() {
@@ -125,10 +107,6 @@ export function AgendaBody() {
 
 type CatList = ReturnType<typeof useAtrium.getState>["eventCats"];
 
-/** Solid category fill for an event (per-event colour wins), from the shared tag tokens. */
-function barStyle(cats: CatList, e: CalendarEvent) {
-  return { ...eventCatTagStyle(cats, e.cat, e.color), background: "var(--tag-bg)" };
-}
 
 /**
  * One continuous bar per week-row segment (widget + full Calendar). True ends are
@@ -155,442 +133,8 @@ export function SpanBar({
 }
 
 /** Mini-grid singles: solid pill bars + "+N" (counts come from the shared span layout cap). */
-function DayBars({ shown, more, on, cats }: { shown: CalendarEvent[]; more: number; on: boolean; cats: CatList }) {
-  if (!shown.length && !more) return null;
-  return (
-    <span className="mt-[3px] flex w-full flex-col items-stretch gap-0.5 px-1.5" aria-hidden="true">
-      {shown.map((e) => (
-        <span
-          key={e.id}
-          className={cn("block rounded-full", on ? "h-2 shadow-[0_0_0_2px_var(--color-primary-foreground)]" : "h-1.5")}
-          style={barStyle(cats, e)}
-        />
-      ))}
-      {more ? (
-        <span className={cn("text-center leading-none tabular-nums", on ? "text-[11px] font-semibold text-primary-foreground" : "text-[0.625rem] text-muted-foreground")}>
-          +{more}
-        </span>
-      ) : null}
-    </span>
-  );
-}
 
-const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
 
-/** One widget week row: day buttons underneath, span lanes + single bars overlaid (decorative). */
-function PeekSpanRow({
-  row,
-  kind,
-  day,
-  now,
-  outside,
-  cats,
-  onDay,
-}: {
-  row: SpanRow<CalendarEvent>;
-  kind: "month" | "week";
-  day: string;
-  now: Date;
-  outside?: Set<string>;
-  cats: CatList;
-  onDay: (key: string) => void;
-}) {
-  const head = kind === "month" ? 26 : 44;
-  return (
-    <div
-      role="row"
-      className={cn("grid grid-cols-7", kind === "month" ? "gap-x-0.5" : "gap-x-1")}
-      style={{ gridTemplateRows: `${head}px${row.lanes ? ` repeat(${row.lanes}, 22px)` : ""} auto` }}
-    >
-      {row.days.map((key, i) => {
-        const cell = row.cells[i]!;
-        const d = manilaAt(key, 12);
-        const on = key === day;
-        const isToday = sameDay(d, now);
-        const parts = manilaParts(d);
-        return (
-          <div key={key} role="gridcell" className="contents">
-            <button
-              type="button"
-              aria-label={spanCellLabel(d, cell.all)}
-              aria-pressed={on}
-              aria-current={isToday ? "date" : undefined}
-              onClick={() => onDay(key)}
-              style={{ gridColumn: i + 1, gridRow: "1 / -1" }}
-              className={cn(
-                "flex flex-col items-center justify-start pt-1.5 text-xs tabular-nums",
-                FOCUS_RING,
-                kind === "month" ? "min-h-14 rounded-sm" : "min-h-24 rounded-md",
-                on
-                  ? "bg-primary text-primary-foreground"
-                  : cn(kind === "week" && "bg-muted", outside?.has(key) ? "text-muted-foreground/60" : "text-muted-foreground"),
-                isToday && !on && "inset-ring inset-ring-ring",
-              )}
-            >
-              {kind === "week" ? <span>{parts.weekday.slice(0, 2)}</span> : null}
-              <span>{parts.day}</span>
-            </button>
-            {cell.shown.length || cell.more ? (
-              <span className="pointer-events-none z-[1] self-start" style={{ gridColumn: i + 1, gridRow: 2 + row.lanes }}>
-                <DayBars shown={cell.shown} more={cell.more} on={on} cats={cats} />
-              </span>
-            ) : null}
-          </div>
-        );
-      })}
-      {row.segs.map((s) => (
-        <SpanBar
-          key={s.e.id}
-          seg={s}
-          cats={cats}
-          aria-hidden="true"
-          className="pointer-events-none z-[1] self-center"
-          style={{ gridColumn: `${s.c0 + 1} / ${s.c1 + 2}`, gridRow: 2 + s.lane }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function weekRangeLabel(a: Date, b: Date) {
-  const { locale, tz } = deskZone();
-  try {
-    return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric", timeZone: tz }).formatRange(a, b);
-  } catch {
-    return `${fmtDate(a.toISOString())} – ${fmtDate(b.toISOString())}`;
-  }
-}
-
-const weekRows = (keys: string[]) => Array.from({ length: Math.ceil(keys.length / 7) }, (_, w) => keys.slice(w * 7, w * 7 + 7));
-
-/**
- * Calendar widget / float body. Today | Week | Month (default Month), remembered
- * per `widgetId`. Month + Week grids draw multi-day events as continuous bars
- * (shared `layoutSpanRows`) and singles as solid pill bars; the day agenda below
- * shows Shape 1 `.cat-tag` pills + event name once.
- */
-export function CalendarPeek({
-  date,
-  embedded = false,
-  onSelect,
-  widgetId = "float-calendar",
-}: {
-  date?: Date;
-  embedded?: boolean;
-  onSelect?: (e: CalendarEvent) => void;
-  /** Key the Today | Week | Month pick is remembered under. */
-  widgetId?: string;
-}) {
-  const stored = useAtrium(useShallow((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals))));
-  const eventCats = useAtrium((s) => s.eventCats);
-  const setView = useAtrium((s) => s.setView);
-  const view = useAtrium((s) => calViewFor(s.calViews, widgetId));
-  const setCalView = useAtrium((s) => s.setCalView);
-  const dashPrefs = useAtrium((s) => s.dashPrefs);
-  const opts = widgetOpts(dashPrefs, "calendar");
-  const [day, setDay] = useState(() => isoDate(date ?? new Date()));
-  const [cursor, setCursor] = useState(() => date ?? new Date());
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    if (!date) return;
-    setDay(isoDate(date));
-    setCursor(date);
-  }, [date]);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const grid = useMemo(() => monthCells(cursor), [cursor]);
-  const week = useMemo(() => {
-    const o = manilaParts(manilaAt(day, 12));
-    return Array.from({ length: 7 }, (_, i) => fromManila(o.year, o.month, o.day - o.weekdayIndex + i, 12));
-  }, [day]);
-
-  const painted = useMemo(() => {
-    const keys = [isoDate(grid[0]!.date), isoDate(grid[grid.length - 1]!.date), isoDate(week[0]!), isoDate(week[6]!), day].sort();
-    const from = manilaAt(keys[0]!, 0);
-    const to = addDays(manilaAt(keys[keys.length - 1]!, 0), 1);
-    return expandEvents(stored, from, to);
-  }, [stored, grid, week, day]);
-
-  const outside = useMemo(() => new Set(grid.filter((c) => c.out).map((c) => isoDate(c.date))), [grid]);
-  const rows = useMemo(() => {
-    if (view === "month") return layoutSpanRows(painted, weekRows(grid.map((c) => isoDate(c.date))), WIDGET_SPAN_CAP);
-    if (view === "week") return layoutSpanRows(painted, [week.map((d) => isoDate(d))], WIDGET_SPAN_CAP);
-    return [];
-  }, [view, painted, grid, week]);
-  const list = useMemo(
-    () => painted.filter((e) => eventCoversDay(e, day)).toSorted((a, b) => a.start.localeCompare(b.start)),
-    [painted, day],
-  );
-
-  const todayKey = isoDate(now);
-  const todayList = useMemo(() => painted.filter((e) => eventCoversDay(e, todayKey)), [painted, todayKey]);
-  const next = embedded || !opts.upNext ? null : upNext(todayList, todayKey, now);
-  const fb = useMemo(() => {
-    const { blocks, merged } = busyBlocks(todayList, todayKey);
-    const nowH = (now.getTime() - manilaAt(todayKey, 0).getTime()) / 3_600_000;
-    return { blocks, out: outsideBand(todayList, todayKey), text: freeBusyText(todayList.filter((e) => !isAllDayEvent(e)).length, longestFree(merged, Math.max(8, nowH))), nowH };
-  }, [todayList, todayKey, now]);
-  const quickAdd = () => {
-    requestQuickAdd(nextHalfHour(new Date()).toISOString());
-    setView("calendar");
-  };
-
-  const pick = (e: CalendarEvent) => {
-    if (onSelect) onSelect(e);
-    else setView("calendar");
-  };
-  const selectDay = (key: string) => {
-    setDay(key);
-    setCursor(manilaAt(key, 12));
-  };
-  const goToday = () => selectDay(isoDate(new Date()));
-  const step = (dir: -1 | 1) => {
-    if (view === "month") {
-      const p = manilaParts(cursor);
-      setCursor(fromManila(p.year, p.month + dir, 1, 12));
-      return;
-    }
-    selectDay(isoDate(addDays(manilaAt(day, 12), view === "week" ? 7 * dir : dir)));
-  };
-  const pickView = (v: CalView) => {
-    setCalView(widgetId, v);
-    if (v === "today" && !date) goToday();
-  };
-
-  const title =
-    view === "month"
-      ? monthName(cursor)
-      : view === "week"
-        ? weekRangeLabel(week[0]!, week[6]!)
-        : fmtDate(manilaAt(day, 12).toISOString());
-  const unit = view === "today" ? "day" : view;
-  const iconBtn = cn(
-    "inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
-    FOCUS_RING,
-  );
-
-  const header = (
-    <div className="mb-3 shrink-0 space-y-2">
-      <div className="flex items-center gap-0.5" data-tauri-drag-region>
-        <span className="min-w-0 grow truncate px-1 text-sm font-medium" data-tauri-drag-region aria-live="polite">
-          {title}
-        </span>
-        {embedded ? null : (
-          <Tip label="New event">
-            <button type="button" data-no-drag className={iconBtn} aria-label="New event" onClick={quickAdd}>
-              <Plus className="size-4" aria-hidden="true" />
-            </button>
-          </Tip>
-        )}
-        <Tip label="Go to today">
-          <button type="button" data-no-drag className={iconBtn} aria-label="Go to today" onClick={goToday}>
-            <CircleDot className="size-4" aria-hidden="true" />
-          </button>
-        </Tip>
-        <Tip label={`Previous ${unit}`}>
-          <button type="button" data-no-drag className={iconBtn} aria-label={`Previous ${unit}`} onClick={() => step(-1)}>
-            <ChevronLeft className="size-4" aria-hidden="true" />
-          </button>
-        </Tip>
-        <Tip label={`Next ${unit}`}>
-          <button type="button" data-no-drag className={iconBtn} aria-label={`Next ${unit}`} onClick={() => step(1)}>
-            <ChevronRight className="size-4" aria-hidden="true" />
-          </button>
-        </Tip>
-      </div>
-      <div role="group" aria-label="Calendar view" className="inline-flex rounded-xl bg-muted p-0.5" data-no-drag>
-        {CAL_VIEWS.map((v) => (
-          <button
-            key={v}
-            type="button"
-            data-no-drag
-            aria-pressed={view === v}
-            className={cn(
-              "min-h-11 rounded-[calc(var(--radius-xl)-2px)] px-3.5 text-xs",
-              FOCUS_RING,
-              view === v ? "bg-background text-foreground ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => pickView(v)}
-          >
-            {CAL_VIEW_LABEL[v]}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  const dayAgenda = (
-    <div className="mt-3 min-h-0 flex-1 overflow-auto">
-      {view === "today" ? null : (
-        <p className="mb-1.5 text-xs uppercase tracking-[0.06em] text-muted-foreground">
-          {fmtDate(manilaAt(day, 12).toISOString())}
-        </p>
-      )}
-      {!list.length ? (
-        <p className="text-sm text-muted-foreground">{EMPTY_DAY}</p>
-      ) : (
-        <div className="space-y-1">
-          {list.map((e) => {
-            const cat = eventCatLabel(eventCats, e.cat);
-            return (
-              <button
-                key={e.id}
-                type="button"
-                className={cn("flex min-h-11 w-full items-start gap-2.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-left", FOCUS_RING)}
-                aria-label={`${e.title}, ${cat}`}
-                onClick={() => pick(e)}
-              >
-                <span className="cat-tag mt-0.5 shrink-0" style={eventCatTagStyle(eventCats, e.cat, e.color)}>
-                  <span>{cat}</span>
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium leading-snug">{e.title}</span>
-                  <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
-                    {spanWhen(e, day)}
-                    {e.loc ? ` · ${e.loc}` : ""}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-
-  const upNextBlock = next ? (
-    <button
-      type="button"
-      className={cn("mb-3 flex min-h-11 w-full items-center gap-3 rounded-lg bg-muted/60 px-3 py-2 text-left", FOCUS_RING)}
-      aria-label={`${next.title} in ${minutesUntil(next.start, now)} minutes`}
-      onClick={() => pick(next)}
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block text-[11px] uppercase tracking-[0.06em] text-muted-foreground">Up next</span>
-        <span className="block truncate text-sm font-medium">{next.title}</span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
-          {fmtWhen(next)}
-          <span className="cat-tag shrink-0" style={eventCatTagStyle(eventCats, next.cat, next.color)}>
-            <span>{eventCatLabel(eventCats, next.cat)}</span>
-          </span>
-        </span>
-      </span>
-      <span aria-hidden className="shrink-0 font-mono text-[28px] leading-none tabular-nums">{countdownLabel(minutesUntil(next.start, now))}</span>
-    </button>
-  ) : null;
-
-  const openTodayAgenda = () => {
-    useAtrium.getState().setCalMode("day");
-    useAtrium.getState().setCalCursor(todayKey);
-    setView("calendar");
-  };
-  const chip = cn("inline-flex size-11 shrink-0 items-center justify-center rounded-md text-xs tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground", FOCUS_RING);
-  const X = (h: number) => ((h - 8) / 12) * 240;
-  const freeBusy = embedded || !opts.freeBusy ? null : (
-    <div className="mb-3">
-      <div className="flex items-center gap-1">
-        {fb.out.before.length ? (
-          <button type="button" className={chip} aria-label={`${fb.out.before.length} event${fb.out.before.length === 1 ? "" : "s"} before 08:00`} onClick={openTodayAgenda}>
-            ‹ {fb.out.before.length}
-          </button>
-        ) : null}
-        <svg aria-hidden viewBox="0 0 240 10" preserveAspectRatio="none" className="block h-2.5 min-w-0 flex-1 overflow-visible">
-          <rect x={0} y={0} width={240} height={10} rx={5} fill="var(--color-muted)" />
-          {fb.blocks.map((b) => {
-            const ev = todayList.find((e) => e.id === b.id);
-            const style = ev ? { fill: "var(--tag-bg)", ...eventCatTagStyle(eventCats, ev.cat, ev.color) } : undefined;
-            const x = X(b.from);
-            const w = Math.max(2, X(b.to) - x);
-            return (
-              <g key={b.id}>
-                <rect x={x} y={0} width={w} height={10} rx={3} style={style} />
-                {/* Card 168 (b): a block cut at the band edge gets a square end on that side. */}
-                {b.clipFrom ? <rect x={x} y={0} width={Math.min(4, w)} height={10} style={style} /> : null}
-                {b.clipTo ? <rect x={x + w - Math.min(4, w)} y={0} width={Math.min(4, w)} height={10} style={style} /> : null}
-              </g>
-            );
-          })}
-          {fb.nowH >= 8 && fb.nowH <= 20 ? <rect x={X(fb.nowH) - 1} y={-2} width={2} height={14} fill="var(--color-foreground)" stroke="var(--color-card)" strokeWidth={0.5} /> : null}
-        </svg>
-        {fb.out.after.length ? (
-          <button type="button" className={chip} aria-label={`${fb.out.after.length} event${fb.out.after.length === 1 ? "" : "s"} after 20:00`} onClick={openTodayAgenda}>
-            {fb.out.after.length} ›
-          </button>
-        ) : null}
-      </div>
-      <div aria-hidden className="mt-1 flex gap-1 text-[10px] tabular-nums text-muted-foreground">
-        {/* Keep the hour labels under the bar when overflow chips take room on either side. */}
-        {fb.out.before.length ? <span className="w-11 shrink-0" /> : null}
-        <div className="flex min-w-0 flex-1 justify-between">
-          {["08:00", "11:00", "14:00", "17:00", "20:00"].map((t) => (
-            <span key={t}>{t}</span>
-          ))}
-        </div>
-        {fb.out.after.length ? <span className="w-11 shrink-0" /> : null}
-      </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">{fb.text}</p>
-      {fb.out.before.length || fb.out.after.length ? (
-        <p className="mt-1 truncate rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
-          {[
-            fb.out.before.length ? `Earlier · ${fb.out.before.map((e) => `${fmtWhen(e)} ${e.title}`).join(", ")}` : "",
-            fb.out.after.length ? `Later · ${fb.out.after.map((e) => `${fmtWhen(e)} ${e.title}`).join(", ")}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-      ) : null}
-    </div>
-  );
-
-  const fullLink = embedded || !opts.helper ? null : (
-    <button
-      type="button"
-      className={cn(
-        "mt-auto inline-flex min-h-11 shrink-0 items-center self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground",
-        FOCUS_RING,
-      )}
-      onClick={() => setView("calendar")}
-    >
-      Full calendar
-    </button>
-  );
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {header}
-      {upNextBlock}
-      {freeBusy}
-      {view === "month" ? (
-        <div role="grid" aria-label={monthName(cursor)} className="flex flex-col gap-0.5">
-          <div role="row" className="grid grid-cols-7 gap-x-0.5">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={`${d}-${i}`} role="columnheader" className="pb-1 text-center text-[0.65rem] text-muted-foreground">
-                <span aria-hidden="true">{d}</span>
-                <abbr className="sr-only">{WEEKDAY_NAMES[i]}</abbr>
-              </div>
-            ))}
-          </div>
-          {rows.map((row) => (
-            <PeekSpanRow key={row.days[0]} row={row} kind="month" day={day} now={now} outside={outside} cats={eventCats} onDay={setDay} />
-          ))}
-        </div>
-      ) : view === "week" ? (
-        <div role="grid" aria-label={title}>
-          {rows.map((row) => (
-            <PeekSpanRow key={row.days[0]} row={row} kind="week" day={day} now={now} cats={eventCats} onDay={setDay} />
-          ))}
-        </div>
-      ) : null}
-      {dayAgenda}
-      {fullLink}
-    </div>
-  );
-}
 
 export function QuoteBody({ variant = "widget" }: { variant?: "widget" | "float" } = {}) {
   const queryClient = useQueryClient();
@@ -953,34 +497,14 @@ export function NewsPeek({
 
 const CLOCK_ROWS_MAX = 6;
 
-/**
- * Card 161 Clock A: one city's own 24h band. Night `--color-input`, day `--color-border`,
- * work hours `--today-accent`, now tick in foreground with a card outline. Decorative.
- */
-export function DayBand({ zone, now, workHours, className }: { zone: string; now: Date; workHours: WorkHours; className?: string }) {
-  const h = zoneHours(now, zone);
-  const seg = (from: number, to: number, fill: string, key: string) => <rect key={key} x={(from / 24) * 240} y={0} width={((to - from) / 24) * 240} height={8} fill={fill} />;
-  return (
-    <svg aria-hidden viewBox="0 0 240 8" preserveAspectRatio="none" className={cn("block h-2 w-full overflow-visible rounded-full", className)}>
-      <clipPath id={`band-${zone}`}>
-        <rect x={0} y={0} width={240} height={8} rx={4} />
-      </clipPath>
-      <g clipPath={`url(#band-${zone})`}>
-        {seg(0, 24, "var(--color-input)", "night")}
-        {seg(DAY_START, DAY_END, "var(--color-border)", "day")}
-        {seg(workHours.start, workHours.end, "var(--today-accent)", "work")}
-      </g>
-      <rect x={(h / 24) * 240 - 1.5} y={-2} width={3} height={12} rx={1.5} fill="var(--color-foreground)" stroke="var(--color-card)" strokeWidth={1} />
-    </svg>
-  );
-}
-
 export function ClockBody({ preview = false }: { preview?: boolean }) {
   const profile = useAtrium((s) => s.profile);
   const clockPrefs = useAtrium((s) => s.clockPrefs);
   const dashPrefs = useAtrium((s) => s.dashPrefs);
   const setView = useAtrium((s) => s.setView);
   const opts = widgetOpts(dashPrefs, "clock");
+  const look = widgetLook(dashPrefs);
+  const analog = look.clockStyle === "analog";
   const seconds = opts.seconds && !preview;
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -1005,21 +529,32 @@ export function ClockBody({ preview = false }: { preview?: boolean }) {
   };
   const mainChange = change(main);
   return (
-    <div>
-      <div className="flex items-end justify-between gap-3">
-        <p className="font-mono text-[44px] font-medium leading-none tabular-nums tracking-tight">{formatZoneTime(now, main, { hour24, seconds, locale })}</p>
-        <p className="min-w-0 pb-1 text-right text-xs leading-snug text-muted-foreground">
-          <span className="block">{formatZoneDate(now, main, locale)}</span>
-          {preview ? null : <span className="block truncate">{`${cityFromTz(main)} · ${formatLocalOffsetLabel(now, main)}`}</span>}
+    // Card 204 ladder (container width): S <220 time+date · M 220–419 larger · L ≥420 adds cities. Compact steps down one size.
+    <div className="@container">
+      <div className={cn("flex flex-col items-start gap-1", analog && "flex-row items-center gap-3")}>
+        {analog ? (
+          <AnalogClock
+            {...zoneHMS(now, main)}
+            seconds={seconds}
+            label={formatZoneTime(now, main, { hour24: true, locale })}
+            className={cn("size-20 shrink-0", look.compact ? "@[420px]:size-28" : "@[220px]:size-28")}
+          />
+        ) : (
+          <p className={cn("font-sans font-semibold leading-none tabular-nums tracking-tight", look.compact ? "text-[44px] @[420px]:text-[76px]" : "text-[44px] @[220px]:text-[76px]")}>
+            {formatZoneTime(now, main, { hour24, seconds, locale })}
+          </p>
+        )}
+        <p className="min-w-0 text-xs leading-snug text-muted-foreground">
+          <span className="block truncate">{preview ? formatZoneDate(now, main, locale) : `${formatZoneDate(now, main, locale)} · ${cityFromTz(main)}`}</span>
+          {analog ? <span className="block font-semibold tabular-nums text-foreground">{formatZoneTime(now, main, { hour24, locale })}</span> : null}
         </p>
       </div>
-      {opts.bands ? <DayBand zone={main} now={now} workHours={wh} className="mt-3" /> : null}
       <p className="mt-1.5 text-xs text-muted-foreground">
         {status(main)}
         {mainChange ? <span className="text-foreground"> · {mainChange}</span> : null}
       </p>
       {shown.length ? (
-        <ul className="mt-3" aria-label="World clocks">
+        <ul className={cn("mt-3", look.compact ? "hidden" : "hidden @[420px]:block")} aria-label="World clocks">
           {shown.map((z) => {
             const ch = change(z);
             return (
@@ -1035,7 +570,6 @@ export function ClockBody({ preview = false }: { preview?: boolean }) {
                   </span>
                   <span className="whitespace-nowrap font-mono text-[20px] tabular-nums">{formatZoneTime(now, z, { hour24, locale })}</span>
                 </div>
-                {opts.bands ? <DayBand zone={z} now={now} workHours={wh} className="mt-1.5" /> : null}
               </li>
             );
           })}
@@ -1080,7 +614,7 @@ export function WidgetBody({
 }) {
   if (kind === "weather") return <WeatherBody />;
   if (kind === "agenda") return <AgendaBody />;
-  if (kind === "calendar") return <CalendarPeek widgetId="float-calendar" />;
+  if (kind === "calendar") return <CalendarTiles />;
   if (kind === "quote") return <QuoteBody variant="float" />;
   if (kind === "finance") return <FinancePeek />;
   if (kind === "clock") return <ClockBody />;

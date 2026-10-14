@@ -871,6 +871,13 @@ pub fn run() {
             let _ = app;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Atrium");
+        .build(tauri::generate_context!())
+        .expect("error while building Atrium")
+        .run(|app, event| {
+            // Card 204 (Card 203 S4): on exit/shutdown ask main to write the window boxes now.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                use tauri::Emitter;
+                let _ = app.emit_to("main", "atrium:flush", ());
+            }
+        });
 }

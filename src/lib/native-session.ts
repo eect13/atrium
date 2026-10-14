@@ -1,6 +1,7 @@
 import { nativeWindows } from "@/lib/platform";
 import { writeLocal } from "@/lib/quota";
 import { closeAllNativeFloatsForExit } from "@/lib/native-float";
+import { FLUSH_EVENT } from "@/lib/realm-sync";
 
 const KEY = "atrium.win";
 
@@ -23,13 +24,18 @@ function readBox(): Box | null {
 }
 
 /** Restore the last main-window size/spot, then keep writing it. */
-export function rememberMainWindow() {
+/**
+ * `beforeExit` runs on close (and on the Rust "atrium:flush") after the main box is saved and
+ * before floats close: Card 203 S3b/S3c lost the last debounced box.
+ */
+export function rememberMainWindow(beforeExit?: () => Promise<void> | void) {
   if (!nativeWindows()) return () => {};
   let dead = false;
   let timer = 0;
   let un1: (() => void) | undefined;
   let un2: (() => void) | undefined;
   let unClose: (() => void) | undefined;
+  let unFlush: (() => void) | undefined;
   void (async () => {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
@@ -64,10 +70,24 @@ export function rememberMainWindow() {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => void save(), 220);
     };
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      const stopFlush = await listen(FLUSH_EVENT, () => {
+        window.clearTimeout(timer);
+        void save().then(() => beforeExit?.());
+      });
+      if (dead) stopFlush();
+      else unFlush = stopFlush;
+    } catch {
+      /* no event bridge */
+    }
     un1 = await win.onMoved(bump);
     un2 = await win.onResized(bump);
     try {
       const stopClose = await win.onCloseRequested(async () => {
+        window.clearTimeout(timer);
+        await save();
+        await beforeExit?.();
         await closeAllNativeFloatsForExit();
       });
       if (dead) stopClose();
@@ -82,5 +102,6 @@ export function rememberMainWindow() {
     un1?.();
     un2?.();
     unClose?.();
+    unFlush?.();
   };
 }

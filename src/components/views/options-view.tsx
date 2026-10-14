@@ -2,7 +2,9 @@
 
 import { useFloatsAllowed } from "@/lib/use-platform";
 import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
-import { setNewEventsTo, useCalAccounts } from "@/lib/calendar/accounts";
+import { setNewEventsTo, syncNow, useCalAccounts } from "@/lib/calendar/accounts";
+import { googleStatusRow } from "@/lib/calendar/google-status";
+import { ClockOptionsCard, WidgetsOptionsCard } from "@/components/options-widgets";
 import { APP_LABEL } from "@/lib/version";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -21,7 +23,7 @@ import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
 import { isQuotaError, QUOTA_NOTE } from "@/lib/quota";
 import { QUOTE_CCY, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
-import { CCY_META } from "@/lib/format";
+import { CCY_META, fmtTime } from "@/lib/format";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
 import { mapsPin, hasWeatherPin } from "@/lib/weather";
@@ -61,6 +63,8 @@ const JUMP = [
   { id: "opt-news", label: "Feed" },
   { id: "opt-calendar", label: "Calendar" },
   { id: "opt-clocks", label: "Clocks" },
+  { id: "opt-clock", label: "Clock" },
+  { id: "opt-widgets", label: "Widgets" },
   { id: "opt-profile", label: "Profile" },
   { id: "opt-keys", label: "Shortcuts" },
   { id: "opt-storage", label: "Storage" },
@@ -74,12 +78,35 @@ function CalendarOptionsCard() {
   const newEventsTo = useCalAccounts((s) => s.newEventsTo);
   const email = useCalAccounts((s) => s.email);
   const canEdit = useCalAccounts((s) => s.canEdit);
+  const banner = useCalAccounts((s) => s.banner);
+  const lastSync = useCalAccounts((s) => s.lastSync);
+  const syncing = useCalAccounts((s) => s.syncing);
+  const g = googleStatusRow({ email, canEdit, banner, lastSync }, fmtTime);
   return (
     <Card id="opt-calendar" className="scroll-mt-4">
       <CardHeader>
         <CardTitle data-focus-home="" tabIndex={-1}>Calendar</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2" role="group" aria-label="Google status">
+          <span className="flex min-w-0 items-start gap-2">
+            <span aria-hidden className={cn("mt-1.5 size-2 shrink-0 rounded-full", g.tone === "ok" ? "bg-foreground" : g.tone === "bad" ? "bg-destructive" : "bg-muted-foreground")} />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{g.title}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{g.sub}</span>
+            </span>
+          </span>
+          <span className="flex gap-2">
+            {email && g.tone !== "bad" ? (
+              <Button variant="outline" className="h-11" disabled={syncing} onClick={() => void syncNow()}>
+                {syncing ? "Syncing…" : "Sync now"}
+              </Button>
+            ) : null}
+            <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
+              Manage
+            </Button>
+          </span>
+        </div>
         <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <span className="min-w-0">
             <label htmlFor="opt-new-events" className="block text-sm font-medium">New events go to</label>
@@ -749,6 +776,8 @@ export function OptionsView() {
       </Card>
 
       <WorldClocksCard />
+      <ClockOptionsCard />
+      <WidgetsOptionsCard />
 
       <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
         <DialogContent>

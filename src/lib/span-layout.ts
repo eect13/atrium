@@ -1,6 +1,6 @@
 /**
  * Continuous multi-day spans (Card 138 §5) — one layout shared by the Calendar
- * widget (`CalendarPeek`) and the full Calendar page.
+ * widget and the full Calendar page.
  *
  * Input: events + visible week rows (desk-day keys `YYYY-MM-DD`, consecutive).
  * Output per row: one segment per span event (start col, end col, lane, true or

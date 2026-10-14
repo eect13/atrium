@@ -210,6 +210,13 @@ export function reorderClockZones(p: ClockPrefs, fromId: string, toId: string): 
 
 
 /** Local wall-clock hours (fractional) in `tz` at `date`. */
+/** Card 204: wall-clock h/m/s in a zone, for the analog face. */
+export function zoneHMS(date: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(date);
+  const n = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return { h: n("hour"), m: n("minute"), s: n("second") };
+}
+
 export function zoneHours(date: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
   const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);

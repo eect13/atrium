@@ -170,6 +170,8 @@ export type StickyNote = {
   w: number;
   h: number;
   pinned: boolean;
+  /** Card 204: native float kept on top. */
+  onTop?: boolean;
   ink?: NoteStroke[];
   html?: string;
   photos?: NotePhoto[];
@@ -190,6 +192,8 @@ export type FloatWin = {
   z: number;
   w: number;
   h: number;
+  /** Card 204 (Card 203 S7): "Keep on top" survives a restart. */
+  onTop?: boolean;
 };
 
 export type AccountKind = "cash" | "bank" | "card" | "ewallet";
