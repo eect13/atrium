@@ -58,7 +58,7 @@ export function topLevelDiff(prev: Record<string, unknown> | null, next: Record<
   return out;
 }
 
-/** Main: turn a float patch into a state update (id lists merged by id). */
+/** Main: turn a float patch into a state update (id lists merged by id; only ids main already has). */
 export function applyRealmPatch<S extends Record<string, unknown>>(state: S, patch: Patch): Partial<S> {
   const { [ITEMS]: items, ...plain } = patch as Patch & { [ITEMS]?: Record<string, ItemOps> };
   const out: Record<string, unknown> = { ...plain };
@@ -67,7 +67,8 @@ export function applyRealmPatch<S extends Record<string, unknown>>(state: S, pat
     const put = new Map(ops.put.map((x) => [x.id, x]));
     const del = new Set(ops.del);
     const merged = cur.filter((x) => !del.has(x.id)).map((x) => put.get(x.id) ?? x);
-    for (const x of ops.put) if (!cur.some((c) => c.id === x.id)) merged.push(x);
+    // Card 208 (Card 207): floats never create items, so a put for an id main no longer has (a
+    // float closed while its move was in flight) is dropped instead of resurrecting the float.
     out[k] = merged;
   }
   return out as Partial<S>;

@@ -111,7 +111,7 @@ test("C206 R6: patches held while main hydrates are applied after, in order; flo
 test("C206 item patches: put/del by id, other keys plain", () => {
   const st = { windows: [{ id: "a", x: 0 }, { id: "b", x: 0 }], theme: "dark" };
   const next = applyRealmPatch(st, { theme: "light", __items: { windows: { put: [{ id: "b", x: 9 }, { id: "c", x: 1 }], del: ["a"] } } } as Patch);
-  assert.deepEqual(next, { theme: "light", windows: [{ id: "b", x: 9 }, { id: "c", x: 1 }] });
+  assert.deepEqual(next, { theme: "light", windows: [{ id: "b", x: 9 }] }, "Card 208: unknown id c is not created");
 });
 
 test("C206 Form 202A: snap to another widget; date 'Wed 14 Oct'", async () => {

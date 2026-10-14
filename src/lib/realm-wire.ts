@@ -4,6 +4,7 @@
  * on the `storage` event (also covers two browser tabs).
  */
 import { nativeWindows } from "./platform";
+import { mirrorStateToFile } from "./state-file";
 import { applyRealmPatch, FLUSH_EVENT, PATCH_EVENT, patchGate, READY_EVENT, realmRole, realmStorage, type Patch, type RealmStorage } from "./realm-sync";
 
 export { realmRole };
@@ -12,7 +13,19 @@ let floatStorage: RealmStorage | null = null;
 
 /** The store's storage: wraps the float side so a reloaded main can ask for unseen patches. */
 export function realmStorageWired(base: Parameters<typeof realmStorage>[0]) {
-  const s = realmStorage(base, realmRole(), sendPatchToMain);
+  // Card 208: main (sole writer) also mirrors each save to the app-data file (Tauri only).
+  const wrapped: typeof base =
+    realmRole() === "main"
+      ? {
+          ...base,
+          setItem: (k, v) => {
+            const r = base.setItem(k, v);
+            if (k === "atrium.v1") mirrorStateToFile(v);
+            return r;
+          },
+        }
+      : base;
+  const s = realmStorage(wrapped, realmRole(), sendPatchToMain);
   if (realmRole() === "float") floatStorage = s;
   return s;
 }

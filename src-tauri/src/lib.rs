@@ -566,6 +566,25 @@ fn cal_read(app: &tauri::AppHandle) -> (Option<String>, Option<String>) {
 
 /// Card 197: store I/O can wait on the Android Keystore (activity thread, ≤5 s), so it runs on the
 /// blocking pool, never on an async worker.
+pub mod state_file;
+
+fn state_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path().app_local_data_dir().map_err(|e| e.to_string())
+}
+
+/// Card 208: main's atrium.v1 save, mirrored to an app-data file (atomic). Main is the only caller.
+#[tauri::command]
+async fn state_save(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let dir = state_dir(&app)?;
+    off_worker(move || state_file::write_atomic(&dir, &text)).await?
+}
+
+#[tauri::command]
+async fn state_load(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let dir = state_dir(&app)?;
+    off_worker(move || state_file::read(&dir)).await
+}
+
 async fn off_worker<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
@@ -862,7 +881,7 @@ pub fn run() {
     }
 
     builder
-        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear])
+        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear, state_save, state_load])
         .setup(|app| {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {

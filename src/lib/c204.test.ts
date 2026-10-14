@@ -29,14 +29,15 @@ function world() {
   });
   let main: ReturnType<typeof make> | null = null;
   const send = (p: Patch) => main!.setState(applyRealmPatch(main!.getState() as unknown as Record<string, unknown>, p) as Partial<S>);
-  function make(role: "main" | "float", storage: (i: number) => StateStorage = (i) => realmStorage(base(i), role, send)) {
+  // Card 208: floats only move windows main opened, so main is seeded with them.
+  function make(role: "main" | "float", seed: Win[] = [], storage: (i: number) => StateStorage = (i) => realmStorage(base(i), role, send)) {
     const idx = realms.length;
     const st = createStore<S>()(
       persist(
         (set) => ({
           theme: "dark",
           view: "dashboard",
-          windows: [],
+          windows: seed,
           setTheme: (theme) => set({ theme }),
           setView: (view) => set({ view }),
           move: (id, x, y) => set((s) => ({ windows: s.windows.some((w) => w.id === id) ? s.windows.map((w) => (w.id === id ? { ...w, x, y } : w)) : [...s.windows, { id, x, y }] })),
@@ -45,7 +46,10 @@ function world() {
       ),
     );
     realms.push({ role, onStorage: () => void st.persist.rehydrate() });
-    if (role === "main") main = st;
+    if (role === "main") {
+      main = st;
+      if (seed.length) st.setState({ windows: seed });
+    }
     return st;
   }
   const saved = () => (JSON.parse(data.get("atrium.v1") ?? "{}") as { state: { theme: string; view: string; windows: Win[] } }).state;
@@ -54,7 +58,7 @@ function world() {
 
 test("C204/C203: two stores on one storage — A writes windows, B writes theme, both survive", () => {
   const w = world();
-  const main = w.make("main");
+  const main = w.make("main", [{ id: "clock", x: 0, y: 0 }]);
   const float = w.make("float");
   float.getState().move("clock", 700, 500);
   main.getState().setTheme("light");
@@ -65,7 +69,7 @@ test("C204/C203: two stores on one storage — A writes windows, B writes theme,
 
 test("C203 S1: move a float, switch tab in main → float box kept", () => {
   const w = world();
-  const main = w.make("main");
+  const main = w.make("main", [{ id: "clock", x: 0, y: 0 }]);
   const clock = w.make("float");
   clock.getState().move("clock", 700, 500);
   main.getState().setView("weather");
@@ -75,7 +79,7 @@ test("C203 S1: move a float, switch tab in main → float box kept", () => {
 
 test("C203 S2: theme/tab in main, then move a float → settings kept", () => {
   const w = world();
-  const main = w.make("main");
+  const main = w.make("main", [{ id: "weather", x: 0, y: 0 }]);
   const weather = w.make("float");
   main.getState().setTheme("light");
   main.getState().setView("clock");
@@ -86,20 +90,20 @@ test("C203 S2: theme/tab in main, then move a float → settings kept", () => {
 
 test("C203 S6: three floats moved in turn → all three boxes kept, windows never shrinks", () => {
   const w = world();
-  w.make("main");
+  w.make("main", [{ id: "clock", x: 0, y: 0 }, { id: "weather", x: 0, y: 0 }, { id: "quote", x: 0, y: 0 }]);
   const fl = ["clock", "weather", "quote"].map(() => w.make("float"));
   const sizes: number[] = [];
   ["clock", "weather", "quote"].forEach((id, i) => {
     fl[i]!.getState().move(id, 100 * (i + 1), 50);
     sizes.push(w.saved().windows.length);
   });
-  assert.deepEqual(sizes, [1, 2, 3]);
+  assert.deepEqual(sizes, [3, 3, 3]);
   assert.deepEqual(w.saved().windows.map((x) => x.x), [100, 200, 300]);
 });
 
 test("C203 S7: onTop is stored on the window like any box field", () => {
   const w = world();
-  const main = w.make("main");
+  const main = w.make("main", [{ id: "clock", x: 0, y: 0 }]);
   const f = w.make("float");
   f.getState().move("clock", 1, 1);
   f.setState({ windows: f.getState().windows.map((x) => ({ ...x, onTop: true })) });
