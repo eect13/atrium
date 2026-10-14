@@ -21,13 +21,56 @@ export function realmRole(href = typeof location !== "undefined" ? location.href
   }
 }
 
-/** Keys whose JSON differs between two persisted states. */
+/**
+ * Card 206 (Card 205 R1/R2): lists of `{id}` items are never replaced whole. A float sends only
+ * the items it changed (`put`) and the ids it removed (`del`); main merges them by id, so a
+ * float's stale copy cannot revert another float's move or drop a window main just opened.
+ */
+export const ID_LISTS = ["windows", "notes"] as const;
+export const ITEMS = "__items";
+type Item = { id: string };
+export type ItemOps = { put: Item[]; del: string[] };
+
+const isIdList = (v: unknown): v is Item[] => Array.isArray(v) && v.every((x) => x && typeof x === "object" && typeof (x as Item).id === "string");
+
+function itemOps(prev: unknown, next: Item[]): ItemOps {
+  const old = new Map((isIdList(prev) ? prev : []).map((x) => [x.id, JSON.stringify(x)]));
+  const ids = new Set(next.map((x) => x.id));
+  return {
+    put: next.filter((x) => old.get(x.id) !== JSON.stringify(x)),
+    del: [...old.keys()].filter((id) => !ids.has(id)),
+  };
+}
+
+/** Keys whose JSON differs between two persisted states; id lists become item ops under `__items`. */
 export function topLevelDiff(prev: Record<string, unknown> | null, next: Record<string, unknown>): Patch {
   const out: Patch = {};
+  const items: Record<string, ItemOps> = {};
   for (const k of Object.keys(next)) {
-    if (!prev || JSON.stringify(prev[k]) !== JSON.stringify(next[k])) out[k] = next[k];
+    if (prev && JSON.stringify(prev[k]) === JSON.stringify(next[k])) continue;
+    const v = next[k];
+    if ((ID_LISTS as readonly string[]).includes(k) && isIdList(v)) {
+      const ops = itemOps(prev?.[k], v);
+      if (ops.put.length || ops.del.length) items[k] = ops;
+    } else out[k] = v;
   }
+  if (Object.keys(items).length) out[ITEMS] = items;
   return out;
+}
+
+/** Main: turn a float patch into a state update (id lists merged by id). */
+export function applyRealmPatch<S extends Record<string, unknown>>(state: S, patch: Patch): Partial<S> {
+  const { [ITEMS]: items, ...plain } = patch as Patch & { [ITEMS]?: Record<string, ItemOps> };
+  const out: Record<string, unknown> = { ...plain };
+  for (const [k, ops] of Object.entries(items ?? {})) {
+    const cur = isIdList(state[k]) ? (state[k] as Item[]) : [];
+    const put = new Map(ops.put.map((x) => [x.id, x]));
+    const del = new Set(ops.del);
+    const merged = cur.filter((x) => !del.has(x.id)).map((x) => put.get(x.id) ?? x);
+    for (const x of ops.put) if (!cur.some((c) => c.id === x.id)) merged.push(x);
+    out[k] = merged;
+  }
+  return out as Partial<S>;
 }
 
 function stateOf(raw: string | null): Record<string, unknown> | null {
@@ -44,13 +87,18 @@ function stateOf(raw: string | null): Record<string, unknown> | null {
  * Main: pass-through. Float: reads pass through (and remember what was read);
  * writes become `send(patch)` and never touch storage.
  */
-export function realmStorage(base: StateStorage, role: Role, send: (patch: Patch) => void): StateStorage {
+export type RealmStorage = StateStorage & { resend?: () => void };
+
+export function realmStorage(base: StateStorage, role: Role, send: (patch: Patch) => void): RealmStorage {
   if (role === "main") return base;
   let last: Record<string, unknown> | null = null;
+  // Card 206 (R6): patches sent since main last wrote; re-sent when a reloaded main says it is ready.
+  let unseen: Patch[] = [];
   return {
     getItem: (key) => {
       const raw = base.getItem(key) as string | null;
       last = stateOf(raw);
+      unseen = [];
       return raw;
     },
     setItem: (_key, value) => {
@@ -58,7 +106,12 @@ export function realmStorage(base: StateStorage, role: Role, send: (patch: Patch
       if (!next) return;
       const patch = topLevelDiff(last, next);
       last = next;
-      if (Object.keys(patch).length) send(patch);
+      if (!Object.keys(patch).length) return;
+      unseen.push(patch);
+      send(patch);
+    },
+    resend: () => {
+      for (const p of unseen) send(p);
     },
     removeItem: () => {
       /* floats never clear the shared blob */
@@ -68,3 +121,28 @@ export function realmStorage(base: StateStorage, role: Role, send: (patch: Patch
 
 export const PATCH_EVENT = "atrium:patch";
 export const FLUSH_EVENT = "atrium:flush";
+export const READY_EVENT = "atrium:main-ready";
+
+/**
+ * Card 206 (R6): main holds patches while it is (re)hydrating and applies them after,
+ * in arrival order.
+ */
+export function patchGate(apply: (p: Patch) => void) {
+  let busy = 0;
+  const queue: Patch[] = [];
+  return {
+    push: (p: Patch) => (busy ? queue.push(p) : apply(p)),
+    async during(work: () => Promise<void> | void) {
+      busy++;
+      try {
+        await work();
+      } finally {
+        busy--;
+        if (!busy) while (queue.length) apply(queue.shift()!);
+      }
+    },
+    get held() {
+      return queue.length;
+    },
+  };
+}

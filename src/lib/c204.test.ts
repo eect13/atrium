@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createStore } from "zustand/vanilla";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
-import { realmRole, realmStorage, topLevelDiff, type Patch } from "./realm-sync.ts";
+import { applyRealmPatch, realmRole, realmStorage, topLevelDiff, type Patch } from "./realm-sync.ts";
 import { normalizeDashPrefs, widgetLook, WIDGET_DEFAULTS, WIDGET_OPTION_ROWS } from "./widget-prefs.ts";
 import { cardAlpha, snapBox } from "./desk-snap.ts";
 import { googleStatusRow } from "./calendar/google-status.ts";
@@ -28,7 +28,7 @@ function world() {
     removeItem: (k) => void data.delete(k),
   });
   let main: ReturnType<typeof make> | null = null;
-  const send = (p: Patch) => main!.setState(p as Partial<S>);
+  const send = (p: Patch) => main!.setState(applyRealmPatch(main!.getState() as unknown as Record<string, unknown>, p) as Partial<S>);
   function make(role: "main" | "float", storage: (i: number) => StateStorage = (i) => realmStorage(base(i), role, send)) {
     const idx = realms.length;
     const st = createStore<S>()(

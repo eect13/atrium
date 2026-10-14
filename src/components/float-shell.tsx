@@ -10,7 +10,7 @@ import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@
 import { WidgetBody } from "@/components/widgets";
 import { inkOnPaper, noteTitle } from "@/lib/format";
 import { closeThisWindow, setNativeAlwaysOnTop, snapThisWindow, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
-import { cardAlpha, snapBox } from "@/lib/desk-snap";
+import { cardAlpha, deskNeighbours, snapBox } from "@/lib/desk-snap";
 import { widgetLook } from "@/lib/widget-prefs";
 import { useAtrium } from "@/lib/store";
 import { startRealmSync } from "@/lib/realm-wire";
@@ -104,7 +104,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
       if (kind === "note") updateNote(id, box);
       else updateWindow(id, box);
       const snap = widgetLook(useAtrium.getState().dashPrefs).deskSnap;
-      if (snap !== "off") void snapThisWindow(box, (b, area) => snapBox(b, area, snap));
+      if (snap !== "off") void snapThisWindow(box, (b, area) => snapBox(b, area, snap, deskNeighbours(useAtrium.getState(), kind, id)));
     });
   }, [kind, id, updateNote, updateWindow]);
 

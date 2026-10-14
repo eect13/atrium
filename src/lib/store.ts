@@ -47,7 +47,7 @@ import { asNewsTag, keepNewsChip } from "./headline";
 import { safeLaunchView } from "./view-crash";
 import { DEFAULT_FEED_PREFS, HUB_TOPIC_KEEP_KEY, backfillHubTopics, hubTopicSnapshot, normalizeFeedPrefs, readHubTopicKeep, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
-import { realmRole, realmStorage, sendPatchToMain } from "./realm-wire";
+import { realmRole, realmStorageWired } from "./realm-wire";
 import { normalizeDashPrefs, type DashPrefs, type WidgetLook, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import type { FeedPane } from "./types";
@@ -471,6 +471,8 @@ function unhookTx(t: Tx, accountId: string): Tx {
   if (t.accountId === accountId) delete next.accountId;
   return next;
 }
+
+let launchViewDone = false;
 
 export const useAtrium = create<State>()(
   persist(
@@ -997,7 +999,7 @@ export const useAtrium = create<State>()(
     {
       name: "atrium.v1",
       version: 35,
-      storage: createJSONStorage(() => realmStorage({
+      storage: createJSONStorage(() => realmStorageWired({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
           try {
@@ -1023,7 +1025,7 @@ export const useAtrium = create<State>()(
             /* ignore */
           }
         },
-      }, realmRole(), sendPatchToMain)),
+      })),
       migrate: (persisted, version) => {
         let p = (persisted ?? {}) as Partial<Data>;
         if (version < 2) {
@@ -1316,7 +1318,11 @@ export const useAtrium = create<State>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Data>;
-        const view = safeLaunchView(toViewId((persisted as { view?: unknown } | null)?.view, current.view), "dashboard", "options");
+        // Card 206 (Card 205 R3): only main's first load may consume the crash mark; a float's or a
+        // later storage-event rehydrate keeps it for the next launch.
+        const pv = (persisted as { view?: unknown } | null)?.view;
+        const view = realmRole() === "main" && !launchViewDone ? safeLaunchView(toViewId(pv, current.view), "dashboard", "options") : toViewId(pv, current.view);
+        launchViewDone = true;
         const demo = demoBooks(p.profile?.name ?? current.profile.name);
         const accounts = (p.accounts ?? current.accounts)
           .map((a, i) => normalizeAccount(a, i))
@@ -1430,9 +1436,9 @@ export const useAtrium = create<State>()(
   ),
 );
 
-// Card 195 G5: keep a side copy of saved-item topics outside the versioned blob, so an older build
+// Card 195 G5 (Card 206 R5: main realm only, floats never write it): keep a side copy of saved-item topics outside the versioned blob, so an older build
 // that drops them (data-version downgrade) can't lose them; the v<35 backfill prefers this copy.
-if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+if (typeof window !== "undefined" && typeof localStorage !== "undefined" && realmRole() === "main") {
   let last = "";
   const write = (s: State) => {
     const next = JSON.stringify(hubTopicSnapshot(s.feedPrefs));

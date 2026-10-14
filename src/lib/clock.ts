@@ -178,13 +178,11 @@ export function differentCivilDay(date: Date, tz: string, localTz: string): bool
   return civilDateKey(date, tz) !== civilDateKey(date, localTz);
 }
 
+/** Card 206 (Form 202 A): "Wed 14 Oct" — weekday, day, month in that order; names follow the locale. */
 export function formatZoneDate(date: Date, tz: string, locale?: string): string {
-  return date.toLocaleDateString(locale || "en-GB", {
-    timeZone: tz,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+  const parts = new Intl.DateTimeFormat(locale || "en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "short" }).formatToParts(date);
+  const v = (t: string) => (parts.find((p) => p.type === t)?.value ?? "").replace(/\.$/, "");
+  return `${v("weekday")} ${v("day")} ${v("month")}`;
 }
 
 export function formatLocalOffsetLabel(date: Date, tz: string): string {
