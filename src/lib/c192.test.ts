@@ -98,7 +98,8 @@ test("wiring: every float surface and native call is gated", () => {
   assert.match(src("components/views/notes-view.tsx"), /onPin=\{floats \? \(\) => pinNote\(n\.id\) : undefined\}/);
   for (const f of ["components/desk-chrome.tsx", "components/atrium-app.tsx", "components/views/options-view.tsx", "components/views/notes-view.tsx", "components/views/dashboard-view.tsx"])
     assert.match(src(f), /const floats = useFloatsAllowed\(\);/, `${f} uses the hydration-safe hook`);
-  assert.match(src("lib/use-platform.ts"), /useSyncExternalStore\(noop, \(\) => floatsAllowed\(\), \(\) => true\)/);
+  // Card 222 (Critic 221 R1): the hook now also subscribes to the lg width on the website; still hydration-safe (server = true).
+  assert.match(src("lib/use-platform.ts"), /useSyncExternalStore\(subFloatWidth, floatsNow, \(\) => true\)[\s\S]*if \(!floatsAllowed\(\)\) return false;/);
   assert.match(src("components/atrium-app.tsx"), /\{floats \? \(\s*<div role="region" aria-label="Floating windows"/);
 });
 

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { FloatBtn } from "@/components/desk-chrome";
 import { cn } from "@/lib/utils";
+import { groupItems } from "@/lib/menu-groups";
 import { useAtrium } from "@/lib/store";
 import type { CalMode } from "@/lib/types";
 
@@ -105,13 +106,12 @@ export function CalendarToolbar({
             <Plus className="size-5" aria-hidden />
           </Button>
           <OverflowMenu
-            label="Calendar actions"
+            label="Calendar menu"
             menuClassName="w-52"
-            items={[
-              { label: "Import ICS", onSelect: () => file.current?.click() },
-              { label: "Export", onSelect: onExport },
-              { label: "Calendar accounts…", onSelect: onAccounts },
-            ]}
+            items={groupItems({
+              create: [{ label: "Import ICS…", onSelect: () => file.current?.click() }],
+              go: [{ label: "Export", onSelect: onExport }, { label: "Calendar accounts…", onSelect: onAccounts }],
+            })}
           />
         </div>
         <div className="flex">{nav}</div>

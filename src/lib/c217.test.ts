@@ -97,7 +97,8 @@ test("C217 floats: Open in Atrium + Close in ⋯; Ctrl+W/Esc; AppWindow pop-out 
   assert.match(read("src/components/views/feed-view.tsx"), /<FloatBtn kind="news" \/>/);
   assert.match(read("src/lib/widget-menu.ts"), /\[@media\(hover:none\)\]:opacity-100/);
   const oa = read("src/lib/open-in-atrium.ts");
-  assert.match(oa, /unminimize\(\)[\s\S]*show\(\)[\s\S]*setFocus\(\)[\s\S]*emitTo\("main", OPEN_VIEW_EVENT/);
+  // Card 222: the raise moved to Rust (desk_focus_main → desk::focus_main) for the Windows foreground lock.
+  assert.match(oa, /invoke\("desk_focus_main"\)[\s\S]*emitTo\("main", OPEN_VIEW_EVENT/);
 });
 
 test("C217 notes: no stickies copy; peek opens the tapped note and shows +N", () => {

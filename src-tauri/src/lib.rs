@@ -587,6 +587,14 @@ fn desk_quit(app: tauri::AppHandle) {
     let _ = app;
 }
 
+/// Card 222: Open in Atrium raises main through desk::focus_main (foreground-lock safe).
+#[tauri::command]
+fn desk_focus_main(app: tauri::AppHandle) {
+    #[cfg(desktop)]
+    desk::focus_main(&app);
+    let _ = app;
+}
+
 /// Card 212: Options › Unlock all, same path as the tray and the shortcut.
 #[tauri::command]
 fn desk_unlock_all(app: tauri::AppHandle) {
@@ -943,7 +951,7 @@ pub fn run() {
     }
 
     builder
-        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear, desk_shortcut_ok, desk_unlock_all, desk_quit, state_save, state_load])
+        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear, desk_shortcut_ok, desk_unlock_all, desk_quit, desk_focus_main, state_save, state_load])
         .setup(|app| {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {

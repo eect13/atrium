@@ -14,6 +14,22 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 pub const QUIT_EVENT: &str = "atrium:quit";
 pub const QUIT_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
 
+/// Card 222 (Critic 221 #3): bring main to the front reliably. Windows' foreground lock can
+/// refuse a plain set_focus, so allow any process to take foreground and briefly pin main on top.
+pub fn focus_main(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let _ = w.unminimize();
+    let _ = w.show();
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+        AllowSetForegroundWindow(ASFW_ANY);
+    }
+    let _ = w.set_always_on_top(true);
+    let _ = w.set_focus();
+    let _ = w.set_always_on_top(false);
+}
+
 /// Write whatever state is pending, release the shortcut, exit.
 pub fn quit_now(app: &AppHandle) {
     let _ = super::state_file::write_pending();
@@ -79,13 +95,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.on_menu_event(|app, ev| match ev.id().as_ref() {
-        "open" => {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }
+        "open" => focus_main(app),
         "show" => floats(app).iter().for_each(|w| {
             let _ = w.show();
         }),

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { floatsAllowed, isMobileApp } from "./platform.ts";
+import { floatsAllowed, isMobileApp, nativeWindows } from "./platform.ts";
 
 const noop = () => () => {};
 
@@ -8,7 +8,22 @@ const noop = () => () => {};
  * SSR + hydration match and the mobile app (static, no SSR) switches floats off on first client render.
  */
 export function useFloatsAllowed(): boolean {
-  return useSyncExternalStore(noop, () => floatsAllowed(), () => true);
+  return useSyncExternalStore(subFloatWidth, floatsNow, () => true);
+}
+
+/** Card 222 (Critic 221 R1): the website's float layer is lg-only (`hidden lg:block`), so below lg
+ * a Float item would do nothing. Native desktop floats are separate windows and need no width. */
+export const FLOAT_WEB_Q = "(min-width: 1024px)";
+function floatsNow(): boolean {
+  if (!floatsAllowed()) return false;
+  if (nativeWindows() || typeof window === "undefined" || !window.matchMedia) return true;
+  return window.matchMedia(FLOAT_WEB_Q).matches;
+}
+function subFloatWidth(cb: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia || nativeWindows()) return noop();
+  const m = window.matchMedia(FLOAT_WEB_Q);
+  m.addEventListener("change", cb);
+  return () => m.removeEventListener("change", cb);
 }
 
 const PHONE_Q = "(max-width: 767px)";

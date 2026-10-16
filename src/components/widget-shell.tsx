@@ -45,9 +45,11 @@ export function TitleBar({
   const ref = useRef<HTMLElement | null>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    const el = ref.current;
+    // Card 222 (Critic 221 #5): steps are card widths, so measure the card (the header's parent,
+    // border box), not the header, which is ~32 px narrower after its padding/margins.
+    const el = ref.current?.parentElement ?? ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e?.contentRect.width ?? 0)));
+    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e?.borderBoxSize?.[0]?.inlineSize ?? e?.contentRect.width ?? 0)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);

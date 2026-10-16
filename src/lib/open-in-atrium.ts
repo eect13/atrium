@@ -25,11 +25,9 @@ export async function openInAtrium(view: ViewId, local: (v: ViewId) => void) {
     return;
   }
   try {
-    const [{ Window }, { emitTo }] = await Promise.all([import("@tauri-apps/api/window"), import("@tauri-apps/api/event")]);
-    const main = await Window.getByLabel("main");
-    await main?.unminimize();
-    await main?.show();
-    await main?.setFocus();
+    const [{ invoke }, { emitTo }] = await Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]);
+    // Card 222: Rust unminimises, shows, allows foreground and briefly pins main on top around set_focus.
+    await invoke("desk_focus_main");
     await emitTo("main", OPEN_VIEW_EVENT, view);
   } catch {
     /* bridge unavailable: nothing to raise */
