@@ -209,7 +209,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
           <span className="min-w-0 grow truncate text-xs font-medium opacity-0 transition-opacity group-hover/w:opacity-70" {...(win.locked ? {} : { "data-tauri-drag-region": true })}>
             {WIDGET_LABEL[win.kind]}
           </span>
-          {win.locked ? <Lock aria-hidden className="pointer-events-none absolute right-2 top-2 size-3 text-muted-foreground opacity-0 group-hover/w:opacity-45" /> : null}
+          {win.locked ? <Lock aria-hidden className="pointer-events-none size-3 shrink-0 text-muted-foreground opacity-0 group-hover/w:opacity-45" /> : null}
           <div data-no-drag className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/w:opacity-100">
             <OverflowMenu
               label={`${WIDGET_LABEL[win.kind]} widget menu`}
@@ -218,6 +218,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
                 { label: row(Lock, "Lock position"), checked: Boolean(win.locked), onSelect: () => flip("locked") },
                 { label: row(Layers, "Stay behind windows"), checked: Boolean(win.behind), onSelect: () => flip("behind") },
                 { label: row(SquareDashed, "Frame"), checked: Boolean(win.frame), onSelect: () => flip("frame") },
+                { separator: true },
                 { label: row(Pin, "Keep on top"), checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
                 { label: row(X, "Close"), onSelect: () => void dismiss(() => closeWindow(win.id)) },
               ]}

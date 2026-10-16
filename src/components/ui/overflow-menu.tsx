@@ -4,13 +4,16 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type OverflowItem = {
-  label: ReactNode;
-  onSelect: () => void;
-  destructive?: boolean;
-  /** A toggle row (menuitemcheckbox with a Switch look). The menu stays open. */
-  checked?: boolean;
-};
+export type OverflowItem =
+  | { separator: true }
+  | {
+      separator?: undefined;
+      label: ReactNode;
+      onSelect: () => void;
+      destructive?: boolean;
+      /** A toggle row (menuitemcheckbox with a Switch look). The menu stays open. */
+      checked?: boolean;
+    };
 
 /**
  * 44px "⋯" trigger + menu (extracted from the Hub card menu, Form 152 N11).
@@ -48,7 +51,9 @@ export function OverflowMenu({
 
   useEffect(() => {
     if (!open) return;
-    menu.current?.querySelector<HTMLElement>('[role="menuitem"],[role="menuitemcheckbox"]')?.focus();
+    menu.current
+      ?.querySelector<HTMLElement>('[role="menuitem"],[role="menuitemcheckbox"]')
+      ?.focus();
     const ac = new AbortController();
     window.addEventListener(
       "pointerdown",
@@ -62,7 +67,10 @@ export function OverflowMenu({
   }, [open]);
 
   function onKey(e: React.KeyboardEvent) {
-    const rows = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"],[role="menuitemcheckbox"]') ?? []);
+    const rows = Array.from(
+      menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"],[role="menuitemcheckbox"]') ??
+        [],
+    );
     const at = rows.indexOf(document.activeElement as HTMLElement);
     let to = -1;
     if (e.key === "Escape") {
@@ -107,33 +115,56 @@ export function OverflowMenu({
           role="menu"
           aria-label={label}
           onKeyDown={onKey}
-          className={cn("absolute right-0 top-12 z-30 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]", menuClassName)}
+          className={cn(
+            "absolute right-0 top-12 z-30 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]",
+            menuClassName,
+          )}
         >
-          {items.map((it, i) => (
-            <button
-              key={i}
-              type="button"
-              role={it.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-              aria-checked={it.checked}
-              tabIndex={-1}
-              className={cn(
-                "flex min-h-11 w-full items-center gap-3 rounded-sm px-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                it.destructive ? "text-destructive hover:bg-destructive/15" : "hover:bg-muted",
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (it.checked === undefined) set(false, true);
-                it.onSelect();
-              }}
-            >
-              <span className="min-w-0 flex-1">{it.label}</span>
-              {it.checked === undefined ? null : (
-                <span aria-hidden className={cn("inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors", it.checked ? "border-transparent bg-ok" : "border-border bg-muted")}>
-                  <span className={cn("block size-5 rounded-full shadow-sm transition-transform", it.checked ? "translate-x-5 bg-background" : "translate-x-0 bg-foreground")} />
-                </span>
-              )}
-            </button>
-          ))}
+          {items.map((it, i) =>
+            it.separator ? (
+              <div
+                key={i}
+                role="separator"
+                aria-orientation="horizontal"
+                className="my-1 h-px bg-border"
+              />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                role={it.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                aria-checked={it.checked}
+                tabIndex={-1}
+                className={cn(
+                  "flex min-h-11 w-full items-center gap-3 rounded-sm px-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  it.destructive ? "text-destructive hover:bg-destructive/15" : "hover:bg-muted",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (it.checked === undefined) set(false, true);
+                  it.onSelect();
+                }}
+              >
+                <span className="min-w-0 flex-1">{it.label}</span>
+                {it.checked === undefined ? null : (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
+                      it.checked ? "border-transparent bg-ok" : "border-border bg-muted",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "block size-5 rounded-full shadow-sm transition-transform",
+                        it.checked ? "translate-x-5 bg-background" : "translate-x-0 bg-foreground",
+                      )}
+                    />
+                  </span>
+                )}
+              </button>
+            ),
+          )}
         </div>
       ) : null}
     </div>
