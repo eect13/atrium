@@ -34,8 +34,11 @@ export type DashEntry = {
 export type MenuAction = "new-note" | "new-event" | "board" | "float-all" | "unfloat-all";
 export type MenuCtx = { floats: boolean; manyOn: boolean; act: (a: MenuAction) => () => void };
 
-// New note (primary) and Float all (floatMany) are title-bar actions; only Board is notes-specific.
-const notesMenu = (c: MenuCtx): MenuGroups => ({ view: [{ label: "Board", onSelect: c.act("board") }] });
+// New note is the primary title-bar action. Card 218 F3: Float all / Back to board live only here.
+const notesMenu = (c: MenuCtx): MenuGroups => ({
+  view: [{ label: "Board", onSelect: c.act("board") }],
+  window: c.floats ? [{ label: c.manyOn ? "Back to board" : "Float all", onSelect: c.act(c.manyOn ? "unfloat-all" : "float-all") }] : [],
+});
 
 export const DASH_REGISTRY = [
   { id: "weather", span: 5, float: "weather", need: "weather", view: "weather" },

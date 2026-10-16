@@ -5,14 +5,14 @@ import { openInAtrium } from "@/lib/open-in-atrium";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { FloatWindow } from "@/components/float-window";
-import { NoteTools } from "@/components/note-chrome";
+import { useNoteFloatTools } from "@/components/note-float-tools";
 import { NoteInk } from "@/components/note-ink";
 import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
 import { boxOffscreen, fitBox } from "@/lib/desk";
 import { inkOnPaper, noteTitle } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
-import { WIDGET_LABEL, type NewsItem, type WidgetKind } from "@/lib/types";
+import { WIDGET_LABEL, type NewsItem, type StickyNote, type ViewId, type WidgetKind } from "@/lib/types";
 import { closeNativeFloat, isTauri, openNativeFloat } from "@/lib/native-float";
 import { floatsAllowed, nativeWindows } from "@/lib/platform";
 
@@ -49,7 +49,6 @@ export function DesktopLayer({
     updateWindow,
     closeWindow,
     unpinNote,
-    removeNote,
     raise,
   } = useAtrium(
     useShallow((s) => ({
@@ -60,7 +59,6 @@ export function DesktopLayer({
       updateWindow: s.updateWindow,
       closeWindow: s.closeWindow,
       unpinNote: s.unpinNote,
-      removeNote: s.removeNote,
       raise: s.raise,
     })),
   );
@@ -152,83 +150,102 @@ export function DesktopLayer({
             onResize={(w, h) => updateWindow(win.id, { w, h })}
             onRaise={() => raise("win", win.id)}
             onClose={() => closeWindow(win.id)}
+            viewKind={win.kind}
             menu={{ go: [{ label: "Open in Atrium", onSelect: () => void openInAtrium(FLOAT_VIEW[win.kind], setView) }] }}
           >
             <WidgetBody kind={win.kind} headlines={headlines} newsLoading={newsLoading} newsError={newsError} newsMissed={newsMissed} />
           </FloatWindow>
         </div>
       ))}
-      {pinned.map((n) => {
-        const ink = inkOnPaper(n.color);
-        const drawing = inkId === n.id;
-        return (
-          <div key={n.id} className="pointer-events-auto">
-            <FloatWindow
-              x={n.x}
-              y={n.y}
-              z={n.z}
-              w={n.w}
-              h={n.h}
-              title={noteTitle(n)}
-              paper={n.color}
-              minW={200}
-              minH={160}
-              extra={
-                <NoteTools
-                  ink={ink}
-                  color={n.color}
-                  pinned
-                  reveal="always"
-                  onColor={(color) => updateNote(n.id, { color })}
-                  onDelete={() => removeNote(n.id)}
-                />
-              }
-              onMove={(x, y) => updateNote(n.id, { x, y })}
-              onResize={(w, h) => updateNote(n.id, { w, h })}
-              onRaise={() => raise("note", n.id)}
-              onClose={() => unpinNote(n.id)}
-              menu={{ go: [{ label: "Back to board", onSelect: () => unpinNote(n.id) }, { label: "Open in Atrium", onSelect: () => void openInAtrium("notes", setView) }] }}
-            >
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
-                  <NoteInk
-                    strokes={n.ink ?? []}
-                    color={ink}
-                    active={drawing}
-                    onChange={(inkStrokes) => updateNote(n.id, { ink: inkStrokes })}
-                  />
-                  <NotePhotos
-                    photos={n.photos ?? []}
-                    onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })}
-                  />
-                  <NoteEditor
-                    note={n}
-                    ink={ink}
-                    drawing={drawing}
-                    contained
-                    onUpdate={(patch) => updateNote(n.id, patch)}
-                  />
-                </div>
-                <NoteFormat
-                  ink={ink}
-                  drawing={drawing}
-                  docked
-                  canUndo={Boolean(n.ink?.length)}
-                  canRedo={inkRedo.canRedoFor(n.id)}
-                  onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
-                  onUndo={() => inkRedo.pushUndo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
-                  onRedo={() => inkRedo.popRedo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
-                  onClear={() => {
-                    inkRedo.forget(n.id);
-                    updateNote(n.id, { ink: [] });
-                  }}
-                  onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
-                />
-              </div>
-            </FloatWindow>
-          </div>
-        );
-      })}
+      {pinned.map((n) => (
+        <div key={n.id} className="pointer-events-auto">
+          <InPageNote
+            n={n}
+            drawing={inkId === n.id}
+            onDraw={() => setInkId((id) => (id === n.id ? null : n.id))}
+            inkRedo={inkRedo}
+            setView={setView}
+          />
+        </div>
+      ))}
     </div>
+  );
+}
+
+/** Card 219: one in-page note float (own component so Colour… / Delete hooks run per note). */
+function InPageNote({
+  n,
+  drawing,
+  onDraw,
+  inkRedo,
+  setView,
+}: {
+  n: StickyNote;
+  drawing: boolean;
+  onDraw: () => void;
+  inkRedo: ReturnType<typeof useInkRedo>;
+  setView: (v: ViewId) => void;
+}) {
+  const { updateNote, unpinNote, removeNote, raise } = useAtrium(
+    useShallow((s) => ({ updateNote: s.updateNote, unpinNote: s.unpinNote, removeNote: s.removeNote, raise: s.raise })),
+  );
+  const ink = inkOnPaper(n.color);
+  const tools = useNoteFloatTools({ color: n.color, ink, onColor: (color) => updateNote(n.id, { color }), onDelete: () => removeNote(n.id) });
+  return (
+      <FloatWindow
+        x={n.x}
+        y={n.y}
+        z={n.z}
+        w={n.w}
+        h={n.h}
+        title={noteTitle(n)}
+        paper={n.color}
+        minW={200}
+        minH={160}
+        actions={[tools.colorAction]}
+        overlay={tools.anchors}
+        onMove={(x, y) => updateNote(n.id, { x, y })}
+        onResize={(w, h) => updateNote(n.id, { w, h })}
+        onRaise={() => raise("note", n.id)}
+        onClose={() => unpinNote(n.id)}
+        menu={{ go: [{ label: "Back to board", onSelect: () => unpinNote(n.id) }, { label: "Open in Atrium", onSelect: () => void openInAtrium("notes", setView) }], danger: [tools.deleteRow] }}
+      >
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
+            <NoteInk
+              strokes={n.ink ?? []}
+              color={ink}
+              active={drawing}
+              onChange={(inkStrokes) => updateNote(n.id, { ink: inkStrokes })}
+            />
+            <NotePhotos
+              photos={n.photos ?? []}
+              onRemove={(id) => updateNote(n.id, { photos: (n.photos ?? []).filter((p) => p.id !== id) })}
+            />
+            <NoteEditor
+              note={n}
+              ink={ink}
+              drawing={drawing}
+              contained
+              onUpdate={(patch) => updateNote(n.id, patch)}
+            />
+          </div>
+          <NoteFormat
+            ink={ink}
+            drawing={drawing}
+            docked
+            canUndo={Boolean(n.ink?.length)}
+            canRedo={inkRedo.canRedoFor(n.id)}
+            onDraw={onDraw}
+            onUndo={() => inkRedo.pushUndo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
+            onRedo={() => inkRedo.popRedo(n.id, n.ink, (ink) => updateNote(n.id, { ink }))}
+            onClear={() => {
+              inkRedo.forget(n.id);
+              updateNote(n.id, { ink: [] });
+            }}
+            onPhoto={(files) => void addNotePhotos(n.photos, files).then((photos) => updateNote(n.id, { photos }))}
+          />
+        </div>
+      </FloatWindow>
   );
 }

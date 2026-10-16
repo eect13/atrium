@@ -5,7 +5,8 @@ import { clampDesk, clampSize, keyBox, resizeFrom, snapDesk, type ResizeCorner, 
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { mergeGroups, type MenuGroups } from "@/lib/menu-groups";
-import { TitleBar } from "@/components/widget-shell";
+import { TitleBar, type TitleAction } from "@/components/widget-shell";
+import { useViewRows } from "@/lib/widget-menu";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
 
@@ -61,7 +62,9 @@ export function FloatWindow({
   minW = 220,
   minH = 140,
   paper,
-  extra,
+  actions,
+  overlay,
+  viewKind,
   menu,
   onMove,
   onResize,
@@ -78,7 +81,12 @@ export function FloatWindow({
   minW?: number;
   minH?: number;
   paper?: string;
-  extra?: ReactNode;
+  /** Card 219: title-bar actions (priority/steps apply; no inline bypass). */
+  actions?: TitleAction[];
+  /** Popover anchors that ride with the window (note Colour… / Delete confirm). */
+  overlay?: ReactNode;
+  /** Card 218 F2: widget kind whose view switches join this ⋯ (same as the native float). */
+  viewKind?: string;
   /** Card 216: feature ⋯ groups (view options, Open in Atrium…); Close is appended last. */
   menu?: MenuGroups;
   onMove: (x: number, y: number) => void;
@@ -88,6 +96,7 @@ export function FloatWindow({
   children: ReactNode;
 }) {
   const articleRef = useRef<HTMLElement>(null);
+  const viewRows = useViewRows(viewKind ?? "");
   const dragging = useRef(false);
   const live = useRef({ x, y, w, h });
   if (!dragging.current) live.current = { x, y, w, h };
@@ -185,14 +194,14 @@ export function FloatWindow({
         tabIndex={0}
         aria-label={`${title}: arrows move, Shift+arrows resize`}
         className={cn(
-          "group/bar relative z-[2] cursor-grab touch-none px-2 pl-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing",
+          "group/bar cursor-grab touch-none px-2 pl-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing",
           paper ? "" : "bg-card",
         )}
         title={title}
         titleClassName={paper ? "text-current opacity-80" : undefined}
-        extra={extra ? <span className="relative z-[4] flex shrink-0 items-center">{extra}</span> : null}
+        actions={actions}
         menuLabel={`${title} menu`}
-        groups={mergeGroups(menu, { close: [{ label: "Close", onSelect: onClose }] })}
+        groups={mergeGroups({ view: viewRows }, menu, { close: [{ label: "Close", onSelect: onClose }] })}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("button,input,label,a,[data-no-drag]")) return;
           drag(e, "move");
@@ -209,6 +218,7 @@ export function FloatWindow({
         }}
       />
       <div className="scroll-auto min-h-0 flex-1 bg-inherit px-4 pb-4">{children}</div>
+      {overlay}
       <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>
   );

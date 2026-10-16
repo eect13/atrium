@@ -64,14 +64,9 @@ export function useCardMenu(id: DashCard, extra?: MenuGroups) {
     { view, go: [{ label: `Open ${label}`, onSelect: () => setView(e.view) }, { label: `${label} options…`, onSelect: () => setView("options") }] },
     extra,
   );
-  // Float row for the title bar (inline at md+, else ⋯ window group). Notes: "Float all" (N3).
-  const floatRow: MenuRow | null = !floats
-    ? null
-    : e.floatMany
-      ? { label: manyOn ? "Back to board" : "Float all", onSelect: SHELL_ACTIONS[manyOn ? "unfloat-all" : "float-all"] }
-      : e.float
-        ? { label: floatOn ? "On desk" : "Float", onSelect: () => openWindow(e.float as WidgetKind) }
-        : null;
+  // Float row for the title bar (inline at md+, else ⋯ window group). Card 218 F3: floatMany (Notes)
+  // floats one note at a time — Float all / Back to board live only in the registry Notes ⋯.
+  const floatRow: MenuRow | null = floats && e.float && !e.floatMany ? { label: floatOn ? "On desk" : "Float", onSelect: () => openWindow(e.float as WidgetKind) } : null;
   const primaryRow: MenuRow | null = e.primary ? { label: e.primary === "new-note" ? "New note" : "New event", onSelect: SHELL_ACTIONS[e.primary] } : null;
   return { label, groups, floatRow, primaryRow, menuLabel: `${label} menu` };
 }

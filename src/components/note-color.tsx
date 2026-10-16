@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Palette, Plus } from "lucide-react";
 import { hexColor, hexToHsv, hsvToHex, NOTE_COLORS } from "@/lib/format";
@@ -190,16 +190,31 @@ export function NoteColor({
   color,
   onChange,
   onBusy,
+  open: openProp,
+  onOpenChange,
+  anchorOnly = false,
 }: {
   color: string;
   onChange: (color: string) => void;
   ink?: string;
   onBusy?: (busy: boolean) => void;
+  /** Card 219: controlled from a ⋯ "Colour…" row; `anchorOnly` renders the popover without its button. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchorOnly?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [own, setOwn] = useState(false);
+  const open = openProp ?? own;
+  const setOpen = useCallback(
+    (v: boolean) => {
+      if (openProp === undefined) setOwn(v);
+      onOpenChange?.(v);
+    },
+    [openProp, onOpenChange],
+  );
   const [box, setBox] = useState({ left: 0, top: 0 });
   const root = useRef<HTMLDivElement>(null);
-  const btn = useRef<HTMLButtonElement>(null);
+  const btn = useRef<HTMLElement>(null);
   const pop = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -236,22 +251,26 @@ export function NoteColor({
       { signal: ac.signal },
     );
     return () => ac.abort();
-  }, [open]);
+  }, [open, setOpen]);
 
   return (
     <div ref={root} className="relative" onPointerDown={(e) => e.stopPropagation()}>
+      {anchorOnly ? (
+        <span ref={btn} aria-hidden className="block size-0" />
+      ) : (
       <Tip label="Color">
         <button
-          ref={btn}
+          ref={btn as React.RefObject<HTMLButtonElement>}
           type="button"
           aria-label="Note color"
           aria-expanded={open}
           className="flex size-11 shrink-0 items-center justify-center rounded-sm hover:bg-black/10"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setOpen(!open)}
         >
           <Palette className="size-3.5" />
         </button>
       </Tip>
+      )}
       <ColorPopover
         open={open}
         box={box}

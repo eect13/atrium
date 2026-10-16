@@ -14,8 +14,8 @@ export type MenuRow = {
 };
 export type MenuItem = { separator: true } | MenuRow;
 
-/** create/act · view options · window · go · destructive/close. */
-export const MENU_SLOTS = ["create", "view", "window", "go", "close"] as const;
+/** create/act · view options · window · go · close · danger (Card 219: destructive rows last, own group). */
+export const MENU_SLOTS = ["create", "view", "window", "go", "close", "danger"] as const;
 export type MenuSlot = (typeof MENU_SLOTS)[number];
 export type MenuGroups = Partial<Record<MenuSlot, MenuRow[]>>;
 

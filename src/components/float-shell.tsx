@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AppWindow, Layers, Lock, Pin, SquareDashed, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { NoteTools } from "@/components/note-chrome";
+import { useNoteFloatTools } from "@/components/note-float-tools";
 import { NoteInk } from "@/components/note-ink";
 import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
@@ -91,6 +91,12 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
   }, [gone]);
 
   const viewRows = useViewRows(win?.kind ?? "");
+  const noteTools = useNoteFloatTools({
+    color: note?.color ?? "",
+    ink: note ? inkOnPaper(note.color) : undefined,
+    onColor: (color) => updateNote(id, { color }),
+    onDelete: () => void dismiss(() => removeNote(id)),
+  });
 
   // Card 216 §6: Ctrl+W / Esc close the focused float (Esc is left to open menus and typing).
   useEffect(() => {
@@ -152,30 +158,24 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
   if (kind === "note" && note) {
     const ink = inkOnPaper(note.color);
     return (
-      <div className="flex h-dvh max-h-dvh flex-col overflow-hidden" style={{ background: note.color, color: ink }}>
+      <div className="group/w relative flex h-dvh max-h-dvh flex-col overflow-hidden" style={{ background: note.color, color: ink }}>
         <TitleBar
-          className="group/w cursor-grab px-2 pl-3 active:cursor-grabbing"
+          className="cursor-grab px-2 pl-3 active:cursor-grabbing"
           data-tauri-drag-region
           title={noteTitle(note)}
           titleClassName="text-current opacity-80"
           titleProps={{ "data-tauri-drag-region": true }}
-          extra={
-            <NoteTools
-              ink={ink}
-              color={note.color}
-              pinned
-              reveal="always"
-              onColor={(color) => updateNote(note.id, { color })}
-              onDelete={() => void dismiss(() => removeNote(note.id))}
-            />
-          }
+          desk
+          actions={[noteTools.colorAction]}
           menuLabel="Note menu"
           groups={{
             window: [{ label: row(Pin, "Keep on top"), checked: pinnedTop, onSelect: togglePin }],
             go: [{ label: row(AppWindow, "Back to board"), onSelect: () => void dismiss(() => unpinNote(note.id)) }, goHome("notes")],
             close: [{ label: row(X, "Close"), onSelect: () => void dismiss(() => unpinNote(note.id)) }],
+            danger: [noteTools.deleteRow],
           }}
         />
+        {noteTools.anchors}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           <NoteInk strokes={note.ink ?? []} color={ink} active={drawing} onChange={(inkStrokes) => updateNote(note.id, { ink: inkStrokes })} />
           <NotePhotos photos={note.photos ?? []} onRemove={(pid) => updateNote(note.id, { photos: (note.photos ?? []).filter((p) => p.id !== pid) })} />

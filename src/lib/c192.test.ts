@@ -90,7 +90,8 @@ test("wiring: every float surface and native call is gated", () => {
   assert.match(layer, /if \(!nativeWindows\(\)\) return;/);
   assert.match(layer, /if \(isTauri\(\) \|\| !floatsAllowed\(\)\) return null;/);
   const chrome = src("components/desk-chrome.tsx");
-  assert.equal((chrome.match(/if \(!floats\) return null;/g) ?? []).length, 3, "FloatBtn, NotesFloatBtn, DeskMenu");
+  // Card 219 (Form 218 F3): NotesFloatBtn removed — notes float one at a time.
+  assert.equal((chrome.match(/if \(!floats\) return null;/g) ?? []).length, 2, "FloatBtn, DeskMenu");
   assert.match(chrome, /className="relative hidden lg:block"/, "Windows menu below lg is hidden on the web too");
   assert.doesNotMatch(src("components/calendar/calendar-toolbar.tsx"), /label: "Float"/);
   assert.match(src("components/views/options-view.tsx"), /\{floats \? \(\s*<Card id="opt-desk"/);

@@ -9,7 +9,7 @@ import { Check, LayoutGrid, Plus, RotateCcw } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { FloatBtn, NotesFloatBtn } from "@/components/desk-chrome";
+import { FloatBtn } from "@/components/desk-chrome";
 import { CalendarTiles } from "@/components/calendar-tiles";
 import { AgendaBody, ClockBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
 import {
@@ -248,7 +248,7 @@ function DashShell({
           </button>
         ) }]
       : []),
-    ...(floatRow ? [{ id: "float", group: "float" as const, row: floatRow, node: e.floatMany ? <NotesFloatBtn /> : <FloatBtn kind={e.float!} /> }] : []),
+    ...(floatRow && e.float ? [{ id: "float", group: "float" as const, row: floatRow, node: <FloatBtn kind={e.float} /> }] : []),
   ];
   return (
     <Card data-dash={id} data-arrange={arrange ? "" : undefined} className={cn("@container", className)} {...rest}>

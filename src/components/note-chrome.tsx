@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AppWindow, Trash2 } from "lucide-react";
 import { NoteColor } from "@/components/note-color";
@@ -38,12 +38,27 @@ export function NoteDelete({
   ink,
   onDelete,
   onBusy,
+  open: openProp,
+  onOpenChange,
+  anchorOnly = false,
 }: {
   ink?: string;
   onDelete: () => void;
   onBusy?: (busy: boolean) => void;
+  /** Card 219: driven by the ⋯ "Delete note" row; `anchorOnly` keeps only the confirm. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchorOnly?: boolean;
 }) {
-  const [ask, setAsk] = useState(false);
+  const [own, setOwn] = useState(false);
+  const ask = openProp ?? own;
+  const setAsk = useCallback(
+    (v: boolean) => {
+      if (openProp === undefined) setOwn(v);
+      onOpenChange?.(v);
+    },
+    [openProp, onOpenChange],
+  );
   const [box, setBox] = useState({ left: 0, top: 0 });
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -79,7 +94,7 @@ export function NoteDelete({
       { signal: ac.signal },
     );
     return () => ac.abort();
-  }, [ask]);
+  }, [ask, setAsk]);
 
   return (
     <div
@@ -89,9 +104,13 @@ export function NoteDelete({
       data-desk-menu={ask ? "" : undefined}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <NoteIconBtn label="Delete" ink={ink} onClick={() => setAsk(true)}>
-        <Trash2 className="size-3.5" />
-      </NoteIconBtn>
+      {anchorOnly ? (
+        <span aria-hidden className="block size-0" />
+      ) : (
+        <NoteIconBtn label="Delete" ink={ink} onClick={() => setAsk(true)}>
+          <Trash2 className="size-3.5" />
+        </NoteIconBtn>
+      )}
       {ask && typeof document !== "undefined"
         ? createPortal(
             <div

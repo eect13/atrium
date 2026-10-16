@@ -4,7 +4,6 @@ import { useFloatsAllowed } from "@/lib/use-platform";
 import { useRef, useState } from "react";
 import { LayoutGrid, LayoutList, PinOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { NotesFloatBtn } from "@/components/desk-chrome";
 import { AddColorWheel } from "@/components/note-color";
 import { NoteInk } from "@/components/note-ink";
 import { NoteTools } from "@/components/note-chrome";
@@ -90,7 +89,6 @@ export function NotesView() {
           <span className="hidden lg:inline">{floats ? "Scroll the board. Drag a title to reorder. Pin floats on the desk." : "Scroll the board. Drag a title to reorder."}</span>
         </p>
         <div className="grow" />
-        <NotesFloatBtn />
         <Chip active={layout === "list"} onClick={() => setNotesLayout("list")}>
           <LayoutList className="size-3.5" />
           List

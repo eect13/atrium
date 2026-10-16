@@ -40,39 +40,6 @@ export function FloatBtn({ kind }: { kind: WidgetKind }) {
   );
 }
 
-export function NotesFloatBtn() {
-  const { notes, pinAllNotes, unpinAllNotes } = useAtrium(
-    useShallow((s) => ({
-      notes: s.notes,
-      pinAllNotes: s.pinAllNotes,
-      unpinAllNotes: s.unpinAllNotes,
-    })),
-  );
-  const on = notes.some((n) => n.pinned);
-  const floats = useFloatsAllowed();
-  // Card 216 N3: notes float one at a time (AppWindow on each note); this is the "Float all" toggle.
-  const label = on ? "On desk" : "Float all";
-  if (!floats) return null;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            FLOAT_BTN,
-            on && "text-foreground",
-          )}
-          aria-label={label}
-          onClick={() => (on ? unpinAllNotes() : pinAllNotes())}
-        >
-          <AppWindow className="size-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 export function DeskMenu() {
   const floats = useFloatsAllowed();
   const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinAllNotes, unpinAllNotes } =

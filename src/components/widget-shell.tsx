@@ -20,7 +20,6 @@ export function TitleBar({
   titleClassName,
   titleProps,
   trail,
-  extra,
   actions = [],
   groups,
   menuLabel,
@@ -35,8 +34,6 @@ export function TitleBar({
   titleProps?: HTMLAttributes<HTMLElement> & Record<string, unknown>;
   /** Status glyph right of the title (desk lock). */
   trail?: ReactNode;
-  /** Surface-owned controls kept inline (note paper tools). */
-  extra?: ReactNode;
   actions?: TitleAction[];
   groups: MenuGroups;
   menuLabel: string;
@@ -65,8 +62,7 @@ export function TitleBar({
         {title}
       </h3>
       {trail}
-      <div data-no-drag className={cn("flex shrink-0 items-center gap-2", desk && SHELL_REVEAL)}>
-        {extra}
+      <div data-no-drag className={cn("relative z-[5] flex shrink-0 items-center gap-2", desk && SHELL_REVEAL)}>
         {rest2.map((a) => (
           <span key={a.id} data-action={a.id} className="flex">
             {a.node}
