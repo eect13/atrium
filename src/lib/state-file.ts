@@ -74,9 +74,12 @@ export function fileMirror(write: (text: string) => Promise<unknown>, warn: Warn
   let inFlight = false;
   let next: string | null = null;
   let warned = false;
+  let done: Promise<void> = Promise.resolve();
   const pump = async () => {
-    if (inFlight) return;
+    if (inFlight) return done;
     inFlight = true;
+    let finish = () => {};
+    done = new Promise<void>((r) => (finish = r));
     while (next !== null) {
       const text = next;
       next = null;
@@ -93,11 +96,15 @@ export function fileMirror(write: (text: string) => Promise<unknown>, warn: Warn
       }
     }
     inFlight = false;
+    finish();
   };
-  return (text: string) => {
+  const push = (text: string) => {
     next = text;
     void pump();
   };
+  /** Card 217 R-b: resolves once every queued write has been handed to Rust. */
+  push.idle = () => done;
+  return push;
 }
 
 let mirror: ReturnType<typeof fileMirror> | null = null;
@@ -135,6 +142,12 @@ export function mirrorStateToFile(blob?: string) {
 }
 
 /** Main realm, Tauri only, before the store is created: restore from the file when it is newer. */
+/** Card 217 R-b (tray Quit): mirror the latest state and wait until the file write is done. */
+export async function flushStateFile() {
+  mirrorStateToFile();
+  await mirror?.idle();
+}
+
 export async function restoreStateFromFile() {
   if (!isTauri()) return;
   try {

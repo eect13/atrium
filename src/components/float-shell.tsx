@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GripHorizontal, Layers, Lock, Pin, PinOff, SquareDashed, X } from "lucide-react";
+import { AppWindow, Layers, Lock, Pin, SquareDashed, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { NoteTools } from "@/components/note-chrome";
-import { CloseButton } from "@/components/ui/close-button";
 import { NoteInk } from "@/components/note-ink";
 import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
-import { OverflowMenu } from "@/components/ui/overflow-menu";
+import { TitleBar } from "@/components/widget-shell";
+import { SHELL_REVEAL, useViewRows } from "@/lib/widget-menu";
+import { FLOAT_VIEW } from "@/lib/dash";
+import { openInAtrium } from "@/lib/open-in-atrium";
 import { toggleDeskFlag } from "@/lib/desk-flags";
 import { cn } from "@/lib/utils";
 import { inkOnPaper, noteTitle } from "@/lib/format";
@@ -29,47 +31,6 @@ function readHeadlines(): NewsItem[] {
   } catch {
     return [];
   }
-}
-
-function Chrome({
-  title,
-  pinnedTop,
-  onPin,
-  onClose,
-  extra,
-}: {
-  title: string;
-  pinnedTop: boolean;
-  onPin: () => void;
-  onClose: () => void;
-  extra?: React.ReactNode;
-}) {
-  return (
-    <header className="group/bar flex h-12 shrink-0 cursor-grab items-center gap-1 border-b border-current/15 px-2 active:cursor-grabbing">
-      <div className="flex min-w-0 grow items-center gap-1.5" data-tauri-drag-region>
-        <GripHorizontal className="size-3.5 shrink-0 opacity-45" data-tauri-drag-region />
-        <span className="min-w-0 truncate text-xs font-medium opacity-80" data-tauri-drag-region>
-          {title}
-        </span>
-      </div>
-      {extra}
-      <button
-        type="button"
-        data-no-drag
-        className="flex size-hit shrink-0 items-center justify-center rounded-md hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
-        aria-label={pinnedTop ? "Unpin from top" : "Keep on top"}
-        aria-pressed={pinnedTop}
-        onClick={onPin}
-      >
-        {pinnedTop ? <Pin className="size-3.5" /> : <PinOff className="size-3.5 opacity-60" />}
-      </button>
-      <CloseButton
-        data-no-drag
-        className="text-current hover:bg-black/10 hover:text-current focus-visible:ring-current focus-visible:ring-offset-0"
-        onClick={onClose}
-      />
-    </header>
-  );
 }
 
 export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }) {
@@ -129,6 +90,27 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
     if (gone) void closeThisWindow();
   }, [gone]);
 
+  const viewRows = useViewRows(win?.kind ?? "");
+
+  // Card 216 §6: Ctrl+W / Esc close the focused float (Esc is left to open menus and typing).
+  useEffect(() => {
+    const ac = new AbortController();
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        const ctrlW = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w";
+        const esc = e.key === "Escape" && !(e.target as HTMLElement | null)?.closest?.("input,textarea,[contenteditable],[role=menu]");
+        if (!ctrlW && !esc) return;
+        e.preventDefault();
+        if (kind === "note") void dismiss(() => unpinNote(id));
+        else void dismiss(() => closeWindow(id));
+      },
+      { signal: ac.signal },
+    );
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, id]);
+
   async function dismiss(after: () => void) {
     after();
     await closeThisWindow();
@@ -142,15 +124,41 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
     else updateWindow(id, { onTop: next });
   }
 
+  const row = (Icon: typeof Lock, label: string) => (
+    <span className="flex items-center gap-2">
+      <Icon className="size-4 opacity-70" aria-hidden />
+      {label}
+    </span>
+  );
+  // Card 216b: window flags are title-bar actions (inline at ≥420 on hover, else first in ⋯ window group).
+  const flagAction = (id: string, Icon: typeof Lock, label: string, on: boolean, onSelect: () => void) => ({
+    id,
+    group: "flags" as const,
+    row: { label: row(Icon, label), checked: on, onSelect },
+    node: (
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={on}
+        className={cn("inline-flex size-11 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", on ? "text-foreground" : "text-muted-foreground")}
+        onClick={onSelect}
+      >
+        <Icon className="size-4" />
+      </button>
+    ),
+  });
+  const goHome = (v: Parameters<typeof openInAtrium>[0]) => ({ label: "Open in Atrium", onSelect: () => void openInAtrium(v, (x) => useAtrium.getState().setView(x)) });
+
   if (kind === "note" && note) {
     const ink = inkOnPaper(note.color);
     return (
       <div className="flex h-dvh max-h-dvh flex-col overflow-hidden" style={{ background: note.color, color: ink }}>
-        <Chrome
+        <TitleBar
+          className="group/w cursor-grab px-2 pl-3 active:cursor-grabbing"
+          data-tauri-drag-region
           title={noteTitle(note)}
-          pinnedTop={pinnedTop}
-          onPin={togglePin}
-          onClose={() => void dismiss(() => unpinNote(note.id))}
+          titleClassName="text-current opacity-80"
+          titleProps={{ "data-tauri-drag-region": true }}
           extra={
             <NoteTools
               ink={ink}
@@ -158,10 +166,15 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
               pinned
               reveal="always"
               onColor={(color) => updateNote(note.id, { color })}
-              onFloat={() => void dismiss(() => unpinNote(note.id))}
               onDelete={() => void dismiss(() => removeNote(note.id))}
             />
           }
+          menuLabel="Note menu"
+          groups={{
+            window: [{ label: row(Pin, "Keep on top"), checked: pinnedTop, onSelect: togglePin }],
+            go: [{ label: row(AppWindow, "Back to board"), onSelect: () => void dismiss(() => unpinNote(note.id)) }, goHome("notes")],
+            close: [{ label: row(X, "Close"), onSelect: () => void dismiss(() => unpinNote(note.id)) }],
+          }}
         />
         <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           <NoteInk strokes={note.ink ?? []} color={ink} active={drawing} onChange={(inkStrokes) => updateNote(note.id, { ink: inkStrokes })} />
@@ -193,39 +206,35 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
       updateWindow(win.id, patch);
       if ("onTop" in patch) setPinnedTop(Boolean(patch.onTop));
     };
-    const row = (Icon: typeof Lock, label: string) => (
-      <span className="flex items-center gap-2">
-        <Icon className="size-4 opacity-70" aria-hidden />
-        {label}
-      </span>
-    );
     return (
       <div
-        className={cn("group/w relative flex h-dvh max-h-dvh flex-col overflow-hidden rounded-lg text-card-foreground", win.frame && "shadow-float ring-1 ring-border")}
+        className={cn("group/w relative flex h-dvh max-h-dvh flex-col overflow-hidden rounded-xl text-card-foreground", win.frame && "shadow-float ring-1 ring-border")}
         style={{ background: cardAlpha(deskOpacity) }}
         data-locked={win.locked ? "" : undefined}
       >
-        <header className={cn("flex h-11 shrink-0 items-center gap-1 px-2", !win.locked && "cursor-grab active:cursor-grabbing")}>
-          <span className="min-w-0 grow truncate text-xs font-medium opacity-0 transition-opacity group-hover/w:opacity-70" {...(win.locked ? {} : { "data-tauri-drag-region": true })}>
-            {WIDGET_LABEL[win.kind]}
-          </span>
-          {win.locked ? <Lock aria-hidden className="pointer-events-none size-3 shrink-0 text-muted-foreground opacity-0 group-hover/w:opacity-45" /> : null}
-          <div data-no-drag className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/w:opacity-100">
-            <OverflowMenu
-              label={`${WIDGET_LABEL[win.kind]} widget menu`}
-              menuClassName="w-60"
-              items={[
-                { label: row(Lock, "Lock position"), checked: Boolean(win.locked), onSelect: () => flip("locked") },
-                { label: row(Layers, "Stay behind windows"), checked: Boolean(win.behind), onSelect: () => flip("behind") },
-                { label: row(SquareDashed, "Frame"), checked: Boolean(win.frame), onSelect: () => flip("frame") },
-                { separator: true },
-                { label: row(Pin, "Keep on top"), checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
-                { label: row(X, "Close"), onSelect: () => void dismiss(() => closeWindow(win.id)) },
-              ]}
-            />
-          </div>
-        </header>
-        <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
+        <TitleBar
+          desk
+          className={cn("px-2 pl-4", !win.locked && "cursor-grab active:cursor-grabbing")}
+          title={WIDGET_LABEL[win.kind]}
+          titleClassName={SHELL_REVEAL}
+          titleProps={win.locked ? {} : { "data-tauri-drag-region": true }}
+          trail={win.locked ? <Lock aria-hidden className="pointer-events-none size-3 shrink-0 text-muted-foreground opacity-0 group-hover/w:opacity-45" /> : null}
+          menuLabel={`${WIDGET_LABEL[win.kind]} menu`}
+          actions={[
+            flagAction("lock", Lock, "Lock position", Boolean(win.locked), () => flip("locked")),
+            flagAction("behind", Layers, "Stay behind windows", Boolean(win.behind), () => flip("behind")),
+          ]}
+          groups={{
+            view: viewRows,
+            window: [
+              { label: row(SquareDashed, "Frame"), checked: Boolean(win.frame), onSelect: () => flip("frame") },
+              { label: row(Pin, "Keep on top"), checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
+            ],
+            go: [goHome(FLOAT_VIEW[win.kind])],
+            close: [{ label: row(X, "Close"), onSelect: () => void dismiss(() => closeWindow(win.id)) }],
+          }}
+        />
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
           <WidgetBody kind={win.kind} headlines={headlines} />
         </div>
       </div>

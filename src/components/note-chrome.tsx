@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Pin, PinOff, Trash2 } from "lucide-react";
+import { AppWindow, Trash2 } from "lucide-react";
 import { NoteColor } from "@/components/note-color";
 import { Tip } from "@/components/ui/tooltip";
 import { placePopover } from "@/lib/desk";
@@ -149,7 +149,8 @@ export function NoteTools({
   const [colorBusy, setColorBusy] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
   const busy = colorBusy || delBusy;
-  const floatLabel = pinned ? "Board" : "Float";
+  // Card 216 §6/N3: one pop-out icon and verb everywhere; Pin means Keep on top only.
+  const floatLabel = pinned ? "Back to board" : "Float";
   return (
     <div
       className={cn("flex shrink-0 items-center", reveal === "near" && "note-autohide", className)}
@@ -159,7 +160,7 @@ export function NoteTools({
     >
       {onFloat ? (
         <NoteIconBtn label={floatLabel} ink={ink} onClick={onFloat}>
-          {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+          <AppWindow className="size-3.5" />
         </NoteIconBtn>
       ) : null}
       <NoteColor color={color} onChange={onColor} ink={ink} onBusy={setColorBusy} />

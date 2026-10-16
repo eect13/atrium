@@ -258,66 +258,23 @@ function HubCard({
 export function Hub({ prefs, items, update, onAdd, layout, title = "Saved" }: { prefs: FeedPrefs; items?: HubItem[]; update: Update; onAdd: () => void; layout: "rail" | "strip"; title?: string }) {
   /** Feed › Saved passes the topic-filtered list; Export follows what is shown. */
   const hub = items ?? prefs.hub;
-  const [exportOpen, setExportOpen] = useState(false);
-  const exportRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!exportOpen) return;
-    const ac = new AbortController();
-    window.addEventListener(
-      "pointerdown",
-      (e) => {
-        if (!exportRef.current?.contains(e.target as Node)) setExportOpen(false);
-      },
-      { signal: ac.signal },
-    );
-    return () => ac.abort();
-  }, [exportOpen]);
 
   const head = (
     <div className="mb-2 flex flex-wrap items-center gap-2">
       <h3 className={EYEBROW}>{title}</h3>
       <div className="grow" />
-      <div className="relative" ref={exportRef}>
-        <Button
-          variant="outline"
-          size="sm"
-          className="min-h-11"
-          aria-expanded={exportOpen}
-          aria-haspopup="menu"
-          onClick={() => setExportOpen((v) => !v)}
-          disabled={!hub.length}
-        >
-          Export
-        </Button>
-        {exportOpen ? (
-          <div role="menu" className="absolute right-0 top-12 z-30 w-44 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]">
-            <button
-              type="button"
-              role="menuitem"
-              className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
-              onClick={() => {
-                downloadHubMarkdown(hub);
-                setExportOpen(false);
-                toast("Exported saved .md");
-              }}
-            >
-              Export .md
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted"
-              onClick={() => {
-                downloadHubPdf(hub);
-                setExportOpen(false);
-                toast("Exported saved PDF");
-              }}
-            >
-              Export PDF
-            </button>
-          </div>
-        ) : null}
-      </div>
+      {hub.length ? (
+        <OverflowMenu
+          label="Export saved"
+          icon="Export"
+          triggerClassName="px-3 text-sm shadow-[var(--shadow-border)] hover:bg-muted"
+          menuClassName="w-44"
+          items={[
+            { label: "Export .md", onSelect: () => (downloadHubMarkdown(hub), toast("Exported saved .md")) },
+            { label: "Export PDF", onSelect: () => (downloadHubPdf(hub), toast("Exported saved PDF")) },
+          ]}
+        />
+      ) : null}
       <Button variant="ghost" size="sm" className="min-h-11" aria-label="Add a link to Saved" onClick={onAdd}>
         + Add link
       </Button>

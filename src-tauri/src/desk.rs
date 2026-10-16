@@ -10,6 +10,17 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+/// Card 217 R-b: tray Quit asks main to capture + save first.
+pub const QUIT_EVENT: &str = "atrium:quit";
+pub const QUIT_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Write whatever state is pending, release the shortcut, exit.
+pub fn quit_now(app: &AppHandle) {
+    let _ = super::state_file::write_pending();
+    unregister_shortcut(app);
+    app.exit(0);
+}
+
 pub const UNLOCK_EVENT: &str = "atrium:unlock-all";
 pub const SHORTCUT_LABEL: &str = "Ctrl+Shift+F12";
 static SHORTCUT_OK: AtomicBool = AtomicBool::new(false);
@@ -87,11 +98,18 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             let _ = w.show();
             let _ = w.set_focus();
         }),
+        // Card 217 R-b: same path as the main close — main captures live float boxes and saves
+        // through the state file, then calls `desk_quit`. Exit anyway if main never answers.
         "quit" => {
-            let _ = app.emit_to("main", "atrium:flush", ());
-            let _ = super::state_file::write_pending();
-            unregister_shortcut(app);
-            app.exit(0);
+            if app.get_webview_window("main").is_some() && app.emit_to("main", QUIT_EVENT, ()).is_ok() {
+                let h = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(QUIT_GRACE);
+                    quit_now(&h);
+                });
+            } else {
+                quit_now(app);
+            }
         }
         _ => {}
     })

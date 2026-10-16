@@ -77,6 +77,7 @@ import { startRealmSync } from "@/lib/realm-wire";
 import { nativeWindows } from "@/lib/platform";
 import { listenUnlockAll, UNLOCK_SHORTCUT, unlockShortcutOk } from "@/lib/desk-unlock";
 import { onStateFileWarning } from "@/lib/state-file";
+import { focusViewHeading, listenOpenView } from "@/lib/open-in-atrium";
 import { useFloatsAllowed } from "@/lib/use-platform";
 import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
@@ -389,6 +390,8 @@ export function AtriumApp() {
   useEffect(() => rememberMainWindow(captureDeskBoxes), []);
   useEffect(() => startRealmSync(useAtrium), []);
   useEffect(() => listenUnlockAll(() => useAtrium.getState().unlockAllWindows()), []);
+  // Card 216 §6: a float's "Open in Atrium" lands on its feature with the heading focused.
+  useEffect(() => listenOpenView((v) => (useAtrium.getState().setView(v), focusViewHeading())), []);
   useEffect(() => {
     // Card 212: another app owns the shortcut → say so once; tray and Options still unlock.
     if (!nativeWindows()) return;

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { AppWindow, House } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { Button } from "@/components/ui/button";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
+import { groupItems, type MenuRow } from "@/lib/menu-groups";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAtrium } from "@/lib/store";
 import { WIDGET_LABEL, type WidgetKind } from "@/lib/types";
@@ -50,7 +50,8 @@ export function NotesFloatBtn() {
   );
   const on = notes.some((n) => n.pinned);
   const floats = useFloatsAllowed();
-  const label = on ? "On desk" : "Float";
+  // Card 216 N3: notes float one at a time (AppWindow on each note); this is the "Float all" toggle.
+  const label = on ? "On desk" : "Float all";
   if (!floats) return null;
   return (
     <Tooltip>
@@ -73,8 +74,6 @@ export function NotesFloatBtn() {
 }
 
 export function DeskMenu() {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
   const floats = useFloatsAllowed();
   const { openWindow, windows, closeWindow, closeAllWindows, homeWindows, modules, notes, pinAllNotes, unpinAllNotes } =
     useAtrium(
@@ -90,135 +89,63 @@ export function DeskMenu() {
         unpinAllNotes: s.unpinAllNotes,
       })),
     );
-  const items: { kind: WidgetKind; label: string }[] = [
-    ...(modules.weather !== false ? [{ kind: "weather" as const, label: WIDGET_LABEL.weather }] : []),
-    { kind: "calendar", label: WIDGET_LABEL.calendar },
-    ...(modules.clock !== false ? [{ kind: "clock" as const, label: WIDGET_LABEL.clock }] : []),
+  const kinds: WidgetKind[] = [
+    ...(modules.weather !== false ? (["weather"] as const) : []),
+    "calendar",
+    ...(modules.clock !== false ? (["clock"] as const) : []),
   ];
-  const afterNotes: { kind: WidgetKind; label: string }[] = [
-    ...(modules.quotes !== false ? [{ kind: "quote" as const, label: WIDGET_LABEL.quote }] : []),
-    ...(modules.finance ? [{ kind: "finance" as const, label: WIDGET_LABEL.finance }] : []),
-    ...(modules.news ? [{ kind: "news" as const, label: WIDGET_LABEL.news }] : []),
+  const afterNotes: WidgetKind[] = [
+    ...(modules.quotes !== false ? (["quote"] as const) : []),
+    ...(modules.finance ? (["finance"] as const) : []),
+    ...(modules.news ? (["news"] as const) : []),
   ];
   const pinnedN = notes.filter((n) => n.pinned).length;
   const showNotes = modules.notes !== false;
-
-  useEffect(() => {
-    if (!open) return;
-    const ac = new AbortController();
-    window.addEventListener(
-      "pointerdown",
-      (e) => {
-        if (!root.current?.contains(e.target as Node)) setOpen(false);
-      },
-      { signal: ac.signal },
-    );
-    window.addEventListener(
-      "keydown",
-      (e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setOpen(false);
-      },
-      { signal: ac.signal, capture: true },
-    );
-    return () => ac.abort();
-  }, [open]);
-
-  function slot(item: { kind: WidgetKind; label: string }) {
-    const win = windows.find((w) => w.kind === item.kind);
-    return (
-      <button
-        key={item.kind}
-        type="button"
-        role="menuitem"
-        className="flex h-11 w-full items-center justify-between rounded-md px-2 text-sm hover:bg-muted"
-        onClick={() => {
-          if (win) closeWindow(win.id);
-          else openWindow(item.kind);
-        }}
-      >
-        <span>{item.label}</span>
-        <span className="text-xs text-muted-foreground">{win ? "Close" : "Open"}</span>
-      </button>
-    );
-  }
+  const row = (label: string, on: boolean) => (
+    <span className="flex w-full items-center justify-between">
+      <span>{label}</span>
+      <span className="text-xs text-muted-foreground">{on ? "Close" : "Open"}</span>
+    </span>
+  );
+  const slot = (kind: WidgetKind): MenuRow => {
+    const win = windows.find((w) => w.kind === kind);
+    return { label: row(WIDGET_LABEL[kind], Boolean(win)), onSelect: () => (win ? closeWindow(win.id) : openWindow(kind)) };
+  };
+  const any = windows.length > 0 || pinnedN > 0;
+  // Card 216 step 4: the shared OverflowMenu (no hand-rolled role=menu); groups per §5.
+  const items = groupItems({
+    window: [
+      ...kinds.map(slot),
+      ...(showNotes ? [{ label: row("Notes", pinnedN > 0), onSelect: () => (pinnedN ? unpinAllNotes() : pinAllNotes()) }] : []),
+      ...afterNotes.map(slot),
+    ],
+    go: any
+      ? [
+          {
+            label: (
+              <span className="flex items-center gap-2">
+                <House className="size-3.5" />
+                Bring windows home
+              </span>
+            ),
+            onSelect: homeWindows,
+          },
+        ]
+      : [],
+    close: windows.length > 0 ? [{ label: "Close all windows", onSelect: closeAllWindows }] : [],
+  });
 
   // Card 187/192: the float layer is lg-only on the web and absent in the mobile app.
   if (!floats) return null;
   return (
-    <div ref={root} className="relative hidden lg:block">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="text-foreground"
-            aria-label="Windows"
-            aria-expanded={open}
-            aria-haspopup="menu"
-            onClick={() => setOpen((o) => !o)}
-          >
-            <AppWindow className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Windows</TooltipContent>
-      </Tooltip>
-      {open ? (
-        <div
-          role="menu"
-          data-desk-menu=""
-          className="absolute right-0 top-11 z-50 w-56 rounded-lg bg-card p-2 text-card-foreground shadow-[var(--shadow-float)]"
-        >
-          {items.map(slot)}
-          {showNotes ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="flex h-11 w-full items-center justify-between rounded-md px-2 text-sm hover:bg-muted"
-              onClick={() => {
-                if (pinnedN) unpinAllNotes();
-                else pinAllNotes();
-              }}
-            >
-              <span>Notes</span>
-              <span className="text-xs text-muted-foreground">{pinnedN ? "Close" : "Open"}</span>
-            </button>
-          ) : null}
-          {afterNotes.map(slot)}
-          {windows.length > 0 || pinnedN > 0 ? (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="mt-1 flex h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => {
-                  homeWindows();
-                  setOpen(false);
-                }}
-              >
-                <House className="size-3.5" />
-                Bring windows home
-              </button>
-              {windows.length > 0 ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex h-11 w-full items-center rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => {
-                    closeAllWindows();
-                    setOpen(false);
-                  }}
-                >
-                  Close all windows
-                </button>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      ) : null}
+    <div className="relative hidden lg:block">
+      <OverflowMenu
+        label="Windows"
+        icon={<AppWindow className="size-4" />}
+        triggerClassName="text-foreground shadow-[var(--shadow-border)] hover:bg-muted"
+        menuClassName="w-56 z-50"
+        items={items}
+      />
     </div>
   );
 }

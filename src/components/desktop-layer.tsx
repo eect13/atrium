@@ -1,5 +1,7 @@
 "use client";
 
+import { FLOAT_VIEW } from "@/lib/dash";
+import { openInAtrium } from "@/lib/open-in-atrium";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { FloatWindow } from "@/components/float-window";
@@ -38,6 +40,7 @@ export function DesktopLayer({
   newsError?: boolean;
   newsMissed?: string[];
 }) {
+  const setView = useAtrium((s) => s.setView);
   const {
     notes,
     windows,
@@ -149,6 +152,7 @@ export function DesktopLayer({
             onResize={(w, h) => updateWindow(win.id, { w, h })}
             onRaise={() => raise("win", win.id)}
             onClose={() => closeWindow(win.id)}
+            menu={{ go: [{ label: "Open in Atrium", onSelect: () => void openInAtrium(FLOAT_VIEW[win.kind], setView) }] }}
           >
             <WidgetBody kind={win.kind} headlines={headlines} newsLoading={newsLoading} newsError={newsError} newsMissed={newsMissed} />
           </FloatWindow>
@@ -176,7 +180,6 @@ export function DesktopLayer({
                   pinned
                   reveal="always"
                   onColor={(color) => updateNote(n.id, { color })}
-                  onFloat={() => unpinNote(n.id)}
                   onDelete={() => removeNote(n.id)}
                 />
               }
@@ -184,6 +187,7 @@ export function DesktopLayer({
               onResize={(w, h) => updateNote(n.id, { w, h })}
               onRaise={() => raise("note", n.id)}
               onClose={() => unpinNote(n.id)}
+              menu={{ go: [{ label: "Back to board", onSelect: () => unpinNote(n.id) }, { label: "Open in Atrium", onSelect: () => void openInAtrium("notes", setView) }] }}
             >
               <div className="flex h-full min-h-0 flex-col">
                 <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">

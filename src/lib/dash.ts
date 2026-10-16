@@ -1,4 +1,5 @@
-import { WIDGET_LABEL, type WidgetKind } from "./types.ts";
+import type { MenuGroups } from "./menu-groups.ts";
+import { WIDGET_LABEL, type ViewId, type WidgetKind } from "./types.ts";
 
 /** Module switch a dashboard card depends on (absent = always on). */
 export type DashNeed = "weather" | "clock" | "quotes" | "finance" | "notes" | "news";
@@ -19,18 +20,44 @@ export type DashEntry = {
   need?: DashNeed;
   /** Card title only when id is not a widget kind (e.g. notes); widget cards use `WIDGET_LABEL[id]`. */
   title?: string;
+  /** Card 216: page this card / its float opens ("Open {Feature}", "Open in Atrium"). */
+  view: ViewId;
+  /** Card 216: the one action allowed to stay inline (empty states, md+ headers). */
+  primary?: "new-note" | "new-event";
+  /** Card 216: floats one item at a time (Notes); the ⋯ carries "Float all". */
+  floatMany?: boolean;
+  /** Card 216: feature items for the shared ⋯ (merged into the canonical groups). */
+  menu?: (ctx: MenuCtx) => MenuGroups;
 };
 
+/** Context-neutral hooks a registry `menu` may call; the shell supplies them. */
+export type MenuAction = "new-note" | "new-event" | "board" | "float-all" | "unfloat-all";
+export type MenuCtx = { floats: boolean; manyOn: boolean; act: (a: MenuAction) => () => void };
+
+// New note (primary) and Float all (floatMany) are title-bar actions; only Board is notes-specific.
+const notesMenu = (c: MenuCtx): MenuGroups => ({ view: [{ label: "Board", onSelect: c.act("board") }] });
+
 export const DASH_REGISTRY = [
-  { id: "weather", span: 5, float: "weather", need: "weather" },
-  { id: "agenda", span: 4, float: "calendar" },
-  { id: "quote", span: 3, float: "quote", need: "quotes" },
-  { id: "finance", span: 4, float: "finance", need: "finance" },
-  { id: "notes", span: 4, need: "notes", title: "Notes" },
-  { id: "news", span: 4, float: "news", need: "news" },
-  { id: "calendar", span: 8, float: "calendar" },
-  { id: "clock", span: 4, float: "clock", need: "clock" },
+  { id: "weather", span: 5, float: "weather", need: "weather", view: "weather" },
+  { id: "agenda", span: 4, float: "calendar", view: "calendar" },
+  { id: "quote", span: 3, float: "quote", need: "quotes", view: "quotes" },
+  { id: "finance", span: 4, float: "finance", need: "finance", view: "finance" },
+  { id: "notes", span: 4, need: "notes", title: "Notes", view: "notes", primary: "new-note", floatMany: true, menu: notesMenu },
+  { id: "news", span: 4, float: "news", need: "news", view: "news" },
+  { id: "calendar", span: 8, float: "calendar", view: "calendar" },
+  { id: "clock", span: 4, float: "clock", need: "clock", view: "clock" },
 ] as const satisfies readonly DashEntry[];
+
+/** Float kind → the page "Open in Atrium" lands on. */
+export const FLOAT_VIEW: Record<WidgetKind, ViewId> = {
+  weather: "weather",
+  agenda: "calendar",
+  calendar: "calendar",
+  quote: "quotes",
+  finance: "finance",
+  news: "news",
+  clock: "clock",
+};
 
 export type DashCard = (typeof DASH_REGISTRY)[number]["id"];
 export const DASH_CARDS = DASH_REGISTRY.map((e) => e.id) as readonly DashCard[];

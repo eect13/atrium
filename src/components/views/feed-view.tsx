@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { MoreHorizontal, Rss, Search } from "lucide-react";
+import { Rss, Search } from "lucide-react";
+import { FloatBtn } from "@/components/desk-chrome";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
+import { groupItems } from "@/lib/menu-groups";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,8 +68,6 @@ export function FeedView({
     })),
   );
   const [hook, setHook] = useState<Hook>(null);
-  const [more, setMore] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
   const onCount = feeds.filter((f) => f.enabled).length;
   const interest = prefs.interest;
   // Stock-scoped interests: `$TICKER`, an UPPERCASE ticker, or an exact company name resolve to a stock.
@@ -100,7 +101,6 @@ export function FeedView({
   const rest = shown.slice(1);
   const q = newsQuery.trim();
   const open = (h: Hook) => {
-    setMore(false);
     setHook(h);
   };
   const setOpen = (h: Exclude<Hook, null>) => (v: boolean) => setHook(v ? h : null);
@@ -167,39 +167,13 @@ export function FeedView({
                 <Rss />
               </Button>
             ) : null}
-            <div
-              ref={moreRef}
-              className="relative"
-              onBlur={(e) => {
-                if (!moreRef.current?.contains(e.relatedTarget as Node | null)) setMore(false);
-              }}
-            >
-              <Button variant="outline" size="icon" className="size-11" aria-label="More Feed options" aria-expanded={more} aria-haspopup="menu" onClick={() => setMore((v) => !v)}>
-                <MoreHorizontal />
-              </Button>
-              {more ? (
-                <div role="menu" className="absolute right-0 top-12 z-30 w-44 rounded-md bg-card p-1.5 text-card-foreground shadow-[var(--shadow-float)]">
-                  {(
-                    [
-                      ["Digest", () => open("digest")],
-                      ["Curate", () => open("curate")],
-                      ["Refresh", () => (setMore(false), onRefresh())],
-                    ] as const
-                  ).map(([label, fn]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      role="menuitem"
-                      onClick={fn}
-                      className="flex min-h-11 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            <OverflowMenu
+              label="Feed menu"
+              menuClassName="w-44"
+              items={groupItems({ create: [{ label: "Digest…", onSelect: () => open("digest") }, { label: "Curate…", onSelect: () => open("curate") }, { label: "Refresh", onSelect: onRefresh }] })}
+            />
           </div>
+          <FloatBtn kind="news" />
         </div>
       </header>
 

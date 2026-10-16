@@ -1,19 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { MenuItem } from "@/lib/menu-groups";
 
-export type OverflowItem =
-  | { separator: true }
-  | {
-      separator?: undefined;
-      label: ReactNode;
-      onSelect: () => void;
-      destructive?: boolean;
-      /** A toggle row (menuitemcheckbox with a Switch look). The menu stays open. */
-      checked?: boolean;
-    };
+
+export type OverflowItem = MenuItem;
 
 /**
  * 44px "⋯" trigger + menu (extracted from the Hub card menu, Form 152 N11).
@@ -28,6 +21,7 @@ export function OverflowMenu({
   className,
   triggerClassName,
   menuClassName = "w-40",
+  icon,
 }: {
   label: string;
   items: OverflowItem[];
@@ -36,6 +30,8 @@ export function OverflowMenu({
   className?: string;
   triggerClassName?: string;
   menuClassName?: string;
+  /** Trigger glyph; ⋯ unless a feature menu has its own icon (e.g. the desk Windows menu). */
+  icon?: React.ReactNode;
 }) {
   const [own, setOwn] = useState(false);
   const open = openProp ?? own;
@@ -99,7 +95,7 @@ export function OverflowMenu({
         aria-expanded={open}
         aria-haspopup="menu"
         className={cn(
-          "inline-flex size-11 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           triggerClassName ?? "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
         onClick={(e) => {
@@ -107,7 +103,7 @@ export function OverflowMenu({
           set(!open);
         }}
       >
-        <MoreHorizontal className="size-4" />
+        {icon ?? <MoreHorizontal className="size-4" />}
       </button>
       {open ? (
         <div

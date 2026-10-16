@@ -2,7 +2,10 @@ import { nativeWindows } from "@/lib/platform";
 import { writeLocal } from "@/lib/quota";
 import { closeAllNativeFloatsForExit } from "@/lib/native-float";
 import { FLUSH_EVENT } from "@/lib/realm-sync";
-import { mirrorStateToFile } from "@/lib/state-file";
+import { flushStateFile, mirrorStateToFile } from "@/lib/state-file";
+
+/** Card 217 R-b: Rust tray Quit → main captures + saves, then invokes `desk_quit`. */
+export const QUIT_EVENT = "atrium:quit";
 
 const KEY = "atrium.win";
 
@@ -37,6 +40,7 @@ export function rememberMainWindow(beforeExit?: () => Promise<void> | void) {
   let un2: (() => void) | undefined;
   let unClose: (() => void) | undefined;
   let unFlush: (() => void) | undefined;
+  let unQuit: (() => void) | undefined;
   void (async () => {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
@@ -74,6 +78,21 @@ export function rememberMainWindow(beforeExit?: () => Promise<void> | void) {
     };
     try {
       const { listen } = await import("@tauri-apps/api/event");
+      // Card 217 R-b: tray Quit takes the same path as the main close (live float boxes captured,
+      // saved through the state file), then asks Rust to exit. Rust exits anyway after a timeout.
+      const stopQuit = await listen(QUIT_EVENT, async () => {
+        window.clearTimeout(timer);
+        try {
+          await save();
+          await beforeExit?.();
+          await flushStateFile();
+        } finally {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("desk_quit").catch(() => {});
+        }
+      });
+      if (dead) stopQuit();
+      else unQuit = stopQuit;
       const stopFlush = await listen(FLUSH_EVENT, () => {
         window.clearTimeout(timer);
         void save().then(() => beforeExit?.());
@@ -105,5 +124,6 @@ export function rememberMainWindow(beforeExit?: () => Promise<void> | void) {
     un2?.();
     unClose?.();
     unFlush?.();
+    unQuit?.();
   };
 }

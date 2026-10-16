@@ -1,12 +1,11 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
-import { GripHorizontal } from "lucide-react";
 import { clampDesk, clampSize, keyBox, resizeFrom, snapDesk, type ResizeCorner, type ResizeEdge } from "@/lib/desk";
 import { inkOnPaper } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { CloseButton } from "@/components/ui/close-button";
-import { Tip } from "@/components/ui/tooltip";
+import { mergeGroups, type MenuGroups } from "@/lib/menu-groups";
+import { TitleBar } from "@/components/widget-shell";
 
 export { clampDesk, fitBox, placeWindow } from "@/lib/desk";
 
@@ -63,6 +62,7 @@ export function FloatWindow({
   minH = 140,
   paper,
   extra,
+  menu,
   onMove,
   onResize,
   onRaise,
@@ -79,6 +79,8 @@ export function FloatWindow({
   minH?: number;
   paper?: string;
   extra?: ReactNode;
+  /** Card 216: feature ⋯ groups (view options, Open in Atrium…); Close is appended last. */
+  menu?: MenuGroups;
   onMove: (x: number, y: number) => void;
   onResize: (w: number, h: number) => void;
   onRaise: () => void;
@@ -158,16 +160,13 @@ export function FloatWindow({
 
   const geom = live.current;
   const ink = paper ? inkOnPaper(paper) : undefined;
-  const barBtn = paper
-    ? "text-current opacity-70 hover:bg-black/10 hover:text-current hover:opacity-100"
-    : "text-muted-foreground hover:bg-accent hover:text-foreground";
 
   return (
     <article
       ref={articleRef}
       aria-label={title}
       className={cn(
-        "group absolute flex flex-col overflow-hidden rounded-lg shadow-[var(--shadow-float)]",
+        "group absolute flex flex-col overflow-hidden rounded-xl shadow-[var(--shadow-float)]",
         paper ? "" : "bg-card text-card-foreground",
       )}
       style={{
@@ -181,56 +180,35 @@ export function FloatWindow({
       }}
       onPointerDown={onRaise}
     >
-      <header
+      {/* Card 216 §6: the shared title bar; the header itself takes Arrow (move) / Shift+Arrow (resize). */}
+      <TitleBar
+        tabIndex={0}
+        aria-label={`${title}: arrows move, Shift+arrows resize`}
         className={cn(
-          "group/bar relative z-[2] flex h-12 shrink-0 cursor-grab touch-none items-center gap-1 border-b px-1.5 active:cursor-grabbing",
-          paper ? "border-current/20" : "border-border bg-muted",
+          "group/bar relative z-[2] cursor-grab touch-none px-2 pl-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing",
+          paper ? "" : "bg-card",
         )}
+        title={title}
+        titleClassName={paper ? "text-current opacity-80" : undefined}
+        extra={extra ? <span className="relative z-[4] flex shrink-0 items-center">{extra}</span> : null}
+        menuLabel={`${title} menu`}
+        groups={mergeGroups(menu, { close: [{ label: "Close", onSelect: onClose }] })}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("button,input,label,a,[data-no-drag]")) return;
           drag(e, "move");
         }}
-      >
-        <span
-          className={cn(
-            "min-w-0 grow truncate px-1.5 text-xs font-medium tracking-wide",
-            paper ? "opacity-80" : "text-muted-foreground",
-          )}
-        >
-          {title}
-        </span>
-        {extra ? <span className="relative z-[4] flex shrink-0 items-center" data-no-drag>{extra}</span> : null}
-        <Tip label="Arrows move · Shift+arrows resize">
-          <button
-            type="button"
-            className={cn(
-              "relative z-[4] flex size-hit shrink-0 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              barBtn,
-            )}
-            aria-label={`Move or resize ${title}`}
-            onKeyDown={(e) => {
-              const next = keyBox(live.current, e.key, e.shiftKey, minW, minH);
-              if (!next) return;
-              e.preventDefault();
-              onRaise();
-              live.current = next;
-              if (next.x !== x || next.y !== y) onMove(next.x, next.y);
-              if (next.w !== w || next.h !== h) onResize(next.w, next.h);
-            }}
-          >
-            <GripHorizontal className="size-4" />
-          </button>
-        </Tip>
-        <Tip label="Close">
-          <CloseButton
-            label="Close window"
-            title={undefined}
-            className={cn("relative z-[4] focus-visible:ring-offset-0", barBtn)}
-            onClick={onClose}
-          />
-        </Tip>
-      </header>
-      <div className="scroll-auto min-h-0 flex-1 bg-inherit p-3">{children}</div>
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          const next = keyBox(live.current, e.key, e.shiftKey, minW, minH);
+          if (!next) return;
+          e.preventDefault();
+          onRaise();
+          live.current = next;
+          if (next.x !== x || next.y !== y) onMove(next.x, next.y);
+          if (next.w !== w || next.h !== h) onResize(next.w, next.h);
+        }}
+      />
+      <div className="scroll-auto min-h-0 flex-1 bg-inherit px-4 pb-4">{children}</div>
       <ResizeHandles onCorner={(e, corner) => drag(e, corner)} />
     </article>
   );

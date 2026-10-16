@@ -1,5 +1,6 @@
 "use client";
 
+import { SHELL_ACTIONS } from "@/lib/widget-menu";
 import { useEffect, useMemo, useState, type ComponentPropsWithoutRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -395,25 +396,53 @@ export function QuoteRow({
   );
 }
 
+/** Card 216 N4/N5: a tapped note opens that note; "+N" shows what is hidden; one empty-state action. */
 export function NotesPeek() {
   const notes = useAtrium((s) => s.notes);
-  const setView = useAtrium((s) => s.setView);
+  const shown = notes.slice(0, 4);
+  const more = notes.length - shown.length;
   return (
     <div className="space-y-2">
-      {notes.slice(0, 4).map((n) => (
+      {shown.map((n) => (
         <button
           key={n.id}
           type="button"
+          data-peek-note={n.id}
           className="flex min-h-11 w-full items-center gap-3 text-left text-sm"
-          onClick={() => setView("notes")}
+          onClick={() => openNote(n.id)}
         >
-          <span className="size-2 rounded-full" style={{ background: n.color }} />
+          <span className="size-2 shrink-0 rounded-full" style={{ background: n.color }} />
           <span className="truncate">{noteTitle(n)}</span>
         </button>
       ))}
-      {!notes.length && <p className="text-sm text-muted-foreground">No stickies yet.</p>}
+      {more > 0 ? (
+        <button type="button" className="min-h-11 text-sm text-muted-foreground hover:text-foreground" onClick={() => useAtrium.getState().setView("notes")}>
+          +{more} more
+        </button>
+      ) : null}
+      {!notes.length ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">No notes yet.</p>
+          <button type="button" className="inline-flex min-h-11 items-center gap-1 rounded-sm px-2 text-sm hover:bg-muted" onClick={SHELL_ACTIONS["new-note"]}>
+            + New note
+          </button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/** Opens the Notes page on one note: a floating note is brought back to the board first. */
+function openNote(id: string) {
+  const st = useAtrium.getState();
+  if (st.notes.find((n) => n.id === id)?.pinned) st.unpinNote(id);
+  st.setView("notes");
+  st.raise("note", id);
+  window.setTimeout(() => {
+    const el = document.querySelector<HTMLElement>(`[data-note-id="${CSS.escape(id)}"]`);
+    el?.scrollIntoView({ block: "center" });
+    el?.querySelector<HTMLElement>("textarea,[contenteditable=true]")?.focus();
+  }, 60);
 }
 
 export function NewsPeek({

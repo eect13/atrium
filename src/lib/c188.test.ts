@@ -19,7 +19,7 @@ test("Scout 186 fix 1: Topics ranks every fetched story, not the 40 mixed headli
   const filler = Array.from({ length: 60 }, (_, i) => story(`${word(i * 4)} ${word(i * 4 + 1)} ${word(i * 4 + 2)} ${word(i * 4 + 3)}`, `Wire${i % 6}`, i));
   const nba = { ...story("Michael Jordan jersey sells at NBA auction", "Wire0", 99), date: h(100) };
   const all = [...filler, nba];
-  const shown = mixStories(all, 40);
+  const shown = mixStories(all, 40, NOW);
   assert.ok(!shown.some((s) => s.link === nba.link), "the 40-cap drops it (the old Topic Finder input)");
   assert.equal(picksFor("NBA", shown, prefs(), { now: NOW }).picks.length, 0);
   const r = picksFor("NBA", all, prefs(), { now: NOW });

@@ -176,5 +176,6 @@ test("C204 no time bars: DayBand and the free/busy strip are gone; clock ladder 
   assert.match(w, /@\[220px\]:text-\[76px\]/);
   assert.match(w, /@\[420px\]:block/);
   assert.match(read("src/components/analog-clock.tsx"), /role="img"/);
-  assert.match(read("src/components/notes-header.tsx"), /@\[300px\]:flex/);
+  // Card 217 (Form 216b): the Notes-only header is gone; width rules live in the shared TitleBar.
+  assert.match(read("src/lib/title-bar.ts"), /sm: 220, md: 300, lg: 420/);
 });

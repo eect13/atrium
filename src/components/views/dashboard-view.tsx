@@ -1,19 +1,18 @@
 "use client";
 
-import { useFloatsAllowed } from "@/lib/use-platform";
-import { WidgetOptionsMenu } from "@/components/widget-options";
-import { hasWidgetOptions } from "@/lib/widget-prefs";
+import { useFloatsAllowed, useIsPhone } from "@/lib/use-platform";
+import { TitleBar, type TitleAction } from "@/components/widget-shell";
+import { useCardMenu } from "@/lib/widget-menu";
+import { widgetLook } from "@/lib/widget-prefs";
 import { useRef, useState, type ReactNode } from "react";
-import { GripVertical, Lock, LockOpen, RotateCcw } from "lucide-react";
+import { Check, LayoutGrid, Plus, RotateCcw } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { FloatBtn } from "@/components/desk-chrome";
+import { FloatBtn, NotesFloatBtn } from "@/components/desk-chrome";
 import { CalendarTiles } from "@/components/calendar-tiles";
-import { NotesHeaderActions } from "@/components/notes-header";
 import { AgendaBody, ClockBody, FinancePeek, NewsPeek, NotesPeek, QuoteBody, WeatherBody } from "@/components/widgets";
 import {
-  DASH_LABEL,
   DASH_SPAN_N,
   DEFAULT_DASH,
   cycleDashSpan,
@@ -21,6 +20,7 @@ import {
   dashSpanClass,
   dashVisible,
   moveDash,
+  shiftDash,
   type DashCard,
 } from "@/lib/dash";
 import { deskZone } from "@/lib/format";
@@ -56,6 +56,7 @@ export function DashboardView({
         setView: s.setView,
       })),
     );
+  const compact = useAtrium((s) => widgetLook(s.dashPrefs).compact);
   const [drag, setDrag] = useState<DashCard | null>(null);
   const from = useRef<DashCard | null>(null);
   const hover = useRef<DashCard | null>(null);
@@ -155,20 +156,19 @@ export function DashboardView({
     <div>
       <h2 className="sr-only">Dashboard</h2>
       <div className="mb-2 flex items-center justify-end gap-0.5">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-              aria-label={dashLocked ? "Unlock layout" : "Lock layout"}
-              aria-pressed={!dashLocked}
-              onClick={() => setDashLocked(!dashLocked)}
-            >
-              {dashLocked ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{dashLocked ? "Unlock to rearrange" : "Lock layout"}</TooltipContent>
-        </Tooltip>
+        {/* Card 216 step 3: grip + resize live in an explicit Arrange mode (the saved dashLocked toggle). */}
+        <button
+          type="button"
+          className={cn(
+            "inline-flex min-h-11 items-center gap-2 rounded-sm px-3 text-sm text-muted-foreground hover:text-foreground",
+            !dashLocked && "text-foreground",
+          )}
+          aria-pressed={!dashLocked}
+          onClick={() => setDashLocked(!dashLocked)}
+        >
+          {dashLocked ? <LayoutGrid className="size-4" /> : <Check className="size-4" />}
+          {dashLocked ? "Arrange" : "Done"}
+        </button>
         {dirty ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -186,57 +186,84 @@ export function DashboardView({
         ) : null}
       </div>
       <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-12">
-        {visible.map((id) => {
-          const kind = dashEntry(id).float ?? null;
-          return (
-            <Card
-              key={id}
-              data-dash={id}
-              className={cn("@container", dashSpanClass(id, dashSpan[id]), drag === id && "ring-1 ring-ring")}
-              onPointerMove={over}
-              onPointerUp={drop}
-              onPointerCancel={drop}
-            >
-              <CardHeader className="flex-row items-start justify-between space-y-0">
-                <div className="flex min-w-0 items-center gap-1">
-                  {dashLocked ? null : (
-                    <button
-                      type="button"
-                      aria-label={`Move ${DASH_LABEL[id]}`}
-                      title="Drag to rearrange"
-                      className="flex size-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground hover:text-foreground active:cursor-grabbing"
-                      onPointerDown={(e) => grab(e, id)}
-                    >
-                      <GripVertical className="size-4" />
-                    </button>
-                  )}
-                  <CardTitle>{DASH_LABEL[id]}</CardTitle>
-                </div>
-                <div className="flex items-center">
-                  {dashLocked ? null : (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex size-11 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-                          aria-label={`Resize ${DASH_LABEL[id]}`}
-                          onClick={() => setDashSpan(id, cycleDashSpan(dashSpan[id] ?? DASH_SPAN_N[id]))}
-                        >
-                          <span className="block size-2.5 border-b-2 border-r-2 border-current" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Wider / narrower</TooltipContent>
-                    </Tooltip>
-                  )}
-                  {hasWidgetOptions(id) ? <WidgetOptionsMenu id={id} label={DASH_LABEL[id]} /> : null}
-                  {id === "notes" ? <NotesHeaderActions /> : kind ? <FloatBtn kind={kind} /> : null}
-                </div>
-              </CardHeader>
-              <CardContent>{body(id)}</CardContent>
-            </Card>
-          );
-        })}
+        {visible.map((id) => (
+          <DashShell
+            key={id}
+            id={id}
+            arrange={!dashLocked}
+            compact={compact}
+            className={cn(dashSpanClass(id, dashSpan[id]), drag === id && "ring-1 ring-ring")}
+            onGrab={(e) => grab(e, id)}
+            onResize={() => setDashSpan(id, cycleDashSpan(dashSpan[id] ?? DASH_SPAN_N[id]))}
+            onShift={(dir) => setDashOrder(shiftDash(dashOrder, id, dir))}
+            onPointerMove={over}
+            onPointerUp={drop}
+            onPointerCancel={drop}
+          >
+            {body(id)}
+          </DashShell>
+        ))}
       </div>
     </div>
+  );
+}
+
+const ICON_BTN = "inline-flex size-11 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** Card 216/216b: the dashboard surface of WidgetShell — registry-driven TitleBar, no per-widget branches. */
+function DashShell({
+  id,
+  arrange,
+  compact,
+  className,
+  onGrab,
+  onResize,
+  onShift,
+  children,
+  ...rest
+}: {
+  id: DashCard;
+  arrange: boolean;
+  compact: boolean;
+  className?: string;
+  onGrab: (e: React.PointerEvent) => void;
+  onResize: () => void;
+  onShift: (dir: -1 | 1) => void;
+  children: ReactNode;
+} & Omit<React.HTMLAttributes<HTMLDivElement>, "children">) {
+  const e = dashEntry(id);
+  const phone = useIsPhone();
+  const { label, groups, floatRow, primaryRow, menuLabel } = useCardMenu(
+    id,
+    // D2/D4: Arrange mode — the bar is the drag handle; Wider/narrower and keyboard moves live in ⋯.
+    arrange
+      ? { window: [{ label: "Wider / narrower", onSelect: onResize }, { label: "Move earlier", onSelect: () => onShift(-1) }, { label: "Move later", onSelect: () => onShift(1) }] }
+      : undefined,
+  );
+  const actions: TitleAction[] = [
+    ...(primaryRow
+      ? [{ id: "primary", group: "primary" as const, row: primaryRow, node: (
+          <button type="button" className={ICON_BTN} aria-label={String(primaryRow.label)} onClick={primaryRow.onSelect}>
+            <Plus className="size-4" />
+          </button>
+        ) }]
+      : []),
+    ...(floatRow ? [{ id: "float", group: "float" as const, row: floatRow, node: e.floatMany ? <NotesFloatBtn /> : <FloatBtn kind={e.float!} /> }] : []),
+  ];
+  return (
+    <Card data-dash={id} data-arrange={arrange ? "" : undefined} className={cn("@container", className)} {...rest}>
+      <TitleBar
+        className={cn("mt-1 pl-4 pr-2", arrange && "cursor-grab touch-none active:cursor-grabbing")}
+        title={label}
+        titleProps={arrange ? { title: "Drag to rearrange" } : undefined}
+        onPointerDown={arrange ? (ev) => !(ev.target as HTMLElement).closest("button,[data-no-drag]") && onGrab(ev) : undefined}
+        actions={actions}
+        groups={groups}
+        menuLabel={menuLabel}
+        phone={phone}
+        compact={compact}
+      />
+      <div className="px-4 pb-4 pt-1">{children}</div>
+    </Card>
   );
 }
