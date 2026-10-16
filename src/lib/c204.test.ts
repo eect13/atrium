@@ -142,7 +142,7 @@ test("C204 migration: bands/freeBusy dropped, seconds off by default, look norma
   assert.deepEqual(normalizeDashPrefs({ widgets: { clock: { bands: false, seconds: true }, calendar: { freeBusy: false } } }), { widgets: { clock: { seconds: true }, calendar: {} } });
   const p = normalizeDashPrefs({ widgets: {}, look: { clockStyle: "analog", compact: true, deskOpacity: 10, deskSnap: "nope" } });
   assert.deepEqual(p.look, { clockStyle: "analog", compact: true, deskOpacity: 40 });
-  assert.deepEqual(widgetLook(undefined), { clockStyle: "digital", compact: false, deskOpacity: 86, deskSnap: "off" });
+  assert.deepEqual(widgetLook(undefined), { clockStyle: "digital", compact: false, deskOpacity: 86, deskSnap: "off", deskNew: { lock: false, behind: false, frame: false } });
   assert.match(read("src/lib/store.ts"), /dashPrefs: \{ \.\.\.s\.dashPrefs, widgets:/);
 });
 

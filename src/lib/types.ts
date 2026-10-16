@@ -194,6 +194,12 @@ export type FloatWin = {
   h: number;
   /** Card 204 (Card 203 S7): "Keep on top" survives a restart. */
   onTop?: boolean;
+  /** Card 212 (Form 209): lock position = no drag/resize + click-through. */
+  locked?: boolean;
+  /** Card 212: stay behind windows (always on bottom; exclusive with onTop). */
+  behind?: boolean;
+  /** Card 212: card frame (shadow + outline). Off = frameless. */
+  frame?: boolean;
 };
 
 export type AccountKind = "cash" | "bank" | "card" | "ewallet";

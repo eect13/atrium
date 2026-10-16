@@ -85,7 +85,7 @@ export function DesktopLayer({
     }
     for (const w of liveWins) {
       if (liveNative.current.wins.has(w.id)) continue;
-      void openNativeFloat("widget", w.id, { x: w.x, y: w.y, w: w.w, h: w.h, title: WIDGET_LABEL[w.kind], pinned: w.onTop }, () => closeWindow(w.id));
+      void openNativeFloat("widget", w.id, { x: w.x, y: w.y, w: w.w, h: w.h, title: WIDGET_LABEL[w.kind], pinned: w.onTop, behind: w.behind, frame: w.frame }, () => closeWindow(w.id));
     }
     liveNative.current = { notes: noteIds, wins: winIds };
   }, [pinnedKey, floatingKey]);

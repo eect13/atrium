@@ -567,6 +567,25 @@ fn cal_read(app: &tauri::AppHandle) -> (Option<String>, Option<String>) {
 /// Card 197: store I/O can wait on the Android Keystore (activity thread, ≤5 s), so it runs on the
 /// blocking pool, never on an async worker.
 pub mod state_file;
+#[cfg(desktop)]
+mod desk;
+
+/// Card 212: did Ctrl+Shift+F12 register? (false on mobile, or when another app owns it)
+#[tauri::command]
+fn desk_shortcut_ok() -> bool {
+    #[cfg(desktop)]
+    return desk::shortcut_ok();
+    #[cfg(not(desktop))]
+    false
+}
+
+/// Card 212: Options › Unlock all, same path as the tray and the shortcut.
+#[tauri::command]
+fn desk_unlock_all(app: tauri::AppHandle) {
+    #[cfg(desktop)]
+    desk::unlock_all(&app);
+    let _ = app;
+}
 
 fn state_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     app.path().app_local_data_dir().map_err(|e| e.to_string())
@@ -912,16 +931,23 @@ pub fn run() {
             }
             raise_floats(app);
         }));
+        builder = builder.plugin(desk::plugin());
     }
 
     builder
-        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear, state_save, state_load])
+        .invoke_handler(tauri::generate_handler![fetch_text, open_url, cal_session_claim, cal_session_refresh, cal_session_adopt, cal_session_clear, desk_shortcut_ok, desk_unlock_all, state_save, state_load])
         .setup(|app| {
             #[cfg(desktop)]
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_icon(tauri::include_image!("icons/icon.png"));
                 #[cfg(windows)]
                 endsession::install(app.handle(), &win);
+            }
+            #[cfg(desktop)]
+            {
+                desk::register_shortcut(app.handle());
+                // No tray (e.g. no system tray on this desktop) must not stop the app.
+                let _ = desk::build_tray(app.handle());
             }
             let _ = app;
             Ok(())
@@ -933,6 +959,10 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 use tauri::Emitter;
                 let _ = app.emit_to("main", "atrium:flush", ());
+            }
+            #[cfg(desktop)]
+            if let tauri::RunEvent::Exit = event {
+                desk::unregister_shortcut(app);
             }
         });
 }

@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GripHorizontal, Pin, PinOff } from "lucide-react";
+import { GripHorizontal, Layers, Lock, Pin, PinOff, SquareDashed, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { NoteTools } from "@/components/note-chrome";
 import { CloseButton } from "@/components/ui/close-button";
 import { NoteInk } from "@/components/note-ink";
 import { NoteEditor, NoteFormat, NotePhotos, addNotePhotos, useInkRedo } from "@/components/note-pad";
 import { WidgetBody } from "@/components/widgets";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
+import { toggleDeskFlag } from "@/lib/desk-flags";
+import { cn } from "@/lib/utils";
 import { inkOnPaper, noteTitle } from "@/lib/format";
-import { closeThisWindow, setNativeAlwaysOnTop, snapThisWindow, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
+import { applyDeskFlags, closeThisWindow, setNativeAlwaysOnTop, snapThisWindow, watchNativeBounds, watchNativeClose } from "@/lib/native-float";
 import { cardAlpha, deskNeighbours, snapBox } from "@/lib/desk-snap";
 import { widgetLook } from "@/lib/widget-prefs";
 import { useAtrium } from "@/lib/store";
@@ -99,6 +102,13 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
 
   useEffect(() => startRealmSync(useAtrium), []);
 
+  // Card 212: this widget's own window follows its saved desk flags (also after Unlock all).
+  const flags = kind === "widget" && win ? `${win.locked ? 1 : 0}${win.behind ? 1 : 0}${win.onTop ? 1 : 0}${win.frame ? 1 : 0}` : "";
+  useEffect(() => {
+    if (!flags) return;
+    void applyDeskFlags({ locked: flags[0] === "1", behind: flags[1] === "1", onTop: flags[2] === "1", frame: flags[3] === "1" });
+  }, [flags]);
+
   useEffect(() => {
     return watchNativeBounds((box) => {
       if (kind === "note") updateNote(id, box);
@@ -178,15 +188,43 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
   }
 
   if (kind === "widget" && win) {
+    const flip = (key: "locked" | "behind" | "frame" | "onTop") => {
+      const patch = toggleDeskFlag(win, key);
+      updateWindow(win.id, patch);
+      if ("onTop" in patch) setPinnedTop(Boolean(patch.onTop));
+    };
+    const row = (Icon: typeof Lock, label: string) => (
+      <span className="flex items-center gap-2">
+        <Icon className="size-4 opacity-70" aria-hidden />
+        {label}
+      </span>
+    );
     return (
-      <div className="flex h-dvh max-h-dvh flex-col overflow-hidden rounded-lg text-card-foreground" style={{ background: cardAlpha(deskOpacity) }}>
-        <Chrome
-          title={WIDGET_LABEL[win.kind]}
-          pinnedTop={pinnedTop}
-          onPin={togglePin}
-          onClose={() => void dismiss(() => closeWindow(win.id))}
-        />
-        <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div
+        className={cn("group/w relative flex h-dvh max-h-dvh flex-col overflow-hidden rounded-lg text-card-foreground", win.frame && "shadow-float ring-1 ring-border")}
+        style={{ background: cardAlpha(deskOpacity) }}
+        data-locked={win.locked ? "" : undefined}
+      >
+        <header className={cn("flex h-11 shrink-0 items-center gap-1 px-2", !win.locked && "cursor-grab active:cursor-grabbing")}>
+          <span className="min-w-0 grow truncate text-xs font-medium opacity-0 transition-opacity group-hover/w:opacity-70" {...(win.locked ? {} : { "data-tauri-drag-region": true })}>
+            {WIDGET_LABEL[win.kind]}
+          </span>
+          {win.locked ? <Lock aria-hidden className="pointer-events-none absolute right-2 top-2 size-3 text-muted-foreground opacity-0 group-hover/w:opacity-45" /> : null}
+          <div data-no-drag className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/w:opacity-100">
+            <OverflowMenu
+              label={`${WIDGET_LABEL[win.kind]} widget menu`}
+              menuClassName="w-60"
+              items={[
+                { label: row(Lock, "Lock position"), checked: Boolean(win.locked), onSelect: () => flip("locked") },
+                { label: row(Layers, "Stay behind windows"), checked: Boolean(win.behind), onSelect: () => flip("behind") },
+                { label: row(SquareDashed, "Frame"), checked: Boolean(win.frame), onSelect: () => flip("frame") },
+                { label: row(Pin, "Keep on top"), checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
+                { label: row(X, "Close"), onSelect: () => void dismiss(() => closeWindow(win.id)) },
+              ]}
+            />
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
           <WidgetBody kind={win.kind} headlines={headlines} />
         </div>
       </div>

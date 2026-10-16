@@ -9,13 +9,16 @@ export type WidgetOpts = { clock: ClockWidgetOpts; calendar: CalendarWidgetOpts 
 /** Card 204: look shared by every widget (Options › Clock / Widgets / Desktop widgets). */
 export type ClockStyle = "digital" | "analog";
 export type DeskSnap = "off" | "edges" | "grid";
-export type WidgetLook = { clockStyle: ClockStyle; compact: boolean; deskOpacity: number; deskSnap: DeskSnap };
+/** Card 212 (Form 209): defaults for new desktop widgets; each widget's ⋯ overrides. All off. */
+export type DeskNew = { lock: boolean; behind: boolean; frame: boolean };
+export type WidgetLook = { clockStyle: ClockStyle; compact: boolean; deskOpacity: number; deskSnap: DeskSnap; deskNew: DeskNew };
 export type DashPrefs = { widgets: Partial<{ [K in keyof WidgetOpts]: Partial<WidgetOpts[K]> }>; look?: Partial<WidgetLook> };
 
-export const LOOK_DEFAULTS: WidgetLook = { clockStyle: "digital", compact: false, deskOpacity: 86, deskSnap: "off" };
+export const DESK_NEW_DEFAULTS: DeskNew = { lock: false, behind: false, frame: false };
+export const LOOK_DEFAULTS: WidgetLook = { clockStyle: "digital", compact: false, deskOpacity: 86, deskSnap: "off", deskNew: DESK_NEW_DEFAULTS };
 
 export function widgetLook(prefs: DashPrefs | undefined): WidgetLook {
-  return { ...LOOK_DEFAULTS, ...(prefs?.look ?? {}) };
+  return { ...LOOK_DEFAULTS, ...(prefs?.look ?? {}), deskNew: { ...DESK_NEW_DEFAULTS, ...(prefs?.look?.deskNew ?? {}) } };
 }
 
 /** Keeps only valid look fields; opacity is clamped to 40–100. */
@@ -27,6 +30,12 @@ export function normalizeLook(raw: unknown): Partial<WidgetLook> | undefined {
   if (typeof r.compact === "boolean") out.compact = r.compact;
   if (typeof r.deskOpacity === "number" && Number.isFinite(r.deskOpacity)) out.deskOpacity = Math.min(100, Math.max(40, Math.round(r.deskOpacity)));
   if (r.deskSnap === "off" || r.deskSnap === "edges" || r.deskSnap === "grid") out.deskSnap = r.deskSnap;
+  if (r.deskNew && typeof r.deskNew === "object") {
+    const d = r.deskNew as Record<string, unknown>;
+    const dn: Partial<DeskNew> = {};
+    for (const k of ["lock", "behind", "frame"] as const) if (typeof d[k] === "boolean") dn[k] = d[k];
+    if (Object.keys(dn).length) out.deskNew = dn as DeskNew;
+  }
   return Object.keys(out).length ? out : undefined;
 }
 

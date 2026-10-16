@@ -6,7 +6,9 @@ import { OptionsSwitchRow } from "@/components/ui/options-switch-row";
 import { Switch } from "@/components/ui/switch";
 import { useAtrium } from "@/lib/store";
 import { nativeWindows } from "@/lib/platform";
-import { LOOK_DEFAULTS, widgetLook, widgetOpts, type ClockStyle, type DeskSnap } from "@/lib/widget-prefs";
+import { LOOK_DEFAULTS, widgetLook, widgetOpts, type ClockStyle, type DeskNew, type DeskSnap } from "@/lib/widget-prefs";
+import { UNLOCK_SHORTCUT, unlockAllNow, unlockShortcutOk } from "@/lib/desk-unlock";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { v: T; label: string }[]; onChange: (v: T) => void }) {
@@ -66,6 +68,43 @@ export function ClockOptionsCard() {
   );
 }
 
+/** Card 212 (Form 209): quiet defaults for new desktop widgets + Unlock all. Desktop app only. */
+function NewDesktopWidgets() {
+  const prefs = useAtrium((s) => s.dashPrefs);
+  const setLook = useAtrium((s) => s.setWidgetLook);
+  const d = widgetLook(prefs).deskNew;
+  const [shortcut, setShortcut] = useState<boolean | null>(null);
+  useEffect(() => {
+    void unlockShortcutOk().then(setShortcut);
+  }, []);
+  const sw = (key: keyof DeskNew, label: string) => (
+    <label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4">
+      <span className="text-[13px] text-muted-foreground">{label}</span>
+      <Switch aria-label={`New desktop widgets: ${label}`} checked={d[key]} onCheckedChange={(v) => setLook({ deskNew: { ...d, [key]: v } })} />
+    </label>
+  );
+  return (
+    <div className="pt-3" role="group" aria-label="New desktop widgets">
+      <p className="pb-1 text-xs text-muted-foreground">New desktop widgets</p>
+      {sw("lock", "Lock position")}
+      {sw("behind", "Stay behind windows")}
+      {sw("frame", "Frame")}
+      <div className="flex min-h-11 items-center justify-between gap-4">
+        <span className="text-[13px] text-muted-foreground">
+          Unlock all · {shortcut === false ? "shortcut unavailable" : <kbd className="font-mono text-xs">{UNLOCK_SHORTCUT}</kbd>}
+        </span>
+        <button
+          type="button"
+          className="inline-flex min-h-11 items-center px-2 text-sm text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => void unlockAllNow(() => useAtrium.getState().unlockAllWindows())}
+        >
+          Unlock all
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function WidgetsOptionsCard() {
   const prefs = useAtrium((s) => s.dashPrefs);
   const setLook = useAtrium((s) => s.setWidgetLook);
@@ -107,6 +146,7 @@ export function WidgetsOptionsCard() {
                 onChange={(deskSnap) => setLook({ deskSnap })}
               />
             </Row>
+            <NewDesktopWidgets />
           </>
         ) : null}
       </CardContent>

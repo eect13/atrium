@@ -73,7 +73,7 @@ async function watchGone(label: string, win: { once: (ev: string, cb: () => void
 export async function openNativeFloat(
   kind: "note" | "widget",
   id: string,
-  opts: { x: number; y: number; w: number; h: number; title: string; pinned?: boolean },
+  opts: { x: number; y: number; w: number; h: number; title: string; pinned?: boolean; behind?: boolean; frame?: boolean },
   onGone?: () => void,
 ) {
   if (!nativeWindows()) return false;
@@ -97,8 +97,10 @@ export async function openNativeFloat(
     decorations: false,
     // Card 204: frameless + see-through so the widget opacity setting shows the desktop.
     transparent: kind === "widget",
-    shadow: kind !== "widget",
-    alwaysOnTop: Boolean(opts.pinned),
+    // Card 212: widget frame off by default (no OS shadow); Stay behind excludes Keep on top.
+    shadow: kind !== "widget" || Boolean(opts.frame),
+    alwaysOnTop: Boolean(opts.pinned) && !opts.behind,
+    alwaysOnBottom: Boolean(opts.behind),
     skipTaskbar: kind === "note",
     resizable: true,
     focus: false,
@@ -200,6 +202,21 @@ export async function closeThisWindow() {
   if (!nativeWindows()) return;
   const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
   await getCurrentWebviewWindow().close();
+}
+
+/**
+ * Card 212: apply this widget's desk flags to its own window. Lock = click-through (the Rust tray /
+ * Ctrl+Shift+F12 / Options can always clear it); behind and onTop are exclusive.
+ */
+export async function applyDeskFlags(f: { locked?: boolean; behind?: boolean; onTop?: boolean; frame?: boolean }) {
+  if (!nativeWindows()) return;
+  const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  const w = getCurrentWebviewWindow();
+  await Promise.allSettled([
+    w.setIgnoreCursorEvents(Boolean(f.locked)),
+    f.behind ? w.setAlwaysOnTop(false).then(() => w.setAlwaysOnBottom(true)) : w.setAlwaysOnBottom(false).then(() => w.setAlwaysOnTop(Boolean(f.onTop))),
+    w.setShadow(Boolean(f.frame)),
+  ]);
 }
 
 export async function setNativeAlwaysOnTop(on: boolean) {

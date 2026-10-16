@@ -74,6 +74,8 @@ import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { rememberMainWindow } from "@/lib/native-session";
 import { captureDeskBoxes } from "@/lib/desk-capture";
 import { startRealmSync } from "@/lib/realm-wire";
+import { nativeWindows } from "@/lib/platform";
+import { listenUnlockAll, UNLOCK_SHORTCUT, unlockShortcutOk } from "@/lib/desk-unlock";
 import { onStateFileWarning } from "@/lib/state-file";
 import { useFloatsAllowed } from "@/lib/use-platform";
 import { onStorageQuota, writeLocal } from "@/lib/quota";
@@ -386,6 +388,17 @@ export function AtriumApp() {
 
   useEffect(() => rememberMainWindow(captureDeskBoxes), []);
   useEffect(() => startRealmSync(useAtrium), []);
+  useEffect(() => listenUnlockAll(() => useAtrium.getState().unlockAllWindows()), []);
+  useEffect(() => {
+    // Card 212: another app owns the shortcut → say so once; tray and Options still unlock.
+    if (!nativeWindows()) return;
+    const t = window.setTimeout(() => {
+      void unlockShortcutOk().then((ok) => {
+        if (!ok) toast(`${UNLOCK_SHORTCUT} is in use by another app. Unlock widgets from the tray or Options › Widgets.`);
+      });
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => onStorageQuota((message) => toast(message)), []);
   useEffect(() => onStateFileWarning((message) => toast(message)), []);

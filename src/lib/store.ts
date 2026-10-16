@@ -48,7 +48,8 @@ import { safeLaunchView } from "./view-crash";
 import { DEFAULT_FEED_PREFS, HUB_TOPIC_KEEP_KEY, backfillHubTopics, hubTopicSnapshot, normalizeFeedPrefs, readHubTopicKeep, type FeedPrefs } from "./feed";
 import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clock";
 import { realmRole, realmStorageWired } from "./realm-wire";
-import { normalizeDashPrefs, type DashPrefs, type WidgetLook, type WidgetOpts } from "./widget-prefs";
+import { newDeskFlags } from "./desk-flags";
+import { widgetLook, normalizeDashPrefs, type DashPrefs, type WidgetLook, type WidgetOpts } from "./widget-prefs";
 import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
 import type { FeedPane } from "./types";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, landingFeedPane, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
@@ -256,6 +257,8 @@ type State = Data & {
   setCalPeek: (v: "auto" | "month" | "week") => void;
   setCalView: (widgetId: string, v: CalView) => void;
   setWidgetLook: (patch: Partial<WidgetLook>) => void;
+  /** Card 212: tray / Ctrl+Shift+F12 / Options › Unlock all. */
+  unlockAllWindows: () => void;
   setNewsQuery: (q: string) => void;
   setNewsTag: (t: string) => void;
   updateFeed: (fn: (p: FeedPrefs) => FeedPrefs) => void;
@@ -733,6 +736,7 @@ export const useAtrium = create<State>()(
                 kind,
                 z: nextZ(s),
                 ...restoreBox(boxesNow(s)[kind], windowSize(kind), n),
+                ...newDeskFlags(widgetLook(s.dashPrefs).deskNew),
               },
             ],
           };
@@ -942,6 +946,7 @@ export const useAtrium = create<State>()(
       resetDash: () => set({ dashOrder: [...DEFAULT_DASH], dashSpan: {} }),
       setWidgetOpt: (id, key, on) =>
         set((s) => ({ dashPrefs: { ...s.dashPrefs, widgets: { ...s.dashPrefs.widgets, [id]: { ...(s.dashPrefs.widgets[id] ?? {}), [key]: on } } } })),
+      unlockAllWindows: () => set((s) => ({ windows: s.windows.map((w) => (w.locked ? { ...w, locked: false } : w)) })),
       setWidgetLook: (patch) => set((s) => ({ dashPrefs: normalizeDashPrefs({ ...s.dashPrefs, look: { ...(s.dashPrefs.look ?? {}), ...patch } }) })),
       setCalPeek: (calPeek) => set({ calPeek }),
       setCalView: (widgetId, v) => set((s) => ({ calViews: normalizeCalViews({ ...s.calViews, [widgetId]: v }) })),
