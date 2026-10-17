@@ -30,6 +30,31 @@ pub fn focus_main(app: &AppHandle) {
     let _ = w.set_always_on_top(false);
 }
 
+/// Card 228 (Form 227 B4): the shared ⋯ popup for desktop floats, created hidden at startup so the
+/// first open is instant. Frameless, see-through, no taskbar entry, on top; never click-through.
+/// JS (`menu-window.tsx`) sizes, places, shows and hides it; it is never destroyed while main lives.
+pub const MENU_LABEL: &str = "menu";
+pub fn create_menu_window(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window(MENU_LABEL).is_some() {
+        return Ok(());
+    }
+    let b = tauri::WebviewWindowBuilder::new(app, MENU_LABEL, tauri::WebviewUrl::App("index.html?float=menu".into()))
+        .title("Atrium menu")
+        .decorations(false)
+        .shadow(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .resizable(false)
+        .focused(false)
+        .visible(false)
+        .inner_size(256.0, 120.0);
+    #[cfg(not(target_os = "macos"))]
+    let b = b.transparent(true);
+    let w = b.build()?;
+    let _ = w.set_ignore_cursor_events(false);
+    Ok(())
+}
+
 /// Write whatever state is pending, release the shortcut, exit.
 pub fn quit_now(app: &AppHandle) {
     let _ = super::state_file::write_pending();

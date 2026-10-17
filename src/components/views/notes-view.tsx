@@ -14,7 +14,7 @@ import {
   addNotePhotos,
   useInkRedo,
 } from "@/components/note-pad";
-import { inkOnPaper, NOTE_COLORS, noteTitle, uid } from "@/lib/format";
+import { inkOnPaper, NOTE_COLORS, NOTE_COLOR_NAMES, noteTitle, uid } from "@/lib/format";
 import { useAtrium } from "@/lib/store";
 import type { StickyNote } from "@/lib/types";
 import { Chip } from "./finance-chip";
@@ -59,8 +59,9 @@ export function NotesView() {
 
   function spawn(color: string) {
     const y = ordered.reduce((m, n) => Math.min(m, n.y), 0) - 10;
+    const id = uid();
     addNote({
-      id: uid(),
+      id,
       text: "",
       color,
       x: 0,
@@ -69,6 +70,12 @@ export function NotesView() {
       w: 280,
       h: 240,
       pinned: false,
+    });
+    // Card 228 B8: hand focus to the new note so typing (and Space) goes into it, not the swatch.
+    requestAnimationFrame(() => {
+      const t = document.querySelector<HTMLInputElement>(`[data-note-id="${id}"] input[aria-label="Note title"]`);
+      t?.focus();
+      t?.scrollIntoView({ block: "nearest" });
     });
   }
 
@@ -97,11 +104,12 @@ export function NotesView() {
           <LayoutGrid className="size-3.5" />
           Board
         </Chip>
-        {NOTE_COLORS.map((c) => (
+        {NOTE_COLORS.map((c, i) => (
           <button
             key={c}
             type="button"
-            aria-label="Add note"
+            aria-label={`Add ${NOTE_COLOR_NAMES[i] ?? "colour"} note`}
+            title={`Add ${NOTE_COLOR_NAMES[i] ?? "colour"} note`}
             className="size-11 rounded-md border border-border"
             style={{ background: c }}
             onClick={() => spawn(c)}

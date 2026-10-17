@@ -40,6 +40,11 @@ const OUT = join(ROOT, "deploy", "android");
 
 /** Final APK → %USERPROFILE%\\Desktop\\Vibe Installers (older same-name file renamed -prev-…, never overwritten). */
 function copyApkToVibeInstallers(apk) {
+  // Card 228 (Critic 225 #7): audit/proof builds can skip the Desktop copy.
+  if (process.argv.includes("--no-vibe-copy") || process.env.ATRIUM_NO_VIBE_COPY === "1") {
+    console.log(`  --no-vibe-copy: left at ${apk}`);
+    return;
+  }
   try {
     const { dest, kept, same } = copyToVibeInstallers(apk);
     if (kept) console.log(`  kept older file as ${kept}`);
@@ -99,6 +104,8 @@ function runCapture(cmd, args, env = process.env) {
   return {
     status: r.status ?? 1,
     out: `${r.stdout || ""}${r.stderr || ""}`,
+    // Card 228: JSON consumers read stdout only; cargo writes progress/warnings to stderr.
+    stdout: r.stdout || "",
   };
 }
 
@@ -431,7 +438,7 @@ function ensureTauriGradleHelpers() {
   }
   let parsed;
   try {
-    parsed = JSON.parse(meta.out);
+    parsed = JSON.parse(meta.stdout);
   } catch (e) {
     fail("cargo metadata JSON parse failed.", String(e));
   }
@@ -504,7 +511,7 @@ function ensureTauriKotlinFromTemplates() {
   if (meta.status !== 0) return;
   let parsed;
   try {
-    parsed = JSON.parse(meta.out);
+    parsed = JSON.parse(meta.stdout);
   } catch {
     return;
   }

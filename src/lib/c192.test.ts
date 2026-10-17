@@ -118,7 +118,8 @@ test("44px: Retry prices, Use starter sources, Notes swatches", () => {
   assert.match(w, /className="mt-2 inline-flex min-h-11 items-center text-xs underline" onClick=\{\(\) => void markets\.refetch\(\)\}/);
   assert.match(w, /className="inline-flex min-h-11 items-center text-sm text-foreground underline-offset-2 hover:underline"/);
   assert.match(src("components/views/finance-markets.tsx"), /min-h-11 items-center px-5 text-xs underline/);
-  assert.match(src("components/views/notes-view.tsx"), /aria-label="Add note"\s+className="size-11 /);
+  // Card 228 B12: each swatch is named by its colour ("Add white note"); still 44px.
+  assert.match(src("components/views/notes-view.tsx"), /aria-label=\{`Add \$\{NOTE_COLOR_NAMES\[i\] \?\? "colour"\} note`\}[\s\S]{0,120}className="size-11 /);
 });
 
 test("Form 191: Other chip last and only with items; Saved Remove / + Add link; Curate Unfollow", () => {

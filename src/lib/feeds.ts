@@ -1,4 +1,5 @@
-import { clientHeaders } from "./client-ua.ts";
+import { clientHeaders, clientLib } from "./client-ua.ts";
+import { APP_VERSION } from "./version.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { httpText, publicHttpUrl } from "./http.ts";
 import { z } from "zod";
@@ -29,7 +30,13 @@ function gTop(gl: string, hl: string) {
   return `https://news.google.com/rss?hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${gl}:${lang}`;
 }
 
-export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag; region?: string }[] = [
+/**
+ * Card 228 (Scout 226): `blocked` = the publisher refused our server probes (403 with any UA, likely
+ * an IP/bot wall). Kept in the catalog and packs so users can still turn it on, but not switched on
+ * by default. Re-test from Vercel / a home IP and clear the flag when it answers.
+ */
+export type FeedBlock = { status: number; since: string; note: string };
+export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag; region?: string; blocked?: FeedBlock }[] = [
   { id: "inquirer", name: "Inquirer", url: "https://www.inquirer.net/fullfeed/", category: "Philippines" },
   { id: "philstar", name: "Philstar", url: "https://www.philstar.com/rss/headlines", category: "Philippines" },
   { id: "rappler", name: "Rappler", url: "https://www.rappler.com/feed/", category: "Philippines" },
@@ -40,7 +47,7 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "insiderph", name: "InsiderPH", url: gFeed("site:insiderph.com when:7d", "PH"), category: "Philippines" },
   { id: "bworld", name: "BusinessWorld", url: "https://www.bworldonline.com/feed/", category: "Business" },
   { id: "manilatimes", name: "Manila Times", url: "https://www.manilatimes.net/news/feed/", category: "Philippines" },
-  { id: "businessmirror", name: "BusinessMirror", url: "https://businessmirror.com.ph/feed/", category: "Business" },
+  { id: "businessmirror", name: "BusinessMirror", url: "https://businessmirror.com.ph/feed/", category: "Business", blocked: { status: 403, since: "2026-10-17", note: "403 from server IPs with any UA (Scout 186/226); re-test from Vercel" } },
   { id: "pna", name: "PNA", url: "https://news.google.com/rss/search?q=site:pna.gov.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
   { id: "tribune", name: "Daily Tribune", url: "https://tribune.net.ph/rss.xml", category: "Philippines" },
   { id: "sunstar", name: "SunStar", url: "https://news.google.com/rss/search?q=site:sunstar.com.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
@@ -50,7 +57,7 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "inq-sports", name: "Inquirer Sports", url: "https://sports.inquirer.net/feed", category: "Sports" },
   { id: "pia", name: "PIA", url: "https://news.google.com/rss/search?q=site:pia.gov.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
   { id: "cebudaily", name: "Cebu Daily News", url: "https://cebudailynews.inquirer.net/feed", category: "Philippines" },
-  { id: "mindanews", name: "MindaNews", url: "https://www.mindanews.com/feed/", category: "Philippines" },
+  { id: "mindanews", name: "MindaNews", url: "https://www.mindanews.com/feed/", category: "Philippines", blocked: { status: 403, since: "2026-10-17", note: "403 from server IPs with any UA (Scout 186/226); re-test from Vercel" } },
   { id: "gnews", name: "Google World", url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en&gl=GB&ceid=GB:en", category: "World" },
   { id: "bbc", name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", category: "World" },
   { id: "guardian", name: "The Guardian", url: "https://www.theguardian.com/world/rss", category: "World" },
@@ -89,7 +96,7 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "variety", name: "Variety", url: "https://variety.com/feed/", category: "Entertainment" },
   { id: "vnexpress", name: "VnExpress", url: "https://e.vnexpress.net/rss/news.rss", category: "World", region: "Vietnam" },
   { id: "vietnamnews", name: "Vietnam News", url: gFeed("site:vietnamnews.vn when:7d", "VN"), category: "World", region: "Vietnam" },
-  { id: "tuoitre", name: "Tuoi Tre News", url: gFeed("site:tuoitrenews.vn", "VN"), category: "World", region: "Vietnam" },
+  { id: "tuoitre", name: "Tuoi Tre News", url: "https://tuoitrenews.vn/rss", category: "World", region: "Vietnam" },
   { id: "vn-desk", name: "Vietnam headlines", url: gTop("VN", "vi"), category: "World", region: "Vietnam" },
   { id: "us-desk", name: "US headlines", url: gTop("US", "en-US"), category: "World", region: "United States" },
   { id: "politico", name: "Politico", url: gFeed("site:politico.com when:1d", "US"), category: "World", region: "United States" },
@@ -319,7 +326,8 @@ const PACK_BY_MARKET: Record<string, string> = {
 export function starterFeedIds(marketId?: string | null): string[] {
   const packId = PACK_BY_MARKET[(marketId ?? "").trim().toUpperCase()] ?? "world";
   const pack = FEED_PACKS.find((p) => p.id === packId);
-  return [...new Set(["bbc", ...(pack?.ids ?? [])])];
+  const blocked = new Set(NEWS_CATALOG.filter((f) => f.blocked).map((f) => f.id));
+  return [...new Set(["bbc", ...(pack?.ids ?? [])])].filter((id) => !blocked.has(id));
 }
 
 const REGION_ORDER = [
@@ -518,8 +526,24 @@ function channelTitle(xml: string) {
   return tag(channel.split(/<item[\s>]|<entry[\s>]/i)[0] ?? "", "title");
 }
 
+/**
+ * Card 228 (Scout 226 1a): some publishers drop the connection when the UA carries a URL contact.
+ * Those hosts get the same client id without the contact; everyone else keeps the full one.
+ */
+export const PLAIN_UA_HOSTS = ["cbc.ca"] as const;
+export function feedHeaders(url: string, lib = clientLib()): Record<string, string> {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    /* not a URL: full UA */
+  }
+  const plain = PLAIN_UA_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  return plain ? { "User-Agent": `AtriumDesk/${APP_VERSION} ${lib}` } : clientHeaders(lib);
+}
+
 async function pull(url: string) {
-  const body = await httpText(url, clientHeaders());
+  const body = await httpText(url, feedHeaders(url));
   return { ok: true, status: 200, type: "application/xml", body, finalUrl: url };
 }
 
@@ -537,7 +561,7 @@ export const fetchFeed = createServerFn({ method: "POST" })
     if (!url) throw new Error("That address is not allowed");
     const place = (data.region ?? "").trim();
     // Card 188 (Scout 186 §5.8): feeds get the same honest client id as Wikiquote.
-    const xml = await httpText(url, clientHeaders());
+    const xml = await httpText(url, feedHeaders(url));
     return parseRss(xml)
       .map((s) => ({
         ...s,

@@ -48,6 +48,8 @@ export function metSymbol(code: string) {
 
 export type WeatherPayload = {
   error?: boolean;
+  /** Card 228: which forecast served this (credits line). Missing on older cached payloads = Open-Meteo. */
+  source?: "open-meteo" | "met";
   current?: {
     temperature_2m: number;
     weather_code: number;
@@ -76,7 +78,32 @@ export type WeatherPayload = {
   };
 };
 
-const UA = `Atrium/${APP_VERSION} (personal dashboard)`;
+/** Card 228 (Scout 226 1b): MET Norway and Nominatim require an identifying UA with a contact.
+ * The contact is the public repo, never a personal address. */
+export const WEATHER_CONTACT = "https://github.com/eect13/atrium";
+export const UA = `Atrium/${APP_VERSION} (+${WEATHER_CONTACT})`;
+
+/**
+ * Card 228: Nominatim policy — user-triggered only, at most 1 request/s, cached, no autocomplete.
+ * Every Nominatim call goes through here.
+ */
+const NOMINATIM_GAP_MS = 1_100;
+const NOMINATIM_TTL_MS = 24 * 60 * 60_000;
+let nominatimNext = 0;
+const nominatimCache = new Map<string, { exp: number; json: unknown }>();
+export async function nominatimGet(url: URL, now = () => Date.now()): Promise<unknown | null> {
+  const key = url.toString();
+  const hit = nominatimCache.get(key);
+  if (hit && hit.exp > now()) return hit.json;
+  const wait = nominatimNext - now();
+  nominatimNext = Math.max(now(), nominatimNext) + NOMINATIM_GAP_MS;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  const res = await fetch(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(4_000) });
+  if (!res.ok) return null;
+  const json = (await res.json()) as unknown;
+  nominatimCache.set(key, { exp: now() + NOMINATIM_TTL_MS, json });
+  return json;
+}
 const CACHE_MS = 15 * 60_000;
 const STALE_MS = 6 * 60 * 60_000;
 const FETCH_MS = 5_000;
@@ -256,7 +283,8 @@ async function fromMetNo(lat: number, lon: number): Promise<WeatherPayload | nul
     });
     if (!res.ok) return null;
     const json = (await res.json()) as { properties?: { timeseries?: MetRow[] } };
-    return fromMetSeries(json.properties?.timeseries ?? []);
+    const out = fromMetSeries(json.properties?.timeseries ?? []);
+    return out ? { ...out, source: "met" } : out;
   } catch {
     return null;
   }
@@ -354,17 +382,8 @@ async function lookupNominatimPostal(postal: string, cc: string): Promise<PlaceH
   url.searchParams.set("addressdetails", "1");
   if (cc) url.searchParams.set("countrycodes", cc.toLowerCase());
   try {
-    const res = await fetch(url, {
-      headers: { "user-agent": UA, accept: "application/json" },
-      signal: AbortSignal.timeout(4_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      lat?: string;
-      lon?: string;
-      address?: Record<string, string>;
-    }[];
-    const hit = json[0];
+    const json = (await nominatimGet(url)) as { lat?: string; lon?: string; address?: Record<string, string> }[] | null;
+    const hit = json?.[0];
     const lat = Number(hit?.lat);
     const lon = Number(hit?.lon);
     if (!hit || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -376,13 +395,11 @@ async function lookupNominatimPostal(postal: string, cc: string): Promise<PlaceH
   }
 }
 
-async function lookupPostal(postal: string, deskCc: string, hint?: PostalHint) {
+/** Card 228: keyless postal sources first; Nominatim only when the user asked (submit / Enter). */
+async function lookupPostal(postal: string, deskCc: string, hint?: PostalHint, explicit = false) {
   const countries = postalCountries(deskCc, hint);
   const first = countries[0] ?? "";
-  const hit =
-    (await lookupNominatimPostal(postal, first)) ??
-    (await lookupZippopotam(postal, countries));
-  return hit;
+  return (await lookupZippopotam(postal, countries)) ?? (explicit ? await lookupNominatimPostal(postal, first) : null);
 }
 
 type GeoRow = {
@@ -425,30 +442,33 @@ async function lookupNames(name: string, cc: string, count: number): Promise<Pla
 const placeInput = z.object({
   name: z.string().trim().min(2).max(80),
   country: z.string().trim().max(8).optional(),
+  /** The user pressed Enter / Search (not type-ahead): Nominatim may be asked. */
+  explicit: z.boolean().optional(),
 });
 
 export const lookupPlace = createServerFn({ method: "POST" })
   .validator(placeInput)
   .handler(async ({ data }): Promise<PlaceHit | null> => {
-    const hits = await findPlaces(data.name, isoFrom(data.country), 1);
+    const hits = await findPlaces(data.name, isoFrom(data.country), 1, data.explicit);
     return hits[0] ?? null;
   });
 
 export const lookupPlaces = createServerFn({ method: "POST" })
   .validator(placeInput)
   .handler(async ({ data }): Promise<PlaceHit[]> => {
-    return findPlaces(data.name, isoFrom(data.country), 6);
+    return findPlaces(data.name, isoFrom(data.country), 6, data.explicit);
   });
 
-async function findPlaces(name: string, cc: string, count: number): Promise<PlaceHit[]> {
+async function findPlaces(name: string, cc: string, count: number, explicit = false): Promise<PlaceHit[]> {
   const postal = parsePostal(name);
   const out: PlaceHit[] = [];
-  if (postal) {
-    const hit = await lookupPostal(postal.postal, cc, postal.hint);
-    if (hit) out.push(hit);
-    if (count <= 1) return out;
-  }
+  // Card 228: Open-Meteo geocoding first; postal sources after (Nominatim only when explicit).
   const names = await lookupNames(name, cc, count);
+  if (postal) {
+    const hit = await lookupPostal(postal.postal, cc, postal.hint, explicit);
+    if (hit) out.push(hit);
+    if (count <= 1 && out.length) return out;
+  }
   for (const hit of names) {
     if (out.some((p) => samePlace(p, hit))) continue;
     out.push(hit);
@@ -466,18 +486,15 @@ export const reversePlace = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<PlaceHit> => {
     const url = new URL("https://nominatim.openstreetmap.org/reverse");
-    url.searchParams.set("lat", String(data.lat));
-    url.searchParams.set("lon", String(data.lon));
+    url.searchParams.set("lat", data.lat.toFixed(4));
+    url.searchParams.set("lon", data.lon.toFixed(4));
     url.searchParams.set("format", "json");
     url.searchParams.set("zoom", "16");
     url.searchParams.set("addressdetails", "1");
     try {
-      const res = await fetch(url, {
-        headers: { "user-agent": UA },
-        signal: AbortSignal.timeout(4_000),
-      });
-      if (!res.ok) return { city: "", lat: data.lat, lon: data.lon };
-      const json = (await res.json()) as { address?: Record<string, string> };
+      // Card 228: reverse runs only from the user's "Use my location" (locateMe); ≤1/s and cached.
+      const json = (await nominatimGet(url)) as { address?: Record<string, string> } | null;
+      if (!json) return { city: "", lat: data.lat, lon: data.lon };
       const a = json.address ?? {};
       const place = a.city || a.town || a.municipality || a.village || a.suburb || a.county || "";
       const city = [place, a.postcode].filter(Boolean).join(" ");

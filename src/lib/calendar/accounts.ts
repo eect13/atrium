@@ -16,6 +16,7 @@ import { resolveOwner, type OwnerPatch } from "./move.ts";
 import { CLAIM_COPY, claimFailKind, RATE_LIMIT_WAIT_MS, type ClaimFail } from "./claim-errors.ts";
 import { adoptLegacy, claimOnDevice, clearRefresh, refreshOnDevice, type DeviceAccess } from "./device-secret.ts";
 import { api, CalendarApiError, fetchStatus, GoogleSource, type ApiClient, type ConnStatus } from "./google-source.ts";
+import { renewWithRetry, type RenewOutcome } from "./session-renew.ts";
 import { LEGACY_ICS, withoutSource, type IcsSourceMeta } from "./ics-source.ts";
 import { isWritableRole } from "./source.ts";
 import { applyFlush, bannerFor, enqueue, flushPending, syncCalendar, writeOf, type PendingOp } from "./sync.ts";
@@ -90,25 +91,20 @@ async function forgetDevice() {
   await clearRefresh();
 }
 
-/** Rotate the refresh handle (Card 167 M2). 409 = another request just rotated: reread once. */
+/** Rotate the refresh handle (Card 167 M2). Card 228 B2: forget only on an explicit server
+ * reject; network, 409, 429 and 5xx retry with backoff and keep the handle. */
+let lastRenew: RenewOutcome | null = null;
 function renew(): Promise<string | null> {
   if (renewing) return renewing;
   renewing = (async () => {
     try {
-      for (let i = 0; i < 2; i++) {
-        try {
-          const a = await refreshOnDevice();
-          keepAccess(a);
-          return a.access;
-        } catch (e) {
-          if (e instanceof CalendarApiError && e.status === 409) {
-            await new Promise((r) => setTimeout(r, 400));
-            continue;
-          }
-          if (e instanceof CalendarApiError && e.status === 401) await forgetDevice();
-          return null;
-        }
+      const r = await renewWithRetry(refreshOnDevice);
+      lastRenew = r.outcome;
+      if (r.outcome === "ok") {
+        keepAccess(r.value);
+        return r.value.access;
       }
+      if (r.outcome === "rejected") await forgetDevice();
       return null;
     } finally {
       renewing = null;
@@ -134,7 +130,10 @@ const source = async () => new GoogleSource(await client());
 const online = () => (typeof navigator === "undefined" ? true : navigator.onLine !== false);
 
 export async function refreshStatus() {
-  const s = await fetchStatus(await client());
+  const c = await client();
+  // Card 228 B2: no access handle because renewing failed for a transient reason. Asking /status
+  // without a Bearer would read "disconnected" and wipe a still-valid session: report unreachable.
+  const s: ConnStatus = c.native && !c.session && lastRenew === "transient" ? { state: "unreachable", message: "Couldn't renew the calendar session" } : await fetchStatus(c);
   if (s.state === "connected") set({ status: s, email: s.email, canEdit: s.canEdit, banner: get().banner === "expired" || get().banner === "disconnected" ? null : get().banner });
   else if (s.state === "expired") set({ status: s, banner: "expired" });
   else if (s.state === "disconnected" && get().email) {

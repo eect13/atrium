@@ -83,7 +83,7 @@ export function MonthGrid({ cursor, rows, phoneRows, outside, cats, now = new Da
                     <button
                       type="button"
                       style={{ gridColumn: i + 1, gridRow: "1 / -1" }}
-                      className={cn("z-0 flex h-full w-full items-start rounded-md px-2 pt-2 text-left text-xs leading-none", out ? "text-muted-foreground/60" : "text-muted-foreground", FOCUS)}
+                      className={cn("z-0 flex h-full w-full items-start rounded-md px-2 pt-2 text-left text-xs leading-none", out ? "text-muted-foreground" : "text-foreground", FOCUS)}
                       aria-label={spanCellLabel(date, cell.all)}
                       aria-current={isToday ? "date" : undefined}
                       onClick={() => onDay(key)}
@@ -148,7 +148,7 @@ export function MonthGrid({ cursor, rows, phoneRows, outside, cats, now = new Da
                     <button
                       type="button"
                       style={{ gridColumn: i + 1, gridRow: "1 / -1" }}
-                      className={cn("z-[2] flex h-full w-full items-start justify-center rounded-md pt-1.5 text-xs leading-none", out ? "text-muted-foreground/60" : "text-muted-foreground", FOCUS)}
+                      className={cn("z-[2] flex h-full w-full items-start justify-center rounded-md pt-1.5 text-xs leading-none", out ? "text-muted-foreground" : "text-foreground", FOCUS)}
                       aria-label={spanCellLabel(date, cell.all)}
                       aria-current={isToday ? "date" : undefined}
                       onClick={() => onDay(key)}

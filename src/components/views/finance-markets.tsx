@@ -833,7 +833,7 @@ export function FinanceMarkets() {
             void sparkQ.refetch();
           }}
           disabled={markets.isFetching && !markets.data}
-          aria-label={markets.isFetching && !markets.data ? "Updating prices" : "Refresh prices"}
+          aria-label={markets.isFetching && !markets.data ? "Updating prices" : "Live, refresh prices"}
         >
           <RefreshCw className={cn("size-3.5", markets.isFetching && "animate-spin")} />
           <span className="hidden sm:inline">{markets.isFetching && !markets.data ? "Updating…" : "Live"}</span>

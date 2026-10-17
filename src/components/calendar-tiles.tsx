@@ -115,25 +115,30 @@ export function CalendarTiles() {
             ))}
           </div>
           <div className="grid grid-cols-7 text-center text-xs tabular-nums">
-            {cells.map((c) => {
-              const key = isoDate(c.date);
-              const isToday = key === today;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="gridcell"
-                  data-no-drag
-                  aria-current={isToday ? "date" : undefined}
-                  aria-label={`${c.day}${busy.has(key) ? ", has events" : ""}`}
-                  className={cn("relative mx-auto flex size-8 items-center justify-center rounded-full", c.out && "text-muted-foreground/60", isToday ? "bg-foreground font-semibold text-background" : "hover:bg-muted")}
-                  onClick={() => open(key)}
-                >
-                  {c.day}
-                  {busy.has(key) && !isToday ? <span aria-hidden className="absolute bottom-0.5 size-1 rounded-full bg-muted-foreground" /> : null}
-                </button>
-              );
-            })}
+            {/* Card 228 B10: gridcells live in rows (a week each); rows are display:contents so the 7-col grid is unchanged. */}
+            {Array.from({ length: Math.ceil(cells.length / 7) }, (_, w) => (
+              <div key={w} role="row" className="contents">
+                {cells.slice(w * 7, w * 7 + 7).map((c) => {
+                  const key = isoDate(c.date);
+                  const isToday = key === today;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      role="gridcell"
+                      data-no-drag
+                      aria-current={isToday ? "date" : undefined}
+                      aria-label={`${c.day}${busy.has(key) ? ", has events" : ""}`}
+                      className={cn("relative mx-auto flex size-8 items-center justify-center rounded-full", c.out && "text-muted-foreground", isToday ? "bg-foreground font-semibold text-background" : "hover:bg-muted")}
+                      onClick={() => open(key)}
+                    >
+                      {c.day}
+                      {busy.has(key) && !isToday ? <span aria-hidden className="absolute bottom-0.5 size-1 rounded-full bg-muted-foreground" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </div>

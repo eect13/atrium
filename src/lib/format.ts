@@ -528,6 +528,8 @@ export const NOTE_COLORS = [
   "#9aa0a6",
   "#2c2d30",
 ];
+/** Card 228 B12: spoken names for NOTE_COLORS (same order), so each swatch has its own label. */
+export const NOTE_COLOR_NAMES = ["white", "light grey", "silver", "grey", "slate", "charcoal"] as const;
 
 /** Normalize a CSS color to `#rrggbb`. */
 export function hexColor(raw: string): string {

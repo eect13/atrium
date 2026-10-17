@@ -964,6 +964,19 @@ pub fn run() {
                 desk::register_shortcut(app.handle());
                 // No tray (e.g. no system tray on this desktop) must not stop the app.
                 let _ = desk::build_tray(app.handle());
+                // Card 228: pre-create the hidden ⋯ popup; drop it with main so a hidden
+                // window never keeps the process alive.
+                let _ = desk::create_menu_window(app.handle());
+                if let Some(main) = app.get_webview_window("main") {
+                    let h = app.handle().clone();
+                    main.on_window_event(move |ev| {
+                        if let tauri::WindowEvent::Destroyed = ev {
+                            if let Some(m) = h.get_webview_window(desk::MENU_LABEL) {
+                                let _ = m.destroy();
+                            }
+                        }
+                    });
+                }
             }
             let _ = app;
             Ok(())

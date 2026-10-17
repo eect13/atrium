@@ -86,13 +86,13 @@ export function CalendarToolbar({
         {views(false)}
         <div className="grow" />
         <Button variant="outline" className="h-11" onClick={() => file.current?.click()}>
-          Import ICS
+          Import ICS…
         </Button>
         <Button variant="outline" className="h-11" onClick={onExport}>
           Export
         </Button>
         <Button variant="outline" className="h-11" onClick={onAccounts}>
-          Accounts
+          Accounts…
         </Button>
         <Button className="h-11" onClick={onNew}>
           New event

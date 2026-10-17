@@ -124,7 +124,7 @@ export async function closeNativeFloat(kind: "note" | "widget", id: string) {
 }
 
 /** Close every child float. The store keeps which pads were up so the next open restores them. */
-export async function closeAllNativeFloats() {
+export async function closeAllNativeFloats(opts: { withMenu?: boolean } = {}) {
   if (!nativeWindows()) return;
   beginFloatKeep();
   try {
@@ -134,6 +134,8 @@ export async function closeAllNativeFloats() {
     await Promise.all(
       all.map(async (win) => {
         if (win.label === self) return;
+        // Card 228: the shared ⋯ popup stays (hidden) unless the app is exiting.
+        if (win.label === "menu" && !opts.withMenu) return;
         try {
           await win.close();
         } catch {
@@ -154,7 +156,7 @@ export async function closeAllNativeFloats() {
 export async function closeAllNativeFloatsForExit(timeoutMs = 1500) {
   if (!nativeWindows()) return;
   closingAll = true;
-  await closeAllNativeFloats();
+  await closeAllNativeFloats({ withMenu: true });
   try {
     const { getAllWebviewWindows, getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const self = getCurrentWebviewWindow().label;
@@ -182,7 +184,7 @@ export async function captureFloatBoxes(): Promise<{ label: string; box: { x: nu
     const self = getCurrentWebviewWindow().label;
     const out: { label: string; box: { x: number; y: number; w: number; h: number } }[] = [];
     for (const w of await getAllWebviewWindows()) {
-      if (w.label === self) continue;
+      if (w.label === self || w.label === "menu") continue;
       try {
         const scale = await w.scaleFactor();
         const pos = await w.outerPosition();

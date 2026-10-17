@@ -62,7 +62,7 @@ export function PlaceField({
     }
     setBusy(true);
     try {
-      const rows = hitFor.current === query && hits.length ? hits : await lookupPlaces({ data: { name: query, country } });
+      const rows = hitFor.current === query && hits.length ? hits : await lookupPlaces({ data: { name: query, country, explicit: true } });
       const hit = rows[0];
       if (!hit) return;
       pick(hit);

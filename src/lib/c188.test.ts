@@ -70,7 +70,9 @@ test("Scout 186 fix 7 (UA): feed fetches send the same honest, context-neutral c
   assert.deepEqual(clientHeaders(CLIENT_LIB.tauri), { "User-Agent": clientUserAgent("reqwest/0.12") });
   assert.equal(wqHeaders(WQ_LIB.web)["User-Agent"], clientUserAgent(CLIENT_LIB.web), "Wikiquote reuses it unchanged");
   const src = readFileSync(new URL("./feeds.ts", import.meta.url), "utf8");
-  assert.equal((src.match(/httpText\(url, clientHeaders\(\)\)/g) ?? []).length, 2, "fetchFeed and probe pull both send it");
+  // Card 228 (Scout 226 1a): both go through feedHeaders(url) — the same id, minus the contact for hosts that drop it (CBC).
+  assert.equal((src.match(/httpText\(url, feedHeaders\(url\)\)/g) ?? []).length, 2, "fetchFeed and probe pull both send it");
+  assert.match(src, /: clientHeaders\(lib\);/);
 });
 
 test("Card 188 nav: Topic Finder folded into Feed; saved 'topics' view lands on Feed › Topics", () => {

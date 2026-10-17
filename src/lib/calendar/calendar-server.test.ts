@@ -143,7 +143,7 @@ test("web flow: callback sets an httpOnly session cookie; calendars + events wor
   const calls: Call[] = [];
   const { d, cb } = await connectedSession(sql, calls);
   assert.equal(cb.status, 302);
-  assert.equal(cb.headers.get("location"), "https://a.test/calendar?accounts=1");
+  assert.equal(cb.headers.get("location"), "https://a.test/?view=calendar&accounts=1");
   const set = cb.headers.getSetCookie();
   const sessionCookie = set.find((c) => c.startsWith("atrium_cal="))!;
   assert.match(sessionCookie, /HttpOnly; Secure/);

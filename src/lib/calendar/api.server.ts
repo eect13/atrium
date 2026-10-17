@@ -256,7 +256,7 @@ export async function handleCalendar(req: Request, subpath: string, d: Deps): Pr
         );
       }
       const pair = await newSession(sql, conn.id, now);
-      return new Response(null, { status: 302, headers: headersOf(req, { location: `${cfg.origin}/calendar?accounts=1`, "cache-control": "no-store" }, [...clear, ...sessionCookies(pair)]) });
+      return new Response(null, { status: 302, headers: headersOf(req, { location: `${cfg.origin}/?view=calendar&accounts=1`, "cache-control": "no-store" }, [...clear, ...sessionCookies(pair)]) });
     } catch {
       return page("Couldn't finish Google sign-in", "Nothing was saved. Go back to Atrium and try again.", 502, clear);
     }

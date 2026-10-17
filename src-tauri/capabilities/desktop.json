@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Desktop only (Card 192): main + native float windows. Multi-window permissions never ship to Android / iOS.",
+  "description": "Desktop only (Card 192): main + native float windows. Multi-window permissions never ship to Android / iOS. Card 228: the shared ⋯ popup window ('menu') places itself on the trigger's monitor (monitor/position/scale reads, also in core:window:default).",
   "windows": [
     "*"
   ],
@@ -28,6 +28,12 @@
     "core:window:allow-set-skip-taskbar",
     "core:window:allow-set-decorations",
     "core:window:allow-start-dragging",
-    "core:webview:allow-create-webview-window"
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-current-monitor",
+    "core:window:allow-monitor-from-point",
+    "core:window:allow-outer-position",
+    "core:window:allow-inner-position",
+    "core:window:allow-scale-factor",
+    "core:window:allow-is-focused"
   ]
 }
