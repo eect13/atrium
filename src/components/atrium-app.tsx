@@ -79,6 +79,7 @@ import { nativeWindows } from "@/lib/platform";
 import { listenUnlockAll, UNLOCK_SHORTCUT, unlockShortcutOk } from "@/lib/desk-unlock";
 import { onStateFileWarning } from "@/lib/state-file";
 import { focusViewHeading, listenOpenView } from "@/lib/open-in-atrium";
+import { CALENDAR_OPTIONS_ID, openCalendarOptions } from "@/lib/calendar/intent";
 import { useFloatsAllowed } from "@/lib/use-platform";
 import { onStorageQuota, writeLocal } from "@/lib/quota";
 import { APP_VERSION } from "@/lib/version";
@@ -392,7 +393,16 @@ export function AtriumApp() {
   useEffect(() => startRealmSync(useAtrium), []);
   useEffect(() => listenUnlockAll(() => useAtrium.getState().unlockAllWindows()), []);
   // Card 216 §6: a float's "Open in Atrium" lands on its feature with the heading focused.
-  useEffect(() => listenOpenView((v) => (useAtrium.getState().setView(v), focusViewHeading())), []);
+  // Card 244 (Form 243 S1): "Calendar options…" from the Calendar float lands on Options › Calendar.
+  useEffect(
+    () =>
+      listenOpenView((v, section) => {
+        if (section === CALENDAR_OPTIONS_ID) return openCalendarOptions();
+        useAtrium.getState().setView(v);
+        focusViewHeading();
+      }),
+    [],
+  );
   // Card 228 B3: deep links land on `/?view=…` (the only route is "/").
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);

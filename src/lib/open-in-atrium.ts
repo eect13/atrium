@@ -17,29 +17,32 @@ export function focusViewHeading() {
   });
 }
 
+/** Card 244: optional section id on the page (e.g. Options › Calendar); main scrolls there instead of the heading. */
+export type OpenView = { view: ViewId; section?: string };
+
 /** From a native float: raise main and ask it to navigate. From an in-page float: navigate here. */
-export async function openInAtrium(view: ViewId, local: (v: ViewId) => void) {
+export async function openInAtrium(view: ViewId, local: (v: ViewId) => void, section?: string) {
   if (!nativeWindows()) {
     local(view);
-    focusViewHeading();
+    if (!section) focusViewHeading();
     return;
   }
   try {
     const [{ invoke }, { emitTo }] = await Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]);
     // Card 222: Rust unminimises, shows, allows foreground and briefly pins main on top around set_focus.
     await invoke("desk_focus_main");
-    await emitTo("main", OPEN_VIEW_EVENT, view);
+    await emitTo("main", OPEN_VIEW_EVENT, section ? ({ view, section } satisfies OpenView) : view);
   } catch {
     /* bridge unavailable: nothing to raise */
   }
 }
 
-export function listenOpenView(onView: (v: ViewId) => void) {
+export function listenOpenView(onView: (v: ViewId, section?: string) => void) {
   if (!nativeWindows()) return () => {};
   let off: (() => void) | undefined;
   let dead = false;
   void import("@tauri-apps/api/event")
-    .then(({ listen }) => listen<ViewId>(OPEN_VIEW_EVENT, (e) => onView(e.payload)))
+    .then(({ listen }) => listen<ViewId | OpenView>(OPEN_VIEW_EVENT, (e) => (typeof e.payload === "string" ? onView(e.payload) : onView(e.payload.view, e.payload.section))))
     .then((u) => (dead ? u() : (off = u)))
     .catch(() => {});
   return () => {

@@ -11,6 +11,7 @@ import { TitleBar } from "@/components/widget-shell";
 import { SHELL_REVEAL, useViewRows } from "@/lib/widget-menu";
 import { FLOAT_VIEW } from "@/lib/dash";
 import { openInAtrium } from "@/lib/open-in-atrium";
+import { CALENDAR_OPTIONS_ID, openCalendarOptions } from "@/lib/calendar/intent";
 import { toggleDeskFlag } from "@/lib/desk-flags";
 import { cn } from "@/lib/utils";
 import { inkOnPaper, noteTitle } from "@/lib/format";
@@ -149,6 +150,8 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
     ),
   });
   const goHome = (v: Parameters<typeof openInAtrium>[0]) => ({ label: "Open in Atrium", leaves: true, onSelect: () => void openInAtrium(v, (x) => useAtrium.getState().setView(x)) });
+  // Card 244 (Form 243 S1): same desk_focus_main path as Open in Atrium; main lands on Options › Calendar.
+  const calendarOptionsRow = { label: "Calendar options…", leaves: true, onSelect: () => void openInAtrium("options", () => openCalendarOptions(), CALENDAR_OPTIONS_ID) };
 
   if (kind === "note" && note) {
     const ink = inkOnPaper(note.color);
@@ -225,7 +228,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
               { label: "Frame", checked: Boolean(win.frame), onSelect: () => flip("frame") },
               { label: "Keep on top", checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
             ],
-            go: [goHome(FLOAT_VIEW[win.kind])],
+            go: [goHome(FLOAT_VIEW[win.kind]), ...(win.kind === "calendar" ? [calendarOptionsRow] : [])],
             close: [{ label: "Close", onSelect: () => void dismiss(() => closeWindow(win.id)) }],
           }}
         />

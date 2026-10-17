@@ -105,7 +105,7 @@ export function CalendarSourceRow({ name, colour, shown, readOnly, badge, meta, 
           <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {readOnly ? (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-muted px-1.5 py-px text-foreground ring-1 ring-[var(--color-input)]">
-                <Lock className="size-3" aria-hidden />
+                <Lock className="size-3" role="img" aria-label="Read-only" />
                 {badge ?? "Read-only"}
               </span>
             ) : null}
@@ -172,7 +172,7 @@ export function CalendarSourceList() {
                       colour={calendarColourOf(s.id, s.colour)}
                       shown={s.shown !== false}
                       readOnly
-                      badge={s.kind === "ical" ? "Read-only · Secret address" : "Read-only · ICS"}
+                      badge={s.kind === "ical" ? "iCal link" : "ICS file"}
                       meta={s.kind === "ical" && s.refreshedAt ? `Refreshed ${fmtTime(s.refreshedAt)}` : s.importedAt ? `Imported ${new Date(s.importedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : s.id === LEGACY_ICS ? "Imported before accounts" : ""}
                       onShown={(on) => updateIcsSource(s.id, { shown: on })}
                       onColour={(k) => updateIcsSource(s.id, { colour: k })}
