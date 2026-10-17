@@ -28,16 +28,27 @@ export type DashEntry = {
   floatMany?: boolean;
   /** Card 216: feature items for the shared ⋯ (merged into the canonical groups). */
   menu?: (ctx: MenuCtx) => MenuGroups;
+  /** Card 241: what "{Feature} options…" runs instead of plain Options (e.g. scroll to its section). */
+  optionsAct?: MenuAction;
 };
 
 /** Context-neutral hooks a registry `menu` may call; the shell supplies them. */
-export type MenuAction = "new-note" | "new-event" | "board" | "float-all" | "unfloat-all";
+export type MenuAction = "new-note" | "new-event" | "board" | "float-all" | "unfloat-all" | "import-ics" | "add-ical" | "export-ics" | "calendar-options";
 export type MenuCtx = { floats: boolean; manyOn: boolean; act: (a: MenuAction) => () => void };
 
 // New note is the primary title-bar action. Card 218 F3: Float all / Back to board live only here.
 const notesMenu = (c: MenuCtx): MenuGroups => ({
   view: [{ label: "Board", onSelect: c.act("board") }],
   window: c.floats ? [{ label: c.manyOn ? "Back to board" : "Float all", onSelect: c.act(c.manyOn ? "unfloat-all" : "float-all") }] : [],
+});
+
+// Card 241: one calendar entry list — Import ICS… · Add iCal link… · Export ICS (create/act group).
+const calendarMenu = (c: MenuCtx): MenuGroups => ({
+  create: [
+    { label: "Import ICS…", onSelect: c.act("import-ics") },
+    { label: "Add iCal link…", onSelect: c.act("add-ical") },
+    { label: "Export ICS", onSelect: c.act("export-ics") },
+  ],
 });
 
 export const DASH_REGISTRY = [
@@ -47,7 +58,7 @@ export const DASH_REGISTRY = [
   { id: "finance", span: 4, float: "finance", need: "finance", view: "finance" },
   { id: "notes", span: 4, need: "notes", title: "Notes", view: "notes", primary: "new-note", floatMany: true, menu: notesMenu },
   { id: "news", span: 4, float: "news", need: "news", view: "news" },
-  { id: "calendar", span: 8, float: "calendar", view: "calendar" },
+  { id: "calendar", span: 8, float: "calendar", view: "calendar", menu: calendarMenu, optionsAct: "calendar-options" },
   { id: "clock", span: 4, float: "clock", need: "clock", view: "clock" },
 ] as const satisfies readonly DashEntry[];
 

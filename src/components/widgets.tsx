@@ -30,8 +30,6 @@ import { type SpanSegment } from "@/lib/span-layout";
 import { onExternalAnchorClick } from "@/lib/http";
 import { liquidEffect, sumToHome, toHomeCcy } from "@/lib/books";
 import { sessionSpark, tapeSpark } from "@/lib/sparks";
-import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
-import { features } from "@/lib/features";
 import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
 import {
@@ -66,7 +64,7 @@ export function WeatherBody() {
 }
 
 export function AgendaBody() {
-  const stored = useAtrium(useShallow((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals))));
+  const stored = useAtrium((s) => s.events);
   const eventCats = useAtrium((s) => s.eventCats);
   const setView = useAtrium((s) => s.setView);
   const todayStart = manilaAt(isoDate(new Date()), 0);
@@ -77,8 +75,7 @@ export function AgendaBody() {
   if (!today.length) {
     return (
       <p className="text-sm text-muted-foreground">
-        {/* Card 235 (Form 234 §3): Google off → plain empty copy, no command-bar hint. */}
-        {features.googleCalendar ? "Nothing on the calendar. Use the command bar: “Lunch Friday 1pm”." : "Nothing today."}
+        Nothing today.
       </p>
     );
   }

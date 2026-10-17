@@ -7,8 +7,6 @@ import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { FloatBtn } from "@/components/desk-chrome";
 import { cn } from "@/lib/utils";
 import { groupItems } from "@/lib/menu-groups";
-import { useAtrium } from "@/lib/store";
-import { features } from "@/lib/features";
 import type { CalMode } from "@/lib/types";
 
 const MODES = ["month", "week", "day", "agenda"] as const;
@@ -24,8 +22,8 @@ export function CalendarToolbar({
   onToday,
   onImportFile,
   onExport,
-  onAccounts,
-  onAddByAddress,
+  onAddLink,
+  onOptions,
   onNew,
 }: {
   title: string;
@@ -36,31 +34,22 @@ export function CalendarToolbar({
   onToday: () => void;
   onImportFile: (f: File) => void;
   onExport: () => void;
-  onAccounts: () => void;
-  /** Card 235: opens the Calendars sheet with the address field focused (Google off). */
-  onAddByAddress?: () => void;
+  /** Card 241: opens the Add iCal link dialog. */
+  onAddLink: () => void;
+  /** Card 241: Options › Calendar. */
+  onOptions: () => void;
   onNew: () => void;
 }) {
   const file = useRef<HTMLInputElement | null>(null);
-  // Card 235 (Form 234 §3): Google off → iCal/ICS is the primary path; Google on → Card 216/222 labels.
-  const g = features.googleCalendar;
-  const menuItems = g
-    ? groupItems({
-        create: [{ label: "Import ICS…", onSelect: () => file.current?.click() }],
-        go: [{ label: "Export", onSelect: onExport }, { label: "Calendar accounts…", onSelect: onAccounts }],
-      })
-    : [
-        ...groupItems({
-          create: [
-            { label: "Import calendar…", onSelect: () => file.current?.click() },
-            { label: "Add by address…", onSelect: onAddByAddress ?? onAccounts },
-          ],
-        }),
-        { separator: true as const },
-        { label: "Export", onSelect: onExport },
-        { separator: true as const },
-        { label: "Calendars…", onSelect: onAccounts },
-      ];
+  // Card 241: one entry list for the desktop and phone ⋯ (Import ICS… · Add iCal link… · Export ICS │ Calendar options…).
+  const menuItems = groupItems({
+    create: [
+      { label: "Import ICS…", onSelect: () => file.current?.click() },
+      { label: "Add iCal link…", onSelect: onAddLink },
+      { label: "Export ICS", onSelect: onExport },
+    ],
+    go: [{ label: "Calendar options…", onSelect: onOptions }],
+  });
   const unit = mode === "agenda" ? "month" : mode;
   const nav = (
     <div className="flex shrink-0 items-center rounded-xl border border-border">
@@ -108,19 +97,11 @@ export function CalendarToolbar({
         {nav}
         {views(false)}
         <div className="grow" />
-        <Button variant="outline" className="h-11" onClick={() => file.current?.click()}>
-          {g ? "Import ICS…" : "Import calendar…"}
-        </Button>
-        <Button variant="outline" className="h-11" onClick={onExport}>
-          Export
-        </Button>
-        <Button variant="outline" className="h-11" onClick={onAccounts}>
-          {g ? "Accounts…" : "Calendars…"}
-        </Button>
         <Button className="h-11" onClick={onNew}>
           New event
         </Button>
         <FloatBtn kind="calendar" />
+        <OverflowMenu label="Calendar menu" menuClassName="w-52" items={menuItems} />
       </div>
       <div className="flex flex-col gap-2 md:hidden">
         <div className="flex items-center gap-1">

@@ -76,9 +76,8 @@ test("C197 lows: toast 44px, one announcement, Back closes drawer, tablet hint +
   assert.doesNotMatch(app, / md:inline">\s*\{modHint\}/);
   assert.match(app, /pt-\[max\(env\(safe-area-inset-top\),1\.5rem\)\]/);
   assert.match(app, /pr-\[env\(safe-area-inset-right\)\] pl-\[env\(safe-area-inset-left\)\]/);
-  const d = src("lib/calendar/device-secret.ts");
-  assert.match(d, /if \(r\.sealWarning\) warnSeal\(\);/);
-  assert.match(d, /toast\.error\(SEAL_WARNING\)/);
+  // Card 242: lib/calendar/device-secret.ts (Google session seal warning toast) was removed with the
+  // Google client; the Rust commands stay (archive/google-calendar restores the client).
   const rs = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8");
   assert.match(rs, /spawn_blocking\(f\)/);
   assert.match(rs, /"sealWarning"/);

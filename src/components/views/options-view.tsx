@@ -1,12 +1,9 @@
 "use client";
 
 import { useFloatsAllowed } from "@/lib/use-platform";
-import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
+import { AddIcalLinkDialog, CalendarSourceList } from "@/components/calendar/calendar-sources";
 import { importCalendarFile } from "@/lib/calendar/ics-import";
-import { calendarsSummary } from "@/lib/calendar/calendars-summary";
-import { icsSourcesWithLegacy, setNewEventsTo, syncNow, useCalAccounts } from "@/lib/calendar/accounts";
-import { features } from "@/lib/features";
-import { googleStatusRow } from "@/lib/calendar/google-status";
+import { CALENDAR_OPTIONS_ID, onCalIntent, takeOptionsScroll } from "@/lib/calendar/intent";
 import { ClockOptionsCard, WidgetsOptionsCard } from "@/components/options-widgets";
 import { APP_LABEL } from "@/lib/version";
 import { useEffect, useRef, useState } from "react";
@@ -26,7 +23,7 @@ import { useAtrium } from "@/lib/store";
 import { downloadProfileBackup, parseProfileBackup, restoreProfileBackup, wipeAtriumStorage } from "@/lib/profile-desk";
 import { isQuotaError, QUOTA_NOTE } from "@/lib/quota";
 import { QUOTE_CCY, STOCK_TAPES, WIDGET_LABEL, type Profile, type WidgetKind } from "@/lib/types";
-import { CCY_META, fmtTime } from "@/lib/format";
+import { CCY_META } from "@/lib/format";
 import { DASH_LABEL, shiftDash, type DashCard } from "@/lib/dash";
 import { useModHint } from "@/lib/keys";
 import { mapsPin, hasWeatherPin } from "@/lib/weather";
@@ -75,21 +72,25 @@ const JUMP = [
 ];
 
 
-/** Options › Calendar with Google Calendar off (Card 235): Calendars + Import calendar rows only. */
-function CalendarsOptionsCard() {
-  const [open, setOpen] = useState(false);
+/** Options › Calendar (Card 241): the calendar list inline (no sheet); footer Add iCal link… · Import ICS…. */
+function CalendarOptionsCard() {
+  const [addOpen, setAddOpen] = useState(false);
   const file = useRef<HTMLInputElement | null>(null);
-  const events = useAtrium((s) => s.events);
-  const icsSources = useCalAccounts((s) => s.icsSources);
-  const sources = icsSourcesWithLegacy(events, icsSources);
-  const none = !sources.length;
-  const pick = () => file.current?.click();
   return (
-    <Card id="opt-calendar" className="scroll-mt-4">
+    <Card id={CALENDAR_OPTIONS_ID} className="scroll-mt-4">
       <CardHeader>
         <CardTitle data-focus-home="" tabIndex={-1}>Calendar</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        <CalendarSourceList />
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" className="h-11" onClick={() => setAddOpen(true)}>
+            Add iCal link…
+          </Button>
+          <Button variant="outline" className="h-11" onClick={() => file.current?.click()}>
+            Import ICS…
+          </Button>
+        </div>
         <input
           ref={file}
           type="file"
@@ -101,98 +102,7 @@ function CalendarsOptionsCard() {
             e.target.value = "";
           }}
         />
-        <div className="flex min-h-11 items-center justify-between gap-4">
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">Calendars</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">{calendarsSummary(sources, fmtTime)}</span>
-          </span>
-          {none ? (
-            <Button className="h-11" onClick={pick}>
-              Import calendar…
-            </Button>
-          ) : (
-            <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
-              Manage
-            </Button>
-          )}
-        </div>
-        {none ? null : (
-          <div className="flex min-h-11 items-center justify-between gap-4">
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">Import calendar</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">.ics file</span>
-            </span>
-            <Button variant="outline" className="h-11" onClick={pick}>
-              Import calendar…
-            </Button>
-          </div>
-        )}
-        <CalendarAccountsSheet open={open} onOpenChange={setOpen} />
-      </CardContent>
-    </Card>
-  );
-}
-
-/** Options › Calendar › Calendar accounts (Card 164): opens the same sheet as the Calendar toolbar. */
-function CalendarOptionsCard() {
-  if (!features.googleCalendar) return <CalendarsOptionsCard />;
-  return <GoogleCalendarOptionsCard />;
-}
-
-function GoogleCalendarOptionsCard() {
-  const [open, setOpen] = useState(false);
-  const newEventsTo = useCalAccounts((s) => s.newEventsTo);
-  const email = useCalAccounts((s) => s.email);
-  const canEdit = useCalAccounts((s) => s.canEdit);
-  const banner = useCalAccounts((s) => s.banner);
-  const lastSync = useCalAccounts((s) => s.lastSync);
-  const syncing = useCalAccounts((s) => s.syncing);
-  const g = googleStatusRow({ email, canEdit, banner, lastSync }, fmtTime);
-  return (
-    <Card id="opt-calendar" className="scroll-mt-4">
-      <CardHeader>
-        <CardTitle data-focus-home="" tabIndex={-1}>Calendar</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2" role="group" aria-label="Google status">
-          <span className="flex min-w-0 items-start gap-2">
-            <span aria-hidden className={cn("mt-1.5 size-2 shrink-0 rounded-full", g.tone === "ok" ? "bg-foreground" : g.tone === "bad" ? "bg-destructive" : "bg-muted-foreground")} />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">{g.title}</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">{g.sub}</span>
-            </span>
-          </span>
-          <span className="flex gap-2">
-            {email && g.tone !== "bad" ? (
-              <Button variant="outline" className="h-11" disabled={syncing} onClick={() => void syncNow()}>
-                {syncing ? "Syncing…" : "Sync now"}
-              </Button>
-            ) : null}
-            <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
-              Manage
-            </Button>
-          </span>
-        </div>
-        <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <span className="min-w-0">
-            <label htmlFor="opt-new-events" className="block text-sm font-medium">New events go to</label>
-            <span className="mt-0.5 block text-xs text-muted-foreground">You can change it for each event.{newEventsTo === "google" && !(email && canEdit) ? " Until Google is connected, they stay in Atrium only." : ""}</span>
-          </span>
-          <select id="opt-new-events" className={cn(FIELD_SELECT, "sm:w-64")} value={newEventsTo} onChange={(e) => setNewEventsTo(e.target.value === "local" ? "local" : "google")}>
-            <option value="google">{email ? `${email} · Google` : "Google main calendar"}</option>
-            <option value="local">Atrium only</option>
-          </select>
-        </div>
-        <div className="flex min-h-11 items-center justify-between gap-4">
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">Calendar accounts</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">Google, secret iCal addresses and imported ICS files.</span>
-          </span>
-          <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
-            Open
-          </Button>
-        </div>
-        <CalendarAccountsSheet open={open} onOpenChange={setOpen} />
+        <AddIcalLinkDialog open={addOpen} onOpenChange={setAddOpen} />
       </CardContent>
     </Card>
   );
@@ -543,6 +453,18 @@ export function OptionsView() {
   function jump(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  // Card 241: "Calendar options…" (Calendar ⋯, widget ⋯, old ?accounts=1) lands on the Calendar card.
+  useEffect(() => {
+    const go = () => {
+      if (!takeOptionsScroll()) return;
+      requestAnimationFrame(() => {
+        jump(CALENDAR_OPTIONS_ID);
+        document.querySelector<HTMLElement>(`#${CALENDAR_OPTIONS_ID} [data-focus-home]`)?.focus({ preventScroll: true });
+      });
+    };
+    go();
+    return onCalIntent(go);
+  }, []);
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -900,15 +822,7 @@ export function OptionsView() {
           <CardTitle>Calendar & data</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          {features.googleCalendar ? (
-            <p>
-              Atrium stays on this device. Add calendars by importing an .ics file or pasting a private secret
-              address (.ics) under Calendar › Accounts. Works with Fantastical, Outlook, Apple, and other apps that speak iCal.
-              Connected calendar accounts can also sync when signed in on this session.
-            </p>
-          ) : (
-            <p>Atrium stays on this device. Add calendars by importing an .ics file or pasting a private secret address under Calendar › Calendars.</p>
-          )}
+          <p>Atrium stays on this device.</p>
           <p>
             Cash books keep their own JSON on the Cash tab. Profile backup above saves the whole desk.
           </p>

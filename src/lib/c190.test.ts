@@ -96,8 +96,8 @@ test("migration v1: backfill saves with no topic by re-matching current topics, 
   assert.deepEqual(hubTopics(m), ["Coffee", "Mars", "Space", HUB_TOPIC_OTHER]);
 });
 
-test("migration wiring: store version 35 runs the backfill", () => {
+test("migration wiring: store version ≥35 runs the backfill", () => {
   const src = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
-  assert.match(src, /version: 35,/);
+  assert.match(src, /version: 36,/); // Card 242 bumped 35 → 36 (Google rows to calArchive)
   assert.match(src, /if \(version < 35\) \{[\s\S]*?backfillHubTopics\(normalizeFeedPrefs\(fp\), undefined, keep\)/);
 });

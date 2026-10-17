@@ -1,7 +1,7 @@
 "use client";
 
 import { groupBy } from "@/lib/group-by";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,26 +36,22 @@ import {
   uid,
   weekRangeLabel,
 } from "@/lib/format";
-import { EVENT_SWATCHES, mineCalId, visibleCalEvents } from "@/lib/google-cal";
 import { downloadICS } from "@/lib/ics";
 import { parseICSAsync } from "@/lib/parse-ics-async";
 import { expandEvents } from "@/lib/repeat";
-import { catFg, catsWithOrphans, eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
+import { catFg, catsWithOrphans, EVENT_SWATCHES, eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
 import { PAGE_SPAN_CAP, PHONE_SPAN_CAP, UNCAPPED_SPAN, layoutSpanRows, spanCellLabel, spanWhen } from "@/lib/span-layout";
 import { CalendarToolbar } from "@/components/calendar/calendar-toolbar";
-import { features } from "@/lib/features";
 import { MonthGrid, SpanButton } from "@/components/calendar/month-grid";
 import { DayAgenda } from "@/components/calendar/day-agenda";
-import { CalendarAccountsSheet, SyncBanner } from "@/components/calendar/calendar-accounts-sheet";
+import { AddIcalLinkDialog } from "@/components/calendar/calendar-sources";
 import { DEFAULT_SERIES_SCOPE, planSeriesDelete, planSeriesSave, repeatPhrase, type SeriesPlan, type SeriesScope } from "@/lib/calendar/series-edit";
 import { isNarrow } from "@/lib/desk";
 import { EMPTY_DAY } from "@/lib/cal-view";
-import { calendarColourOf } from "@/lib/calendar/source";
-import { deleteBlock, GUEST_HELPER, ownerUnknown, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "@/lib/calendar/move";
 import { usableFocus } from "@/components/ui/focus-return";
-import { addIcsSource, checkOwner, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, icsSourcesWithLegacy, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
-import { fmtTime } from "@/lib/format";
-import { catToken } from "@/lib/event-cats";
+import { addIcsSource, icsSourcesWithLegacy, isReadOnlyEvent, useCalAccounts } from "@/lib/calendar/accounts";
+import { visibleCalendarEvents } from "@/lib/calendar/visible";
+import { intentFromSearch, onCalIntent, openCalendarOptions, takeCalIntent } from "@/lib/calendar/intent";
 import { onQuickAdd, takeQuickAdd } from "@/lib/calendar/quick-add";
 import { useAtrium } from "@/lib/store";
 import type { CalMode, CalendarEvent } from "@/lib/types";
@@ -68,7 +64,6 @@ function shiftCursor(cursor: Date, mode: CalMode, dir: -1 | 1) {
 }
 
 function sourceLine(e: CalendarEvent) {
-  if (e.source === "google") return "Google";
   if (e.source === "ics") return "Read-only";
   return "Atrium";
 }
@@ -104,7 +99,7 @@ type RepeatChoice = "none" | "daily" | "weekly" | "monthly" | "yearly";
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
 
 export function CalendarView() {
-  const { events, eventCats, addEvent, updateEvent, removeEvent, calMode, calCursor, setCalMode, setCalCursor, gcalCals, gcalOff } = useAtrium(
+  const { events, eventCats, addEvent, updateEvent, removeEvent, calMode, calCursor, setCalMode, setCalCursor } = useAtrium(
     useShallow((s) => ({
       events: s.events,
       eventCats: s.eventCats,
@@ -115,31 +110,15 @@ export function CalendarView() {
       calCursor: s.calCursor,
       setCalMode: s.setCalMode,
       setCalCursor: s.setCalCursor,
-      gcalCals: s.gcalCals,
-      gcalOff: s.gcalOff,
     })),
   );
-  const { icsSources, canEdit, email, banner, pendingN, lastSync } = useCalAccounts(useShallow((s) => ({ icsSources: s.icsSources, canEdit: s.canEdit, email: s.email, banner: s.banner, pendingN: s.pending.length, lastSync: s.lastSync })));
-  const listed = useMemo(() => {
-    const hiddenIcs = hiddenIcsSources(icsSources);
-    const colours = new Map<string, string>();
-    for (const c of gcalCals) colours.set(c.id, catToken(calendarColourOf(c.id, c.colour)));
-    for (const src of icsSources) if (src.colour) colours.set(src.id, catToken(src.colour));
-    return visibleCalEvents(events, gcalOff, mineCalId(gcalCals))
-      .filter((e) => !(e.source === "ics" && hiddenIcs.has(e.srcId ?? "")))
-      .map((e) => {
-        const c = e.color ? undefined : colours.get((e.source === "google" ? e.calId : e.srcId) ?? "");
-        return c ? { ...e, color: c } : e;
-      });
-  }, [events, gcalOff, gcalCals, icsSources]);
-  const [accountsOpen, setAccountsOpen] = useState(false);
-  /** Card 235: "Add by address…" opens the Calendars sheet with the address field focused. */
-  const [focusAddress, setFocusAddress] = useState(false);
+  const icsSources = useCalAccounts((s) => s.icsSources);
+  const listed = useMemo(() => visibleCalendarEvents(events, icsSources), [events, icsSources]);
+  /** Card 241: "Add iCal link…" (⋯ on the page, the widget and Options). */
+  const [addLinkOpen, setAddLinkOpen] = useState(false);
+  const pickFile = useRef<HTMLInputElement | null>(null);
   const emptyFile = useRef<HTMLInputElement | null>(null);
-  /** Where a new event goes: "local" or a writable Google calendar id (Card 164 Q2: primary first). */
-  const [target, setTarget] = useState("local");
   const [viewOnly, setViewOnly] = useState<string | null>(null);
-  const writable = useMemo(() => writableGoogleCalendars(gcalCals, canEdit), [gcalCals, canEdit]);
   const [cursor, setCursor] = useState(() => {
     if (calCursor && !Number.isNaN(+new Date(calCursor))) return new Date(calCursor);
     return new Date();
@@ -149,8 +128,6 @@ export function CalendarView() {
   );
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  /** Card 174 K2: "Delete and tell {n} guests?" for events you organize that have guests. */
-  const [tellAsk, setTellAsk] = useState<null | { kind: "delete" } | { kind: "move"; payload: Partial<CalendarEvent> }>(null);
   const [removeId, setRemoveId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -166,52 +143,17 @@ export function CalendarView() {
   const [repeatCount, setRepeatCount] = useState("");
   const [reminder, setReminder] = useState("");
   const [color, setColor] = useState("");
-  const [guests, setGuests] = useState("");
-  const [meet, setMeet] = useState("");
   const [occurDay, setOccurDay] = useState<string | null>(null);
-  const [fromGoogle, setFromGoogle] = useState(false);
-  const moveSrc = editId ? events.find((x) => x.id === editId) : undefined;
-  const syncingNow = useCalAccounts((s) => s.syncing);
-  /** Card 176: no Google delete until we know who'd be told. */
-  const delBlock = moveSrc ? deleteBlock(moveSrc, lastSync) : null;
-  /** Card 181: unknown organiser → ask Google for this one event when it opens; blocked until known. */
-  const [ownerCheck, setOwnerCheck] = useState<"checking" | "failed" | null>(null);
-  const unknownOwner = Boolean(open && moveSrc && ownerUnknown(moveSrc));
-  /** Card 189 A1: describedby names the reason (+ the failure), never buttons or "Checking…" / "Syncing…". */
-  const delFailed = Boolean(moveSrc && ownerUnknown(moveSrc) && ownerCheck === "failed");
-  const delDescribedBy = delBlock ? (delFailed ? "ev-del-reason ev-del-fail" : "ev-del-reason") : undefined;
-  /** Card 189 A3: always-mounted live region; filled one tick after open so it is announced once. */
-  const [delLive, setDelLive] = useState("");
-  const delLiveText = open && editId && delBlock ? `${delBlock}${delFailed ? " Couldn't reach Google." : ""}` : "";
-  useEffect(() => {
-    setDelLive("");
-    if (!delLiveText) return;
-    const t = window.setTimeout(() => setDelLive(delLiveText), 0);
-    return () => window.clearTimeout(t);
-  }, [delLiveText]);
-  const runOwnerCheck = useCallback((id: string) => {
-    setOwnerCheck("checking");
-    void checkOwner(id).then((ok) => setOwnerCheck(ok ? null : "failed"));
-  }, []);
-  useEffect(() => {
-    if (unknownOwner && editId) runOwnerCheck(editId);
-    else setOwnerCheck(null);
-  }, [unknownOwner, editId, runOwnerCheck]);
   /** Clicked occurrence of a repeating event (its own start), for Card 168 (a). */
   const [occurStart, setOccurStart] = useState<string | null>(null);
-  /** Where the edited event lives now ("local" or a Google calendar id), for moves (d). */
-  const [sourceCal, setSourceCal] = useState("local");
-  /** Card 189 A2: the move reason when any target in the Calendar select is blocked. */
-  const moveTargets = editId && moveSrc ? [...writable.map((c) => c.id), "local"].filter((id) => id !== sourceCal) : [];
-  const calBlock = moveSrc ? (moveTargets.map((id) => moveBlock(moveSrc, id, writable.map((w) => w.id))).find(Boolean) ?? null) : null;
-  const [seriesAsk, setSeriesAsk] = useState<{ kind: "save" | "delete"; payload?: Partial<CalendarEvent>; step?: "guests" } | null>(null);
+  const [seriesAsk, setSeriesAsk] = useState<{ kind: "save" | "delete"; payload?: Partial<CalendarEvent> } | null>(null);
   const [seriesScope, setSeriesScope] = useState<SeriesScope>(DEFAULT_SERIES_SCOPE);
   /** Card 168 (e): phone day tap opens this day's agenda sheet. */
   const [daySheet, setDaySheet] = useState<string | null>(null);
   /** FORM-WCAG #13 / O5: restore focus to the control that opened the dialog. */
   const returnFocus = useRef<HTMLElement | null>(null);
   /** Form 173 §2: fields as they were when the dialog opened; a change makes Esc/×/Cancel ask first. */
-  const formNow = JSON.stringify([title, start, end, cat, loc, allDay, eventTz, repeat, repeatEvery, repeatUntil, repeatCount, reminder, color, target]);
+  const formNow = JSON.stringify([title, start, end, cat, loc, allDay, eventTz, repeat, repeatEvery, repeatUntil, repeatCount, reminder, color]);
   const formSnap = useRef<string | null>(null);
   const snapNext = useRef(false);
   const [askDiscard, setAskDiscard] = useState(false);
@@ -230,7 +172,6 @@ export function CalendarView() {
     }
     discardBack.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setConfirmDelete(false);
-    setTellAsk(null);
     setAskDiscard(true);
   }
   const shown = useMemo(() => {
@@ -266,9 +207,7 @@ export function CalendarView() {
     setDaySheet(null);
     setSeriesAsk(null);
     setOccurStart(null);
-    setSourceCal("local");
     setConfirmDelete(false);
-    setTellAsk(null);
     setEditId(null);
     setStart(toManilaInput(manilaAt(date, 9)));
     setEnd(toManilaInput(manilaAt(date, 10)));
@@ -283,12 +222,8 @@ export function CalendarView() {
     setRepeatCount("");
     setReminder("");
     setColor("");
-    setGuests("");
-    setMeet("");
     setOccurDay(null);
-    setFromGoogle(false);
     setViewOnly(null);
-    setTarget(defaultEventTarget(writable));
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     snapNext.current = true;
     setAskDiscard(false);
@@ -301,9 +236,7 @@ export function CalendarView() {
     setSeriesAsk(null);
     setSeriesScope(DEFAULT_SERIES_SCOPE);
     setOccurStart(ev.seriesId ? ev.start : null);
-    setSourceCal(master.source === "google" && master.calId ? master.calId : "local");
     setConfirmDelete(false);
-    setTellAsk(null);
     setEditId(master.id);
     setTitle(master.title);
     setStart(toManilaInput(master.start));
@@ -318,18 +251,8 @@ export function CalendarView() {
     setRepeatCount(master.repeatCount ? String(master.repeatCount) : "");
     setReminder(master.reminder ? String(master.reminder) : "");
     setColor(master.color ?? "");
-    setGuests(master.guests ?? "");
-    setMeet(master.meet ?? "");
     setOccurDay(ev.seriesId ? isoDate(new Date(ev.start)) : null);
-    setFromGoogle(master.source === "google");
-    setTarget(master.source === "google" && master.calId ? master.calId : "local");
-    setViewOnly(
-      isReadOnlyEvent(master, gcalCals, canEdit)
-        ? master.source === "ics"
-          ? (icsSources.find((x) => x.id === master.srcId)?.name ?? "this calendar")
-          : (gcalCals.find((c) => c.id === master.calId)?.label ?? "this calendar")
-        : null,
-    );
+    setViewOnly(isReadOnlyEvent(master) ? (icsSources.find((x) => x.id === master.srcId)?.name ?? "this calendar") : null);
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     snapNext.current = true;
     setAskDiscard(false);
@@ -337,20 +260,21 @@ export function CalendarView() {
   }
 
   useEffect(() => {
+    // Card 241: ⋯ rows elsewhere (widget, Options) and deep links (?import=1, ?addlink=1, old ?accounts=1).
     const q = new URLSearchParams(window.location.search);
-    if (q.get("accounts") === "1") {
-      // The Google popup lands here after sign-in: close it so the opener takes over (Google on only).
-      if (features.googleCalendar && window.opener && window.name === "atrium-google") {
-        window.close();
-        return;
-      }
-      setAccountsOpen(true);
-      q.delete("accounts");
+    const fromUrl = intentFromSearch(q);
+    if (fromUrl) {
+      for (const k of ["import", "addlink", "accounts"]) q.delete(k);
       window.history.replaceState(null, "", `${window.location.pathname}${q.size ? `?${q}` : ""}`);
+      if (fromUrl === "options") openCalendarOptions();
     }
-    void refreshStatus().then((st) => {
-      if (st.state === "connected") void syncNow();
-    });
+    const runIntent = (i: ReturnType<typeof takeCalIntent> | "options" | null) => {
+      if (i === "import") pickFile.current?.click();
+      else if (i === "addlink") setAddLinkOpen(true);
+    };
+    runIntent(fromUrl === "options" ? null : fromUrl);
+    runIntent(takeCalIntent());
+    const offIntent = onCalIntent(() => runIntent(takeCalIntent()));
     const takeAdd = () => {
       const at = takeQuickAdd();
       if (!at) return;
@@ -360,11 +284,9 @@ export function CalendarView() {
     };
     takeAdd();
     const offAdd = onQuickAdd(takeAdd);
-    const onOnline = () => void syncNow();
-    window.addEventListener("online", onOnline);
     return () => {
       offAdd();
-      window.removeEventListener("online", onOnline);
+      offIntent();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -378,61 +300,16 @@ export function CalendarView() {
     }
   }
 
-  function applyPlan(plan: SeriesPlan, notify: "all" | "none" = "none") {
+  function applyPlan(plan: SeriesPlan) {
     if (plan.update) updateEvent(plan.update.id, plan.update.patch);
     if (plan.remove) removeEvent(plan.remove);
     if (plan.add) addEvent(plan.add);
-    if (plan.google.length) void queueGoogleWrites(plan.google.map((g) => ({ ...g, notify })));
   }
-
-  /**
-   * Card 168 (d) + Card 174 K2: the Calendar select moves an event.
-   * Atrium only → Google: created there. Google → Atrium only: a local copy is kept, then it is
-   * removed from Google. Google A → Google B: events.move (same event; edits are saved first and
-   * the event stays on A until Google confirms). Nothing is deleted before the new copy exists.
-   */
-  function moveEvent(prev: CalendarEvent, payload: Partial<CalendarEvent>, to: string, notify: "all" | "none" = "none") {
-    if (prev.source === "google" && prev.calId && to !== "local") {
-      const next: CalendarEvent = { ...prev, ...payload };
-      updateEvent(prev.id, payload);
-      const writes: Parameters<typeof queueGoogleWrites>[0] = [];
-      if (Object.keys(payload).length) writes.push({ kind: "update", event: next });
-      writes.push({ kind: "move", event: next, moveTo: to, notify: "none" });
-      void queueGoogleWrites(writes);
-      return;
-    }
-    const base = { ...prev, ...payload, skip: prev.skip, remoteId: undefined, etag: undefined, seriesId: undefined, id: uid(), guestCount: undefined, organizerSelf: undefined, eventType: undefined, instanceOf: undefined };
-    if (to === "local") {
-      addEvent({ ...base, source: "local", calId: undefined });
-      removeEvent(prev.id);
-      if (prev.source === "google" && prev.calId) void queueGoogleWrites([{ kind: "delete", event: prev, notify }]);
-      return;
-    }
-    const ev: CalendarEvent = { ...base, source: "google", calId: to };
-    addEvent(ev);
-    removeEvent(prev.id);
-    void queueGoogleWrites([{ kind: "create", event: ev }]);
-  }
-
-  /** Remove locally, then from Google when the event lives there (Card 163 two-way). */
-  function deleteEvent(id: string, notify: "all" | "none" = "none") {
-    const ev = events.find((e) => e.id === id);
-    removeEvent(id);
-    if (ev?.source === "google" && !isReadOnlyEvent(ev, gcalCals, canEdit)) void queueGoogleWrites([{ kind: "delete", event: ev, notify }]);
-  }
-
-  const notice = useCalAccounts((s) => s.notice);
-  useEffect(() => {
-    if (!notice) return;
-    toast(notice);
-    clearNotice();
-  }, [notice]);
 
   function skipDate(id: string, day: string) {
     const master = events.find((x) => x.id === id);
     const skip = [...new Set([...(master?.skip ?? []), day])];
     updateEvent(id, { skip });
-    if (master?.source === "google") toast("Skipped here only. Google still shows this date.");
   }
 
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -474,14 +351,10 @@ export function CalendarView() {
         onToday={() => setCursor(new Date())}
         onImportFile={(f) => void importFile(f)}
         onExport={() => downloadICS(listed)}
-        onAccounts={() => (setFocusAddress(false), setAccountsOpen(true))}
-        onAddByAddress={() => (setFocusAddress(true), setAccountsOpen(true))}
+        onAddLink={() => setAddLinkOpen(true)}
+        onOptions={openCalendarOptions}
         onNew={() => openDay(isoDate(cursor))}
       />
-
-      {features.googleCalendar && email && (banner === "disconnected" || banner === "expired") ? (
-        <SyncBanner kind={banner} at={lastSync ? fmtTime(lastSync) : "—"} pending={pendingN} onRetry={() => void syncNow()} onSignIn={() => void connectGoogle({ loginHint: email }).catch((e: unknown) => toast(e instanceof Error ? e.message : "Couldn't start Google sign-in"))} onAllow={() => setAccountsOpen(true)} />
-      ) : null}
 
       {mode === "month" && (
         <MonthGrid cursor={cursor} rows={monthRows} phoneRows={phoneRows} outside={outside} cats={eventCats} onDay={tapDay} onShowDay={showDay} onEvent={openEvent} />
@@ -603,7 +476,7 @@ export function CalendarView() {
                     triggerId={`${k}-${e.id}`}
                     onCancel={() => setRemoveId(null)}
                     onConfirm={() => {
-                      deleteEvent(e.id);
+                      removeEvent(e.id);
                       setRemoveId(null);
                       toast("Event removed");
                     }}
@@ -619,7 +492,7 @@ export function CalendarView() {
                         {e.reminder ? ` · ${e.reminder}m before` : ""} · {eventCatLabel(eventCats, e.cat)} · {sourceLine(e)}
                       </div>
                     </button>
-                    {isReadOnlyEvent(e, gcalCals, canEdit) ? null : <Button
+                    {isReadOnlyEvent(e) ? null : <Button
                       variant="ghost"
                       size="sm"
                       className="h-11"
@@ -640,12 +513,12 @@ export function CalendarView() {
                 )}
               </div>
             ))
-          ) : !features.googleCalendar && !listed.length && !icsSourcesWithLegacy(events, icsSources).length ? (
-            // Card 235 (Form 234 §3): nothing at all yet → the primary path is importing a calendar.
+          ) : !listed.length && !icsSourcesWithLegacy(events, icsSources).length ? (
+            // Card 235/241: nothing at all yet → "No events" and one Import ICS… (the toolbar ⋯ has the rest).
             <div>
               <p className="text-sm text-muted-foreground">No events</p>
               <Button variant="outline" className="mt-2 h-11" onClick={() => emptyFile.current?.click()}>
-                Import calendar…
+                Import ICS…
               </Button>
               <input
                 ref={emptyFile}
@@ -659,13 +532,9 @@ export function CalendarView() {
                 }}
               />
             </div>
-          ) : !features.googleCalendar ? (
+          ) : (
             // Card 237 (Form 236 F1): calendars exist, nothing in range → just "No events".
             <p className="text-sm text-muted-foreground">No events</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No events yet. Use the command bar — “Lunch Friday 1pm” — or add one here.
-            </p>
           )}
         </div>
       )}
@@ -673,10 +542,10 @@ export function CalendarView() {
       <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : requestClose())}>
         <DialogContent
           onEscapeKeyDown={(e) => {
-            // Card 176 (a): Esc steps back from the guest step, then cancels the scope step.
+            // Card 176 (a): Esc cancels the scope step first.
             if (!seriesAsk) return;
             e.preventDefault();
-            setSeriesAsk(seriesAsk.step ? { ...seriesAsk, step: undefined } : null);
+            setSeriesAsk(null);
           }}
           onCloseAutoFocus={(e) => {
             const el = usableFocus(returnFocus.current);
@@ -691,30 +560,6 @@ export function CalendarView() {
           <div className="space-y-3">
             {viewOnly ? <p className="rounded-md bg-muted px-3 py-2 text-sm">View only. You can&apos;t edit events in {viewOnly}.</p> : null}
             <fieldset disabled={Boolean(viewOnly)} className="m-0 min-w-0 space-y-3 border-0 p-0">
-            {!viewOnly && (writable.length || (editId && fromGoogle)) ? (
-              <div className="space-y-1">
-                <Label htmlFor="ev-cal">Calendar</Label>
-                <select id="ev-cal" className={FIELD_SELECT} value={target} aria-describedby={[editId && target !== sourceCal ? "ev-cal-move" : "", calBlock ? "ev-cal-block" : ""].filter(Boolean).join(" ") || undefined} onChange={(e) => setTarget(e.target.value)}>
-                  {editId && fromGoogle && !writable.some((c) => c.id === sourceCal) ? <option value={sourceCal}>{gcalCals.find((c) => c.id === sourceCal)?.label ?? "Google"}</option> : null}
-                  {writable.map((c) => (
-                    <option key={c.id} value={c.id} disabled={Boolean(editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)))} aria-describedby={editId && moveSrc && c.id !== sourceCal && moveBlock(moveSrc, c.id, writable.map((w) => w.id)) ? "ev-cal-block" : undefined}>
-                      {c.primary ? (email ?? c.label) : c.label} · Google
-                    </option>
-                  ))}
-                  <option value="local" disabled={Boolean(editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)))} aria-describedby={editId && moveSrc && sourceCal !== "local" && moveBlock(moveSrc, "local", writable.map((w) => w.id)) ? "ev-cal-block" : undefined}>Atrium only</option>
-                </select>
-                {calBlock ? <p id="ev-cal-block" className="text-xs text-muted-foreground">{calBlock}</p> : null}
-                {editId && target !== sourceCal ? (
-                  <p id="ev-cal-move" className="text-xs text-muted-foreground">
-                    {target === "local"
-                      ? "Removes it from Google when you save; it stays in Atrium."
-                      : sourceCal === "local"
-                        ? "Moves from Atrium only to Google when you save. It will sync to your other devices."
-                        : "Moves to the other Google calendar when you save. It will sync to your other devices."}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
             <div className="space-y-1">
               <Label htmlFor="ev-title">Title</Label>
               <Input id="ev-title" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -905,33 +750,7 @@ export function CalendarView() {
               </div>
             </div>
             </fieldset>
-            {seriesAsk?.step === "guests" && moveSrc ? (
-              <div role="group" aria-labelledby="series-guests-q" className="space-y-2 rounded-md border border-border p-3">
-                <p id="series-guests-q" className="text-sm font-semibold">{seriesGuestQuestion(seriesScope, guestsToTell(moveSrc))}</p>
-                <p className="text-xs text-muted-foreground">{GUEST_HELPER}</p>
-                <div className="flex flex-wrap justify-end gap-2 pt-1">
-                  <Button variant="outline" onClick={() => setSeriesAsk({ ...seriesAsk, step: undefined })}>
-                    Back
-                  </Button>
-                  {(["none", "all"] as const).map((n) => (
-                    <Button
-                      key={n}
-                      variant={n === "all" ? "destructive" : "outline"}
-                      autoFocus={n === "all"}
-                      onClick={() => {
-                        if (!occurStart || !occurDay) return setSeriesAsk(null);
-                        applyPlan(planSeriesDelete(seriesScope, moveSrc, occurStart, occurDay), n);
-                        toast("Event removed");
-                        setSeriesAsk(null);
-                        setOpen(false);
-                      }}
-                    >
-                      {n === "all" ? "Send cancellation" : "Don't send"}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ) : seriesAsk ? (
+            {seriesAsk ? (
               <div role="radiogroup" aria-labelledby="series-q" className="space-y-2 rounded-md border border-border p-3">
                 <p id="series-q" className="text-sm font-semibold">{seriesAsk.kind === "delete" ? "Delete a repeating event" : "Change a repeating event"}</p>
                 <p className="text-xs text-muted-foreground">“{title.trim() || "Event"}” {repeatPhrase({ repeat: repeat === "none" ? undefined : repeat, repeatInterval: Number(repeatEvery) || 1, start: events.find((x) => x.id === editId)?.start ?? new Date().toISOString() })}. Which events should {seriesAsk.kind === "delete" ? "go" : "change"}?</p>
@@ -963,7 +782,6 @@ export function CalendarView() {
                     onClick={() => {
                       const master = events.find((x) => x.id === editId);
                       if (!master || !occurStart || !occurDay) return setSeriesAsk(null);
-                      if (seriesAsk.kind === "delete" && guestsToTell(master) > 0) return setSeriesAsk({ ...seriesAsk, step: "guests" });
                       if (seriesAsk.kind === "delete") applyPlan(planSeriesDelete(seriesScope, master, occurStart, occurDay));
                       else applyPlan(planSeriesSave(seriesScope, master, seriesAsk.payload ?? {}, occurStart, occurDay, uid));
                       toast(seriesAsk.kind === "delete" ? "Event removed" : "Event updated");
@@ -971,16 +789,10 @@ export function CalendarView() {
                       setOpen(false);
                     }}
                   >
-                    {seriesAsk.kind === "delete" ? (moveSrc && guestsToTell(moveSrc) > 0 ? "Next" : "Delete") : "Save changes"}
+                    {seriesAsk.kind === "delete" ? "Delete" : "Save changes"}
                   </Button>
                 </div>
               </div>
-            ) : null}
-            {guests ? <p className="text-xs text-muted-foreground">Guests: {guests}</p> : null}
-            {meet ? (
-              <a href={meet} target="_blank" rel="noopener noreferrer" className="text-sm underline">
-                Meet
-              </a>
             ) : null}
             {askDiscard ? (
               <ConfirmRow
@@ -997,37 +809,6 @@ export function CalendarView() {
                   setOpen(false);
                 }}
               />
-            ) : editId && tellAsk && moveSrc ? (
-              <div role="group" aria-labelledby="tell-guests-q" className="space-y-2 rounded-md border border-border p-3">
-                <p id="tell-guests-q" className="text-sm font-medium">{tellGuestsQuestion(guestsToTell(moveSrc))}</p>
-                <p className="text-xs text-muted-foreground">
-                  {tellAsk.kind === "move" ? "Moving it to Atrium only removes it from Google and from your guests' calendars." : "It leaves your calendar and your guests' calendars."}
-                </p>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" autoFocus onClick={() => setTellAsk(null)}>
-                    Cancel
-                  </Button>
-                  {(["none", "all"] as const).map((n) => (
-                    <Button
-                      key={n}
-                      variant={n === "all" ? "destructive" : "outline"}
-                      onClick={() => {
-                        if (tellAsk.kind === "move") {
-                          moveEvent(moveSrc, tellAsk.payload, "local", n);
-                          toast("Moved to Atrium only");
-                        } else {
-                          deleteEvent(editId, n);
-                          toast("Event removed");
-                        }
-                        setTellAsk(null);
-                        setOpen(false);
-                      }}
-                    >
-                      {n === "all" ? "Send cancellation" : "Don't send"}
-                    </Button>
-                  ))}
-                </div>
-              </div>
             ) : seriesAsk ? null : editId && confirmDelete ? (
               <ConfirmRow
                 subject={title.trim() || "this event"}
@@ -1036,7 +817,7 @@ export function CalendarView() {
                 triggerId="event-delete"
                 onCancel={() => setConfirmDelete(false)}
                 onConfirm={() => {
-                  deleteEvent(editId);
+                  removeEvent(editId);
                   setConfirmDelete(false);
                   setOpen(false);
                   toast("Event removed");
@@ -1048,11 +829,9 @@ export function CalendarView() {
                 {viewOnly ? "Close" : "Cancel"}
               </Button>
               {editId && !viewOnly ? (
-                <Button variant="outline" data-confirm-trigger="event-delete" aria-disabled={delBlock ? true : undefined} aria-describedby={delDescribedBy} className={delBlock ? "opacity-50" : undefined} onClick={() => {
-                  if (delBlock) return;
+                <Button variant="outline" data-confirm-trigger="event-delete" onClick={() => {
                   const cur = events.find((x) => x.id === editId);
                   if (occurStart && cur?.repeat) setSeriesAsk({ kind: "delete" });
-                  else if (cur && guestsToTell(cur)) setTellAsk({ kind: "delete" });
                   else setConfirmDelete(true);
                 }}>
                   Delete
@@ -1102,34 +881,13 @@ export function CalendarView() {
                   };
                   if (editId) {
                     const prev = events.find((x) => x.id === editId);
-                    if (prev && target !== sourceCal) {
-                      const block = moveBlock(prev, target, writable.map((w) => w.id));
-                      if (block) {
-                        toast(block);
-                        return;
-                      }
-                      if (target === "local" && guestsToTell(prev)) {
-                        setTellAsk({ kind: "move", payload });
-                        return;
-                      }
-                      moveEvent(prev, payload, target);
-                      toast(target === "local" ? "Moved to Atrium only" : "Moved to Google");
-                      setOpen(false);
-                      return;
-                    }
                     if (prev?.repeat && occurStart && occurDay) {
                       setSeriesScope(DEFAULT_SERIES_SCOPE);
                       setSeriesAsk({ kind: "save", payload });
                       return;
                     }
                     updateEvent(editId, payload);
-                    if (prev?.source === "google") void queueGoogleWrite("update", { ...prev, ...payload });
                     toast("Event updated");
-                  } else if (target !== "local") {
-                    const ev: CalendarEvent = { id: uid(), ...payload, source: "google", calId: target };
-                    addEvent(ev);
-                    void queueGoogleWrite("create", ev);
-                    toast("Event saved");
                   } else {
                     addEvent({ id: uid(), ...payload, source: "local" });
                     toast("Event saved");
@@ -1139,35 +897,9 @@ export function CalendarView() {
               >
                 Save
               </Button>}
-            {editId && !viewOnly && delBlock && !seriesAsk ? (
-              <p id="ev-del-block" className="flex basis-full flex-wrap items-center justify-end gap-x-2 text-right text-xs text-muted-foreground">
-                <span id="ev-del-reason">{delBlock}</span>
-                {moveSrc && ownerUnknown(moveSrc) ? (
-                  ownerCheck === "checking" ? (
-                    <span>Checking…</span>
-                  ) : (
-                    <>
-                      {ownerCheck === "failed" ? <span id="ev-del-fail">Couldn&apos;t reach Google.</span> : null}
-                      <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => editId && runOwnerCheck(editId)}>
-                        Check again
-                      </button>
-                    </>
-                  )
-                ) : syncingNow ? (
-                  <span>Syncing…</span>
-                ) : (
-                  <button type="button" className={cn("min-h-11 px-1 underline", FOCUS)} onClick={() => void syncNow()}>
-                    Sync now
-                  </button>
-                )}
-              </p>
-            ) : null}
             </div>
             )}
           </div>
-          <p id="ev-del-live" className="sr-only" aria-live="polite" aria-atomic="true">
-            {delLive}
-          </p>
         </DialogContent>
       </Dialog>
       <Sheet open={Boolean(daySheet)} onOpenChange={(o) => !o && setDaySheet(null)}>
@@ -1208,7 +940,20 @@ export function CalendarView() {
         </SheetContent>
       </Sheet>
       <EventCatManager open={catsOpen} onOpenChange={setCatsOpen} />
-      <CalendarAccountsSheet open={accountsOpen} onOpenChange={setAccountsOpen} focusAddress={focusAddress} />
+      <AddIcalLinkDialog open={addLinkOpen} onOpenChange={setAddLinkOpen} />
+      <input
+        ref={pickFile}
+        type="file"
+        accept=".ics,text/calendar"
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void importFile(f);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }

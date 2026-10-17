@@ -1,52 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CalendarApiError } from "./calendar/google-source.ts";
-import { isSessionReject, renewWithRetry, RENEW_BACKOFF_MS } from "./calendar/session-renew.ts";
 import { placeMenu } from "./native-menu.ts";
 import { NEWS_CATALOG, feedHeaders, starterFeedIds } from "./feeds.ts";
 
 const read = (f: string) => readFileSync(new URL(`../../${f}`, import.meta.url), "utf8");
-const noSleep = async () => {};
-
-test("C228 B2: only an explicit server reject signs the device out", async () => {
-  assert.ok(isSessionReject(new CalendarApiError(401, "disconnected")));
-  assert.ok(isSessionReject(new CalendarApiError(400, "invalid_grant")));
-  assert.ok(!isSessionReject(new CalendarApiError(0, "offline")));
-  assert.ok(!isSessionReject(new CalendarApiError(503, "http_503")));
-  const rejected = await renewWithRetry(() => Promise.reject(new CalendarApiError(401, "disconnected")), noSleep);
-  assert.equal(rejected.outcome, "rejected");
-});
-
-test("C228 B2: network / 5xx / 409 retry with backoff, then stay 'transient' (handle kept)", async () => {
-  for (const e of [new CalendarApiError(0, "offline"), new CalendarApiError(502, "http_502"), new CalendarApiError(409, "retry"), new TypeError("fetch failed")]) {
-    let n = 0;
-    const waits: number[] = [];
-    const r = await renewWithRetry(
-      () => {
-        n++;
-        return Promise.reject(e);
-      },
-      async (ms) => void waits.push(ms),
-    );
-    assert.equal(r.outcome, "transient");
-    assert.equal(n, RENEW_BACKOFF_MS.length + 1);
-    assert.deepEqual(waits, [...RENEW_BACKOFF_MS]);
-  }
-  let n = 0;
-  const ok = await renewWithRetry(() => (++n < 3 ? Promise.reject(new CalendarApiError(0, "offline")) : Promise.resolve({ access: "a", accessExp: 1 })), noSleep);
-  assert.equal(ok.outcome, "ok");
-  const acc = read("src/lib/calendar/accounts.ts");
-  assert.match(acc, /if \(r\.outcome === "rejected"\) await forgetDevice\(\);/);
-  assert.match(acc, /c\.native && !c\.session && lastRenew === "transient" \? \{ state: "unreachable"/, "no Bearer-less /status after a transient renew failure");
-});
-
-test("C228 B3: Google web sign-in lands on a real route", () => {
-  assert.match(read("src/lib/calendar/api.server.ts"), /location: `\$\{cfg\.origin\}\/\?view=calendar&accounts=1`/);
-  const app = read("src/components/atrium-app.tsx");
-  assert.match(app, /q\.get\("view"\)[\s\S]*setView\(toViewId\(v,/);
-  assert.match(app, /window\.name === "atrium-google"[\s\S]*window\.close\(\)/);
-});
 
 test("C228 B8/B12: Add note focuses the new note's title; swatches are named by colour", () => {
   const s = read("src/components/views/notes-view.tsx");
@@ -62,9 +20,10 @@ test("C228 P3 a11y: calendar rows, out-of-month contrast, finance name, ellipses
   assert.match(read("src/components/views/finance-markets.tsx"), /"Live, refresh prices"/);
   assert.match(read("src/components/spark.tsx"), /bg-ok\/10 text-ok/);
   const tb = read("src/components/calendar/calendar-toolbar.tsx");
-  // Card 235: labels now depend on features.googleCalendar; both forms keep the ellipsis.
-  assert.match(tb, /\{g \? "Import ICS…" : "Import calendar…"\}\s*<\/Button>/);
-  assert.match(tb, /\{g \? "Accounts…" : "Calendars…"\}\s*<\/Button>/);
+  // Card 242 (Form 241): the toolbar buttons moved into ⋯; the dialog-opening rows keep the ellipsis.
+  assert.match(tb, /label: "Import ICS…"/);
+  assert.match(tb, /label: "Add iCal link…"/);
+  assert.match(tb, /label: "Calendar options…"/);
 });
 
 test("C228 Android: cargo metadata JSON is read from stdout only; Desktop copy can be skipped", () => {

@@ -1,27 +1,18 @@
-# Atrium setup (Google Calendar sync)
+# Atrium setup
 
 Names only. Never put values in code, commits, chat or screenshots.
 
-## Feature flag: `VITE_GOOGLE_CALENDAR` (Card 235)
+## Calendar: iCal links and ICS files only (Card 242)
 
-Google Calendar sign-in and sync are **off by default**. With the flag off, Calendar is iCal-address
-and ICS-file only (toolbar **Import calendar… · Export · Calendars…**, the **Calendars** sheet, and
-Options › Calendar **Calendars / Import calendar**). No Google text renders, no `/api/calendar/*`
-request is made, and Google events already cached on a device are hidden, not deleted.
+Google Calendar was removed from the shipped app (web, exe and APK). Calendar is Atrium's own events
+plus read-only iCal links (secret addresses) and imported ICS files. The `VITE_GOOGLE_CALENDAR` flag
+(Card 235) is gone and is **no longer read**; setting it does nothing. The client never calls
+`/api/calendar/*`.
 
-| Name | Values | Default | Read by |
-|---|---|---|---|
-| `VITE_GOOGLE_CALENDAR` | `true` turns Google Calendar on; anything else (or unset) is off | off | `src/lib/features.ts` → `features.googleCalendar` (the only reader) |
-
-- It is a **build-time** flag, like `VITE_AUTH_ENABLED`: Vite bakes `import.meta.env.VITE_*` into the
-  bundle, so set it in the environment of `npm run build` / `npm run desktop:build` (or the Vercel
-  project's env for web builds) and rebuild. Changing it needs a new build, not a restart.
-- To try it locally without saving it anywhere: `VITE_GOOGLE_CALENDAR=true npm run dev` (PowerShell:
-  `$env:VITE_GOOGLE_CALENDAR="true"; npm run dev`).
-- Turning it on restores the Google flow below (Cards 164/168/176/182) exactly. The server variables
-  in the next section are still needed for sign-in to work.
-- Unit tests read it from `process.env`: `VITE_GOOGLE_CALENDAR=true npm run test:src` runs them with
-  Google on; `npm run e2e:calendar` exercises the Google server/client path directly either way.
+The full Google Calendar client is preserved on the `archive/google-calendar` branch at `2320a4e`.
+See [RESTORE-GOOGLE-CALENDAR.md](RESTORE-GOOGLE-CALENDAR.md). The server routes and the sections below
+(server environment, migrations, OAuth client, desktop session) are kept in the repo for that restore
+only; the shipped client does not use them.
 
 ## Server environment (Vercel project "atrium", or `.env.local` for `npm run dev`)
 
@@ -57,34 +48,11 @@ Rate limits key on `x-vercel-forwarded-for`, then `x-real-ip`. Vercel sets these
 - The refresh handle is claimed and rotated in Rust and never given to the WebView. On Windows it is sealed with DPAPI (current user) in the app's local data folder (`calendar-session.bin`).
 - The CSP has no `'unsafe-eval'`.
 
-## Calendar end-to-end check without Google (Card 177)
+## Calendar end-to-end check (Card 177)
 
-Runs the whole Google Calendar connection against a fake Google, with no network and no real keys:
-
-```
-npm install
-npm run e2e:calendar
-```
-
-What it proves, step by step (it stops at the first failure and exits 1):
-
-1. The app starts a sign-in hand-off (PKCE).
-2. The browser goes to `/api/calendar/connect?hid=…` and gets sent to Google's consent page (faked).
-3. The callback page shows the 6-character sign-in code and no Google tokens.
-4. A wrong code gets "That code doesn't match…"; the right code is claimed. The claim reply is printed with the handles redacted. The refresh handle goes into the sealed session file and the app's web view only gets the 1-hour access handle. Claiming again says the code was already used.
-5. Status, calendars and events load through the real app client.
-6. The guest prompts and the "Finish syncing before deleting…" block behave as the app shows them.
-7. Moving an event to another calendar uses Google's `events.move` (same event, guests and Meet kept, nobody emailed).
-8. "Send cancellation" sends `sendUpdates=all` on both the shorten-the-series PATCH and the DELETE.
-
-The real Windows sealed file (`calendar-session.bin`, DPAPI) is checked by the Rust tests:
-
-```
-cd src-tauri
-cargo test --lib
-```
-
-On Windows this runs the DPAPI seal/unseal round trip; on other systems the same tests run against the plain-file fallback.
+`npm run e2e:calendar` exercised the Google client and server together, so it left with the client
+(Card 242). It is on `archive/google-calendar` and comes back with a restore. The Rust session tests
+still run: `cd src-tauri && cargo test --lib`.
 
 ## Android builds on Windows (Card 197)
 

@@ -72,7 +72,6 @@ import { useAtrium } from "@/lib/store";
 import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { toViewId } from "@/lib/types";
-import { features } from "@/lib/features";
 import { rememberMainWindow } from "@/lib/native-session";
 import { captureDeskBoxes } from "@/lib/desk-capture";
 import { startRealmSync } from "@/lib/realm-wire";
@@ -394,13 +393,9 @@ export function AtriumApp() {
   useEffect(() => listenUnlockAll(() => useAtrium.getState().unlockAllWindows()), []);
   // Card 216 §6: a float's "Open in Atrium" lands on its feature with the heading focused.
   useEffect(() => listenOpenView((v) => (useAtrium.getState().setView(v), focusViewHeading())), []);
-  // Card 228 B3: Google web sign-in returns to `/?view=calendar&accounts=1` (the only route is "/").
+  // Card 228 B3: deep links land on `/?view=…` (the only route is "/").
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (features.googleCalendar && q.get("accounts") === "1" && window.opener && window.name === "atrium-google") {
-      window.close();
-      return;
-    }
     const v = q.get("view");
     if (!v) return;
     useAtrium.getState().setView(toViewId(v, useAtrium.getState().view));

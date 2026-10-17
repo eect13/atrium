@@ -21,7 +21,8 @@ test("C222 (3): Open in Atrium raises main via Rust: unminimize, show, AllowSetF
 test("C222 (4): calendar ⋯ label, ellipsis, create | go separator", () => {
   const s = read("src/components/calendar/calendar-toolbar.tsx");
   assert.match(s, /label="Calendar menu"/);
-  assert.match(s, /groupItems\(\{\s*create: \[\{ label: "Import ICS…"[\s\S]*go: \[\{ label: "Export"/);
+  // Card 242 (Form 241): Import ICS… · Add iCal link… · Export ICS │ Calendar options….
+  assert.match(s, /groupItems\(\{\s*create: \[\s*\{ label: "Import ICS…"[\s\S]*\{ label: "Add iCal link…"[\s\S]*\{ label: "Export ICS"[\s\S]*go: \[\{ label: "Calendar options…"/);
   assert.doesNotMatch(s, /Calendar actions/);
 });
 

@@ -16,7 +16,7 @@ import {
 } from "./books";
 import { arrangeNoteBox, isNarrow, normalizeWinBox, packNoteSeat, placeWindow, restoreBox, type DeskBox } from "./desk";
 import { deskZone, fromManila, isAllDayEvent, manilaParts, NOTE_COLORS, setDeskZone, staleTagline, uid } from "./format";
-import { isBirthdayCal, preferGoogleRules } from "./google-cal";
+import { splitArchived } from "./calendar/archive";
 import { normalizeSort, normalizeTab } from "./market-board";
 import type {
   Account,
@@ -33,7 +33,6 @@ import type {
   StickyNote,
   Tx,
   CalMode,
-  GCalDesk,
   ViewId,
   WatchItem,
   WidgetKind,
@@ -194,8 +193,8 @@ type Data = {
   boardFocus: string | null;
   calMode: CalMode;
   calCursor: string;
-  gcalCals: GCalDesk[];
-  gcalOff: string[];
+  /** Card 242: rows from the removed calendar integration, kept here and never shown (calendar/archive). */
+  calArchive: unknown[];
   digests: DigestDay[];
 };
 
@@ -215,8 +214,6 @@ type State = Data & {
   updateEventCat: (id: string, patch: Partial<EventCategory>) => void;
   removeEventCat: (id: string, remapTo?: string) => void;
   importEvents: (e: CalendarEvent[]) => number;
-  setGcalCals: (cals: GCalDesk[], off?: string[]) => void;
-  toggleGcal: (id: string) => void;
   addNote: (n: StickyNote) => void;
   updateNote: (id: string, patch: Partial<StickyNote>) => void;
   removeNote: (id: string) => void;
@@ -430,8 +427,7 @@ function blankDesk(): Data {
     boardFocus: null,
     calMode: "month",
     calCursor: "",
-    gcalCals: [],
-    gcalOff: [],
+    calArchive: [],
     digests: [],
   };
 }
@@ -553,74 +549,23 @@ export const useAtrium = create<State>()(
       importEvents: (incoming) => {
         let added = 0;
         set((s) => {
-          const events = preferGoogleRules(s.events, incoming).slice();
+          const events = s.events;
           const indexById = new Map(events.map((e, i) => [e.id, i]));
           const extra: typeof incoming = [];
-          let changed = false;
           const stampOf = (e: { start: string; title: string }) => `${e.start}|${e.title}`;
           for (const e of incoming) {
-            let idx = indexById.get(e.id);
-            if (idx == null && e.source === "google" && e.calId) {
-              const prefix = `g-${e.calId}-`;
-              if (e.id.startsWith(prefix)) idx = indexById.get(`g-${e.id.slice(prefix.length)}`);
-            }
-            if (idx == null && e.source === "google") {
-              idx = events.findIndex((x) => x.source === "google" && !x.calId && stampOf(x) === stampOf(e));
-              if (idx < 0) idx = undefined;
-            }
-            if (idx != null && e.source === "google") {
-              const prev = events[idx]!;
-              if (prev.id !== e.id) indexById.delete(prev.id);
-              events[idx] = {
-                ...prev,
-                id: e.id,
-                title: e.title,
-                start: e.start,
-                end: e.end,
-                loc: e.loc,
-                cat: e.cat,
-                allDay: e.allDay,
-                calId: e.calId ?? prev.calId,
-                source: "google",
-                repeat: e.repeat ?? prev.repeat,
-                repeatInterval: e.repeatInterval ?? prev.repeatInterval,
-                repeatUntil: e.repeatUntil ?? prev.repeatUntil,
-                repeatCount: e.repeatCount ?? prev.repeatCount,
-                skip: [...new Set([...(prev.skip ?? []), ...(e.skip ?? [])])],
-                color: prev.color ?? e.color,
-                reminder: prev.reminder ?? e.reminder,
-                guests: e.guests ?? prev.guests,
-                meet: e.meet ?? prev.meet,
-              };
-              indexById.set(e.id, idx);
-              changed = true;
-              continue;
-            }
+            const idx = indexById.get(e.id);
             if (idx != null) continue;
             const stamp = stampOf(e);
             if (events.some((x) => stampOf(x) === stamp) || extra.some((x) => stampOf(x) === stamp)) continue;
             extra.push(e);
             added += 1;
           }
-          if (!changed && !extra.length) return s;
-          return { events: extra.length ? [...events, ...extra] : events };
+          if (!extra.length) return s;
+          return { events: [...events, ...extra] };
         });
         return added;
       },
-      setGcalCals: (cals, off) =>
-        set((s) => {
-          if (off) return { gcalCals: cals, gcalOff: off };
-          const known = new Set(s.gcalCals.map((c) => c.id));
-          const still = s.gcalOff.filter((id) => cals.some((c) => c.id === id));
-          const fresh = (s.gcalCals.length ? cals.filter((c) => !known.has(c.id)) : cals)
-            .filter((c) => c.lane !== "mine" && !isBirthdayCal(c))
-            .map((c) => c.id);
-          return { gcalCals: cals, gcalOff: [...new Set([...still, ...fresh])] };
-        }),
-      toggleGcal: (id) =>
-        set((s) => ({
-          gcalOff: s.gcalOff.includes(id) ? s.gcalOff.filter((x) => x !== id) : [...s.gcalOff, id],
-        })),
       addNote: (n) => set((s) => ({ notes: [...s.notes, n] })),
       updateNote: (id, patch) =>
         set((s) => ({
@@ -1004,7 +949,7 @@ export const useAtrium = create<State>()(
     }),
     {
       name: "atrium.v1",
-      version: 35,
+      version: 36,
       storage: createJSONStorage(() => realmStorageWired({
         getItem: (key) => {
           if (typeof localStorage === "undefined") return null;
@@ -1247,14 +1192,7 @@ export const useAtrium = create<State>()(
         if (version < 31) {
           p = { ...p, digests: Array.isArray((p as { digests?: unknown }).digests) ? ((p as { digests: DigestDay[] }).digests ?? []).slice(0, 10) : [] };
         }
-        if (version < 32) {
-          const raw = p as { gcalCals?: unknown; gcalOff?: unknown };
-          p = {
-            ...p,
-            gcalCals: Array.isArray(raw.gcalCals) ? raw.gcalCals : [],
-            gcalOff: Array.isArray(raw.gcalOff) ? raw.gcalOff : [],
-          };
-        }
+        // v32 added calendar-integration lanes; v36 (Card 242) drops them again.
         if (version < 33) {
           p = { ...p, eventCats: normalizeEventCats((p as { eventCats?: unknown }).eventCats) };
         }
@@ -1279,6 +1217,13 @@ export const useAtrium = create<State>()(
           const fp = (p as { feedPrefs?: unknown }).feedPrefs;
           const keep = typeof localStorage !== "undefined" ? readHubTopicKeep(localStorage.getItem(HUB_TOPIC_KEEP_KEY)) : undefined;
           if (fp) p = { ...p, feedPrefs: backfillHubTopics(normalizeFeedPrefs(fp), undefined, keep) };
+        }
+        if (version < 36) {
+          // Card 242: the two-way calendar integration left the app. Its cached rows move to
+          // calArchive (kept, never shown, never deleted); its lane prefs go. Local and ICS stay.
+          const { gcalCals: _c, gcalOff: _o, ...rest } = p as Partial<Data> & { gcalCals?: unknown; gcalOff?: unknown };
+          const split = splitArchived(Array.isArray(rest.events) ? rest.events : [], Array.isArray(rest.calArchive) ? rest.calArchive : []);
+          p = { ...rest, events: split.events, calArchive: split.archive };
         }
         return p as Data;
       },
@@ -1318,8 +1263,7 @@ export const useAtrium = create<State>()(
         boardFocus: s.boardFocus,
         calMode: s.calMode,
         calCursor: s.calCursor,
-        gcalCals: s.gcalCals,
-        gcalOff: s.gcalOff,
+        calArchive: s.calArchive,
         digests: s.digests,
       }),
       merge: (persisted, current) => {
@@ -1346,8 +1290,7 @@ export const useAtrium = create<State>()(
           boardFocus: typeof p.boardFocus === "string" || p.boardFocus === null ? p.boardFocus : current.boardFocus,
           calMode: p.calMode === "week" || p.calMode === "day" || p.calMode === "agenda" || p.calMode === "month" ? p.calMode : (current as Data).calMode ?? "month",
           calCursor: typeof p.calCursor === "string" ? p.calCursor : (current as Data).calCursor ?? "",
-          gcalCals: Array.isArray(p.gcalCals) ? p.gcalCals : (current as Data).gcalCals ?? [],
-          gcalOff: Array.isArray(p.gcalOff) ? p.gcalOff : (current as Data).gcalOff ?? [],
+          calArchive: Array.isArray(p.calArchive) ? p.calArchive : (current as Data).calArchive ?? [],
           digests: Array.isArray(p.digests) ? p.digests.slice(0, 10) : (current as Data).digests ?? [],
           eventCats: normalizeEventCats(p.eventCats ?? (current as Data).eventCats),
           events: normalizeEvents(p.events, current.events),

@@ -6,6 +6,10 @@ import { useAtrium } from "./store";
 import type { WidgetKind } from "./types";
 import { useFloatsAllowed } from "./use-platform";
 import { WIDGET_OPTION_ROWS, hasWidgetOptions, widgetOpts } from "./widget-prefs";
+import { useCalAccounts } from "./calendar/accounts";
+import { openCalendarOptions, requestCalendar } from "./calendar/intent";
+import { visibleCalendarEvents } from "./calendar/visible";
+import { downloadICS } from "./ics";
 
 export const SHELL_TITLE = "min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground";
 /** Desk floats reveal chrome on hover/focus; touch (no hover) always shows it (§5.3, step 7). */
@@ -37,6 +41,10 @@ export const SHELL_ACTIONS: Record<MenuAction, () => void> = {
   },
   "float-all": () => useAtrium.getState().pinAllNotes(),
   "unfloat-all": () => useAtrium.getState().unpinAllNotes(),
+  "import-ics": () => requestCalendar("import"),
+  "add-ical": () => requestCalendar("addlink"),
+  "export-ics": () => downloadICS(visibleCalendarEvents(useAtrium.getState().events, useCalAccounts.getState().icsSources)),
+  "calendar-options": openCalendarOptions,
 };
 
 /** Group 2: the widget's own view switches (Seconds, Show cities…), shared by cards and floats. */
@@ -61,7 +69,7 @@ export function useCardMenu(id: DashCard, extra?: MenuGroups) {
   const view = useViewRows(id);
   const groups = mergeGroups(
     e.menu?.({ floats, manyOn, act: (a) => SHELL_ACTIONS[a] }),
-    { view, go: [{ label: `Open ${label}`, onSelect: () => setView(e.view) }, { label: `${label} options…`, onSelect: () => setView("options") }] },
+    { view, go: [{ label: `Open ${label}`, onSelect: () => setView(e.view) }, { label: `${label} options…`, onSelect: e.optionsAct ? SHELL_ACTIONS[e.optionsAct] : () => setView("options") }] },
     extra,
   );
   // Float row for the title bar (inline at md+, else ⋯ window group). Card 218 F3: floatMany (Notes)

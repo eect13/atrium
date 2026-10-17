@@ -141,14 +141,11 @@ test("Form 191: Other chip last and only with items; Saved Remove / + Add link; 
   assert.doesNotMatch(t, /this week" \|\| | this week<\/span>/);
 });
 
-test("Card 189 A1–A3: delete/move descriptions and the always-mounted live region", () => {
+// Card 242: Card 189's delete-block / move-block descriptions and their live region existed only for
+// Google events (organiser / pre-sync / calendar move). Google is removed from the client, so only the
+// "no aria-live block paragraph" guard remains meaningful.
+test("Card 189 A1–A3 (Card 242): no Google delete/move blocks; no live block paragraph", () => {
   const c = src("components/views/calendar-view.tsx");
-  assert.match(c, /delFailed \? "ev-del-reason ev-del-fail" : "ev-del-reason"/);
-  assert.match(c, /aria-describedby=\{delDescribedBy\}/);
-  assert.match(c, /<span id="ev-del-reason">\{delBlock\}<\/span>/);
-  assert.match(c, /<span id="ev-del-fail">Couldn&apos;t reach Google\.<\/span>/);
   assert.doesNotMatch(c, /id="ev-del-block" aria-live/);
-  assert.match(c, /<p id="ev-del-live" className="sr-only" aria-live="polite" aria-atomic="true">/);
-  assert.match(c, /"ev-cal-move" : "", calBlock \? "ev-cal-block" : ""/);
-  assert.match(c, /\{calBlock \? <p id="ev-cal-block"/);
+  assert.doesNotMatch(c, /delBlock|calBlock|ev-cal-move/);
 });

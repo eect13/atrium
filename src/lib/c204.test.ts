@@ -7,7 +7,6 @@ import { createJSONStorage, persist, type StateStorage } from "zustand/middlewar
 import { applyRealmPatch, realmRole, realmStorage, topLevelDiff, type Patch } from "./realm-sync.ts";
 import { normalizeDashPrefs, widgetLook, WIDGET_DEFAULTS, WIDGET_OPTION_ROWS } from "./widget-prefs.ts";
 import { cardAlpha, snapBox } from "./desk-snap.ts";
-import { googleStatusRow } from "./calendar/google-status.ts";
 
 const root = new URL("../../", import.meta.url).pathname;
 const read = (p: string) => readFileSync(join(root, p), "utf8");
@@ -155,19 +154,6 @@ test("C204 snap + opacity", () => {
   assert.deepEqual(snapBox({ x: 37, y: 11, w: 1, h: 1 }, area, "off"), { x: 37, y: 11 });
   assert.equal(cardAlpha(86), "color-mix(in srgb, var(--color-card) 86%, transparent)");
   assert.equal(cardAlpha(100), "var(--color-card)");
-});
-
-test("C204 Google status row + widget is Reconnect-only", () => {
-  const f = () => "14:02";
-  assert.equal(googleStatusRow({ email: "e@x", canEdit: true, banner: null, lastSync: "x" }, f).sub, "Connected · can edit · synced 14:02");
-  assert.equal(googleStatusRow({ email: "e@x", canEdit: false, banner: null, lastSync: null }, f).sub, "Can view only");
-  assert.equal(googleStatusRow({ email: "e@x", canEdit: true, banner: "expired", lastSync: null }, f).sub, "Sign-in expired");
-  assert.equal(googleStatusRow({ email: null, canEdit: false, banner: null, lastSync: null }, f).sub, "Not connected");
-  const tiles = read("src/components/calendar-tiles.tsx");
-  assert.doesNotMatch(tiles, /synced/);
-  assert.match(tiles, /Google sign-in expired · as of/);
-  assert.match(tiles, /@\[240px\]:block/);
-  assert.match(tiles, /@\[520px\]:block/);
 });
 
 test("C204 no time bars: DayBand and the free/busy strip are gone; clock ladder + analog", () => {

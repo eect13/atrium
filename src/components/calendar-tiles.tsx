@@ -7,52 +7,20 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { connectGoogle, useCalAccounts } from "@/lib/calendar/accounts";
 import { eventCatTagStyle } from "@/lib/event-cats";
 import { addDays, eventCoversDay, fmtTime, isAllDayEvent, isoDate, manilaAt, manilaParts, monthCells, monthName } from "@/lib/format";
-import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
-import { features } from "@/lib/features";
 import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
 import { widgetLook, widgetOpts } from "@/lib/widget-prefs";
 import { countdownLabel, minutesUntil, upNext } from "@/lib/calendar/day-summary";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 const AGENDA_MAX = 5;
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** Reconnect line state: only expired/disconnected speak; offline and the last-sync time stay quiet. */
-function reconnectLine(banner: string | null | undefined, at: string) {
-  if (banner === "expired") return `Google sign-in expired · as of ${at}`;
-  if (banner === "disconnected") return `Google disconnected · as of ${at}`;
-  return null;
-}
-
-export function GoogleReconnectLine() {
-  const { banner, lastSync, email } = useCalAccounts(useShallow((s) => ({ banner: s.banner, lastSync: s.lastSync, email: s.email })));
-  const text = reconnectLine(banner, lastSync ? fmtTime(lastSync) : "—");
-  // Card 235: Google Calendar off in this build → no reconnect line.
-  if (!text || !features.googleCalendar) return null;
-  return (
-    <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" role="status">
-      <span aria-hidden className="size-1.5 rounded-full bg-destructive" />
-      <span>{text} ·</span>
-      <button
-        type="button"
-        data-no-drag
-        className="inline-flex min-h-11 items-center text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => void connectGoogle({ loginHint: email ?? undefined }).catch(() => toast("Couldn't start Google sign-in"))}
-      >
-        Reconnect
-      </button>
-    </p>
-  );
-}
-
 export function CalendarTiles() {
-  const stored = useAtrium(useShallow((s) => visibleCalEvents(s.events, s.gcalOff, mineCalId(s.gcalCals))));
+  const stored = useAtrium((s) => s.events);
   const cats = useAtrium((s) => s.eventCats);
   const compact = useAtrium((s) => widgetLook(s.dashPrefs).compact);
   const opts = useAtrium(useShallow((s) => widgetOpts(s.dashPrefs, "calendar")));
@@ -144,7 +112,6 @@ export function CalendarTiles() {
           </div>
         </div>
       </div>
-      <GoogleReconnectLine />
       {opts.helper ? (
         <button type="button" data-no-drag className="mt-1 inline-flex min-h-11 items-center rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => useAtrium.getState().setView("calendar")}>
           Full calendar

@@ -20,7 +20,7 @@ export function landingFeedPane(rawView: unknown): FeedPane | undefined {
 export type CalMode = "month" | "week" | "day" | "agenda";
 /** Category id — defaults plus user-managed (see event-cats). */
 export type EventCat = string;
-export type EventSource = "local" | "ics" | "google";
+export type EventSource = "local" | "ics";
 export type WidgetKind = "weather" | "agenda" | "calendar" | "quote" | "finance" | "news" | "clock";
 export type WatchKind = "crypto" | "fx" | "stock" | "global" | "cmdty";
 
@@ -111,12 +111,6 @@ export type CalendarEvent = {
   loc: string;
   source: EventSource;
   allDay?: boolean;
-  /** Google calendar id when source is google — used to hide Family / other. */
-  calId?: string;
-  /** Google event id (the series master for a rule). Card 165 two-way sync. */
-  remoteId?: string;
-  /** Google etag, sent as If-Match so a stale write never overwrites a newer copy. */
-  etag?: string;
   /** Which "Other calendars" source (ICS file / iCal URL) an ics event came from. */
   srcId?: string;
   /** Stored rule. Occurrences are painted for the visible range, not saved. */
@@ -133,25 +127,6 @@ export type CalendarEvent = {
   reminder?: number;
   /** Optional chip color. Category color is used when this is empty. */
   color?: string;
-  /** Display only. Google is not written back. */
-  guests?: string;
-  /** Card 174 K2 (Google): guests other than you, whether you organize it, its eventType when not "default", and the series it is a changed instance of. */
-  guestCount?: number;
-  organizerSelf?: boolean;
-  eventType?: string;
-  instanceOf?: string;
-  meet?: string;
-};
-
-export type GCalDesk = {
-  id: string;
-  label: string;
-  lane: "mine" | "family" | "other";
-  /** Google accessRole; owner/writer are two-way, the rest view-only (Card 164). */
-  accessRole?: string;
-  primary?: boolean;
-  /** Atrium-only colour (CAT_PALETTE id); never written to Google. */
-  colour?: string;
 };
 
 export type NoteStroke = { color: string; w: number; pts: number[] };
