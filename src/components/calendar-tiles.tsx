@@ -11,6 +11,7 @@ import { connectGoogle, useCalAccounts } from "@/lib/calendar/accounts";
 import { eventCatTagStyle } from "@/lib/event-cats";
 import { addDays, eventCoversDay, fmtTime, isAllDayEvent, isoDate, manilaAt, manilaParts, monthCells, monthName } from "@/lib/format";
 import { mineCalId, visibleCalEvents } from "@/lib/google-cal";
+import { features } from "@/lib/features";
 import { expandEvents } from "@/lib/repeat";
 import { useAtrium } from "@/lib/store";
 import { widgetLook, widgetOpts } from "@/lib/widget-prefs";
@@ -32,7 +33,8 @@ function reconnectLine(banner: string | null | undefined, at: string) {
 export function GoogleReconnectLine() {
   const { banner, lastSync, email } = useCalAccounts(useShallow((s) => ({ banner: s.banner, lastSync: s.lastSync, email: s.email })));
   const text = reconnectLine(banner, lastSync ? fmtTime(lastSync) : "—");
-  if (!text) return null;
+  // Card 235: Google Calendar off in this build → no reconnect line.
+  if (!text || !features.googleCalendar) return null;
   return (
     <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" role="status">
       <span aria-hidden className="size-1.5 rounded-full bg-destructive" />

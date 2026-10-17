@@ -74,6 +74,7 @@ test("a Google birthday is one yearly master, and the exclusive end stays on tha
   }
 });
 
+// Card 235: Google behaviour = flag on; pass it explicitly so this holds in a default (flag-off) run too.
 test("visibleCalEvents treats untagged Google rows as Mine", () => {
   const events = [
     { id: "1", source: "local" as const, calId: undefined },
@@ -82,11 +83,11 @@ test("visibleCalEvents treats untagged Google rows as Mine", () => {
     { id: "4", source: "google" as const },
   ];
   assert.deepEqual(
-    visibleCalEvents(events, ["family"], "mine").map((e) => e.id),
+    visibleCalEvents(events, ["family"], "mine", true).map((e) => e.id),
     ["1", "2", "4"],
   );
   assert.deepEqual(
-    visibleCalEvents(events, ["mine"], "mine").map((e) => e.id),
+    visibleCalEvents(events, ["mine"], "mine", true).map((e) => e.id),
     ["1", "3"],
   );
 });

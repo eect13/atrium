@@ -1,3 +1,4 @@
+import { features } from "./features.ts";
 import { fromManila, inclusiveAllDayEnd, manilaAt, manilaParts } from "./format.ts";
 import { parseRrule } from "./repeat.ts";
 import type { CalendarEvent, GCalDesk } from "./types.ts";
@@ -98,7 +99,10 @@ export function visibleCalEvents<T extends { source: string; calId?: string }>(
   events: T[],
   off: string[],
   mineId?: string,
+  google = features.googleCalendar,
 ): T[] {
+  // Card 235: Google Calendar off in this build → cached Google rows are hidden, not deleted.
+  if (!google) events = events.filter((e) => e.source !== "google");
   if (!off.length) return events;
   const hide = new Set(off);
   return events.filter((e) => {

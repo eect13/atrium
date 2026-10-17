@@ -2,6 +2,27 @@
 
 Names only. Never put values in code, commits, chat or screenshots.
 
+## Feature flag: `VITE_GOOGLE_CALENDAR` (Card 235)
+
+Google Calendar sign-in and sync are **off by default**. With the flag off, Calendar is iCal-address
+and ICS-file only (toolbar **Import calendar… · Export · Calendars…**, the **Calendars** sheet, and
+Options › Calendar **Calendars / Import calendar**). No Google text renders, no `/api/calendar/*`
+request is made, and Google events already cached on a device are hidden, not deleted.
+
+| Name | Values | Default | Read by |
+|---|---|---|---|
+| `VITE_GOOGLE_CALENDAR` | `true` turns Google Calendar on; anything else (or unset) is off | off | `src/lib/features.ts` → `features.googleCalendar` (the only reader) |
+
+- It is a **build-time** flag, like `VITE_AUTH_ENABLED`: Vite bakes `import.meta.env.VITE_*` into the
+  bundle, so set it in the environment of `npm run build` / `npm run desktop:build` (or the Vercel
+  project's env for web builds) and rebuild. Changing it needs a new build, not a restart.
+- To try it locally without saving it anywhere: `VITE_GOOGLE_CALENDAR=true npm run dev` (PowerShell:
+  `$env:VITE_GOOGLE_CALENDAR="true"; npm run dev`).
+- Turning it on restores the Google flow below (Cards 164/168/176/182) exactly. The server variables
+  in the next section are still needed for sign-in to work.
+- Unit tests read it from `process.env`: `VITE_GOOGLE_CALENDAR=true npm run test:src` runs them with
+  Google on; `npm run e2e:calendar` exercises the Google server/client path directly either way.
+
 ## Server environment (Vercel project "atrium", or `.env.local` for `npm run dev`)
 
 | Name | Required | What it is |

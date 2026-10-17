@@ -38,6 +38,8 @@ import {
 } from "@/lib/calendar/accounts";
 import type { GCalDesk } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { features } from "@/lib/features";
+import { importCalendarFile } from "@/lib/calendar/ics-import";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
 
@@ -45,10 +47,10 @@ function Spinner({ className }: { className?: string }) {
   return <span aria-hidden className={cn("inline-block size-4 animate-spin rounded-full border-2 border-[var(--color-input)] border-t-foreground", className)} />;
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+function Section({ title, hint, srTitle, children }: { title: string; hint?: string; srTitle?: boolean; children: ReactNode }) {
   return (
     <section className="border-t border-border py-4 first:border-t-0 first:pt-0">
-      <h3 className="text-sm font-semibold">{title}</h3>
+      <h3 className={srTitle ? "sr-only" : "text-sm font-semibold"}>{title}</h3>
       {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
       <div className="mt-3">{children}</div>
     </section>
@@ -305,8 +307,11 @@ function googleMeta(c: GCalDesk, canEdit: boolean) {
 }
 
 
-export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function CalendarAccountsSheet({ open, onOpenChange, focusAddress = false }: { open: boolean; onOpenChange: (open: boolean) => void; focusAddress?: boolean }) {
   const acc = useCalAccounts();
+  // Card 235 (Form 234): Google off → this is the "Calendars" sheet (iCal addresses + ICS files only).
+  const g = features.googleCalendar;
+  const address = useRef<HTMLInputElement | null>(null);
   const { gcalCals, gcalOff, events } = useAtrium(useShallow((s) => ({ gcalCals: s.gcalCals, gcalOff: s.gcalOff, events: s.events })));
   const [confirm, setConfirm] = useState<string | null>(null);
   const [url, setUrl] = useState("");
@@ -367,15 +372,7 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
     }
   }
 
-  async function importFile(f: File) {
-    try {
-      const evs = await parseICSAsync(await f.text());
-      const n = addIcsSource({ kind: "ics", name: f.name, importedAt: new Date().toISOString(), shown: true }, evs);
-      toast(n ? `Imported ${n} event${n === 1 ? "" : "s"}` : "Already up to date");
-    } catch {
-      toast("Could not read that calendar file");
-    }
-  }
+  const importFile = importCalendarFile;
 
   async function refresh(s: IcsSourceMeta) {
     if (!s.url) return;
@@ -395,11 +392,21 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full p-0 sm:w-[520px]" aria-describedby={undefined}>
+      <SheetContent
+        side="right"
+        className="w-full p-0 sm:w-[520px]"
+        aria-describedby={undefined}
+        onOpenAutoFocus={(e) => {
+          if (!focusAddress) return;
+          e.preventDefault();
+          address.current?.focus();
+        }}
+      >
         <div className="flex h-16 items-center border-b border-border px-5 pr-14">
-          <SheetTitle className="text-[18px] font-semibold">Calendar accounts</SheetTitle>
+          <SheetTitle className="text-[18px] font-semibold">{g ? "Calendar accounts" : "Calendars"}</SheetTitle>
         </div>
         <div className="px-5 py-4">
+          {g ? (
           <Section title="Google">
             {banner ? <SyncBanner kind={banner} at={at} pending={acc.pending.length} onRetry={() => void syncNow()} onSignIn={() => void signIn(acc.email ?? undefined)} onAllow={() => void signIn(acc.email ?? undefined)} /> : null}
             {connected && acc.handoff ? <div className="mb-3"><HandoffCode /></div> : null}
@@ -473,7 +480,8 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
               </div>
             )}
           </Section>
-          {connected && gcalCals.length ? (
+          ) : null}
+          {g && connected && gcalCals.length ? (
             <Section title="Google calendars" hint="Shown calendars appear in Calendar and the widget.">
               <ul>
                 {gcalCals.map((c) => {
@@ -494,7 +502,7 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
               </ul>
             </Section>
           ) : null}
-          <Section title="Other calendars" hint="Read-only. Edit these where they come from.">
+          <Section title={g ? "Other calendars" : "Calendars"} hint={g ? "Read-only. Edit these where they come from." : undefined} srTitle={!g}>
             {sources.length ? (
               <ul>
                 {sources.map((s) =>
@@ -544,13 +552,13 @@ export function CalendarAccountsSheet({ open, onOpenChange }: { open: boolean; o
             ) : null}
             <h4 className="mt-3 text-xs font-medium text-muted-foreground">Add a calendar by address</h4>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <Input className="h-11" type="password" autoComplete="off" spellCheck={false} placeholder="Paste a private secret address (.ics)" aria-label="Private secret address" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void subscribe()} />
+              <Input ref={address} className="h-11" type="password" autoComplete="off" spellCheck={false} placeholder="Paste a private secret address (.ics)" aria-label="Private secret address" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void subscribe()} />
               <div className="flex gap-2">
                 <Button variant="secondary" className="h-11 flex-1" disabled={busy === "subscribe"} onClick={() => void subscribe()}>
                   Subscribe
                 </Button>
                 <Button variant="outline" className="h-11 flex-1" onClick={() => file.current?.click()}>
-                  Import ICS
+                  {g ? "Import ICS" : "Import calendar…"}
                 </Button>
               </div>
               <input

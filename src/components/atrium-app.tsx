@@ -72,6 +72,7 @@ import { useAtrium } from "@/lib/store";
 import { tabSortPatch } from "@/lib/market-board";
 import type { Feed, ModuleId, NewsItem, ViewId } from "@/lib/types";
 import { toViewId } from "@/lib/types";
+import { features } from "@/lib/features";
 import { rememberMainWindow } from "@/lib/native-session";
 import { captureDeskBoxes } from "@/lib/desk-capture";
 import { startRealmSync } from "@/lib/realm-wire";
@@ -396,7 +397,7 @@ export function AtriumApp() {
   // Card 228 B3: Google web sign-in returns to `/?view=calendar&accounts=1` (the only route is "/").
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (q.get("accounts") === "1" && window.opener && window.name === "atrium-google") {
+    if (features.googleCalendar && q.get("accounts") === "1" && window.opener && window.name === "atrium-google") {
       window.close();
       return;
     }

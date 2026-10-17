@@ -62,8 +62,9 @@ test("C228 P3 a11y: calendar rows, out-of-month contrast, finance name, ellipses
   assert.match(read("src/components/views/finance-markets.tsx"), /"Live, refresh prices"/);
   assert.match(read("src/components/spark.tsx"), /bg-ok\/10 text-ok/);
   const tb = read("src/components/calendar/calendar-toolbar.tsx");
-  assert.match(tb, /Import ICS…\s*<\/Button>/);
-  assert.match(tb, /Accounts…\s*<\/Button>/);
+  // Card 235: labels now depend on features.googleCalendar; both forms keep the ellipsis.
+  assert.match(tb, /\{g \? "Import ICS…" : "Import calendar…"\}\s*<\/Button>/);
+  assert.match(tb, /\{g \? "Accounts…" : "Calendars…"\}\s*<\/Button>/);
 });
 
 test("C228 Android: cargo metadata JSON is read from stdout only; Desktop copy can be skipped", () => {

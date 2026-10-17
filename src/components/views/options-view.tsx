@@ -2,7 +2,10 @@
 
 import { useFloatsAllowed } from "@/lib/use-platform";
 import { CalendarAccountsSheet } from "@/components/calendar/calendar-accounts-sheet";
-import { setNewEventsTo, syncNow, useCalAccounts } from "@/lib/calendar/accounts";
+import { importCalendarFile } from "@/lib/calendar/ics-import";
+import { calendarsSummary } from "@/lib/calendar/calendars-summary";
+import { icsSourcesWithLegacy, setNewEventsTo, syncNow, useCalAccounts } from "@/lib/calendar/accounts";
+import { features } from "@/lib/features";
 import { googleStatusRow } from "@/lib/calendar/google-status";
 import { ClockOptionsCard, WidgetsOptionsCard } from "@/components/options-widgets";
 import { APP_LABEL } from "@/lib/version";
@@ -72,8 +75,71 @@ const JUMP = [
 ];
 
 
+/** Options › Calendar with Google Calendar off (Card 235): Calendars + Import calendar rows only. */
+function CalendarsOptionsCard() {
+  const [open, setOpen] = useState(false);
+  const file = useRef<HTMLInputElement | null>(null);
+  const events = useAtrium((s) => s.events);
+  const icsSources = useCalAccounts((s) => s.icsSources);
+  const sources = icsSourcesWithLegacy(events, icsSources);
+  const none = !sources.length;
+  const pick = () => file.current?.click();
+  return (
+    <Card id="opt-calendar" className="scroll-mt-4">
+      <CardHeader>
+        <CardTitle data-focus-home="" tabIndex={-1}>Calendar</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <input
+          ref={file}
+          type="file"
+          accept=".ics,text/calendar"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void importCalendarFile(f);
+            e.target.value = "";
+          }}
+        />
+        <div className="flex min-h-11 items-center justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Calendars</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">{calendarsSummary(sources, fmtTime)}</span>
+          </span>
+          {none ? (
+            <Button className="h-11" onClick={pick}>
+              Import calendar…
+            </Button>
+          ) : (
+            <Button variant="outline" className="h-11" onClick={() => setOpen(true)}>
+              Manage
+            </Button>
+          )}
+        </div>
+        {none ? null : (
+          <div className="flex min-h-11 items-center justify-between gap-4">
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">Import calendar</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">.ics file</span>
+            </span>
+            <Button variant="outline" className="h-11" onClick={pick}>
+              Import calendar…
+            </Button>
+          </div>
+        )}
+        <CalendarAccountsSheet open={open} onOpenChange={setOpen} />
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Options › Calendar › Calendar accounts (Card 164): opens the same sheet as the Calendar toolbar. */
 function CalendarOptionsCard() {
+  if (!features.googleCalendar) return <CalendarsOptionsCard />;
+  return <GoogleCalendarOptionsCard />;
+}
+
+function GoogleCalendarOptionsCard() {
   const [open, setOpen] = useState(false);
   const newEventsTo = useCalAccounts((s) => s.newEventsTo);
   const email = useCalAccounts((s) => s.email);
@@ -834,11 +900,15 @@ export function OptionsView() {
           <CardTitle>Calendar & data</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>
-            Atrium stays on this device. Add calendars by importing an .ics file or pasting a private secret
-            address (.ics) under Calendar › Accounts. Works with Fantastical, Outlook, Apple, and other apps that speak iCal.
-            Connected calendar accounts can also sync when signed in on this session.
-          </p>
+          {features.googleCalendar ? (
+            <p>
+              Atrium stays on this device. Add calendars by importing an .ics file or pasting a private secret
+              address (.ics) under Calendar › Accounts. Works with Fantastical, Outlook, Apple, and other apps that speak iCal.
+              Connected calendar accounts can also sync when signed in on this session.
+            </p>
+          ) : (
+            <p>Atrium stays on this device. Add calendars by importing an .ics file or pasting a private secret address under Calendar › Calendars.</p>
+          )}
           <p>
             Cash books keep their own JSON on the Cash tab. Profile backup above saves the whole desk.
           </p>

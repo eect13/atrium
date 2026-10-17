@@ -43,6 +43,7 @@ import { expandEvents } from "@/lib/repeat";
 import { catFg, catsWithOrphans, eventCatLabel, eventCatTagStyle } from "@/lib/event-cats";
 import { PAGE_SPAN_CAP, PHONE_SPAN_CAP, UNCAPPED_SPAN, layoutSpanRows, spanCellLabel, spanWhen } from "@/lib/span-layout";
 import { CalendarToolbar } from "@/components/calendar/calendar-toolbar";
+import { features } from "@/lib/features";
 import { MonthGrid, SpanButton } from "@/components/calendar/month-grid";
 import { DayAgenda } from "@/components/calendar/day-agenda";
 import { CalendarAccountsSheet, SyncBanner } from "@/components/calendar/calendar-accounts-sheet";
@@ -52,7 +53,7 @@ import { EMPTY_DAY } from "@/lib/cal-view";
 import { calendarColourOf } from "@/lib/calendar/source";
 import { deleteBlock, GUEST_HELPER, ownerUnknown, guestsToTell, moveBlock, seriesGuestQuestion, tellGuestsQuestion } from "@/lib/calendar/move";
 import { usableFocus } from "@/components/ui/focus-return";
-import { addIcsSource, checkOwner, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
+import { addIcsSource, checkOwner, clearNotice, connectGoogle, defaultEventTarget, hiddenIcsSources, icsSourcesWithLegacy, isReadOnlyEvent, queueGoogleWrite, queueGoogleWrites, refreshStatus, syncNow, useCalAccounts, writableGoogleCalendars } from "@/lib/calendar/accounts";
 import { fmtTime } from "@/lib/format";
 import { catToken } from "@/lib/event-cats";
 import { onQuickAdd, takeQuickAdd } from "@/lib/calendar/quick-add";
@@ -132,6 +133,9 @@ export function CalendarView() {
       });
   }, [events, gcalOff, gcalCals, icsSources]);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  /** Card 235: "Add by address…" opens the Calendars sheet with the address field focused. */
+  const [focusAddress, setFocusAddress] = useState(false);
+  const emptyFile = useRef<HTMLInputElement | null>(null);
   /** Where a new event goes: "local" or a writable Google calendar id (Card 164 Q2: primary first). */
   const [target, setTarget] = useState("local");
   const [viewOnly, setViewOnly] = useState<string | null>(null);
@@ -335,8 +339,8 @@ export function CalendarView() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("accounts") === "1") {
-      // The Google popup lands here after sign-in: close it so the opener takes over.
-      if (window.opener && window.name === "atrium-google") {
+      // The Google popup lands here after sign-in: close it so the opener takes over (Google on only).
+      if (features.googleCalendar && window.opener && window.name === "atrium-google") {
         window.close();
         return;
       }
@@ -470,11 +474,12 @@ export function CalendarView() {
         onToday={() => setCursor(new Date())}
         onImportFile={(f) => void importFile(f)}
         onExport={() => downloadICS(listed)}
-        onAccounts={() => setAccountsOpen(true)}
+        onAccounts={() => (setFocusAddress(false), setAccountsOpen(true))}
+        onAddByAddress={() => (setFocusAddress(true), setAccountsOpen(true))}
         onNew={() => openDay(isoDate(cursor))}
       />
 
-      {email && (banner === "disconnected" || banner === "expired") ? (
+      {features.googleCalendar && email && (banner === "disconnected" || banner === "expired") ? (
         <SyncBanner kind={banner} at={lastSync ? fmtTime(lastSync) : "—"} pending={pendingN} onRetry={() => void syncNow()} onSignIn={() => void connectGoogle({ loginHint: email }).catch((e: unknown) => toast(e instanceof Error ? e.message : "Couldn't start Google sign-in"))} onAllow={() => setAccountsOpen(true)} />
       ) : null}
 
@@ -635,6 +640,25 @@ export function CalendarView() {
                 )}
               </div>
             ))
+          ) : !features.googleCalendar && !listed.length && !icsSourcesWithLegacy(events, icsSources).length ? (
+            // Card 235 (Form 234 §3): nothing at all yet → the primary path is importing a calendar.
+            <div>
+              <p className="text-sm text-muted-foreground">No events</p>
+              <Button variant="outline" className="mt-2 h-11" onClick={() => emptyFile.current?.click()}>
+                Import calendar…
+              </Button>
+              <input
+                ref={emptyFile}
+                type="file"
+                accept=".ics,text/calendar"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void importFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">
               No events yet. Use the command bar — “Lunch Friday 1pm” — or add one here.
@@ -1181,7 +1205,7 @@ export function CalendarView() {
         </SheetContent>
       </Sheet>
       <EventCatManager open={catsOpen} onOpenChange={setCatsOpen} />
-      <CalendarAccountsSheet open={accountsOpen} onOpenChange={setAccountsOpen} />
+      <CalendarAccountsSheet open={accountsOpen} onOpenChange={setAccountsOpen} focusAddress={focusAddress} />
     </div>
   );
 }

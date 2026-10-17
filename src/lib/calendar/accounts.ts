@@ -8,6 +8,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { isTauri, openExternal } from "../http.ts";
+import { features } from "../features.ts";
 import { uid } from "../format.ts";
 import { useAtrium } from "../store.ts";
 import type { CalendarEvent, GCalDesk } from "../types.ts";
@@ -129,7 +130,9 @@ async function client(): Promise<ApiClient> {
 const source = async () => new GoogleSource(await client());
 const online = () => (typeof navigator === "undefined" ? true : navigator.onLine !== false);
 
-export async function refreshStatus() {
+export async function refreshStatus(): Promise<ConnStatus> {
+  // Card 235: Google Calendar is off in this build. No /status request; the stored account is untouched.
+  if (!features.googleCalendar) return { state: "disconnected" };
   const c = await client();
   // Card 228 B2: no access handle because renewing failed for a transient reason. Asking /status
   // without a Bearer would read "disconnected" and wipe a still-valid session: report unreachable.
@@ -288,6 +291,7 @@ let syncing: Promise<void> | null = null;
 
 /** Flush queued writes, refresh the calendar list, pull every shown calendar. */
 export function syncNow(): Promise<void> {
+  if (!features.googleCalendar) return Promise.resolve();
   if (syncing) return syncing;
   syncing = (async () => {
     set({ syncing: true });
@@ -397,6 +401,7 @@ export function setNewEventsTo(v: "google" | "local") {
 
 /** Default target for a new event: Google main calendar when writable, else Atrium only. */
 export function defaultEventTarget(writable: GCalDesk[], pref = get().newEventsTo) {
+  if (!features.googleCalendar) return "local";
   return pref === "google" ? (writable[0]?.id ?? "local") : "local";
 }
 
