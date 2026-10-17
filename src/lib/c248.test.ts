@@ -51,3 +51,19 @@ test("C248 A1: ELF fallback counts defined Java_*/JNI_OnLoad only; 0 for a lib w
   assert.equal(elfDynamicSymbols(empty)!.filter(isJniExport).length, 0);
   assert.equal(elfDynamicSymbols(Buffer.from("not an elf, just text padding to 64 bytes ........................")), null);
 });
+
+test("C248 addendum: no Google Calendar server — route, server modules, env reads, migrations wiring", async () => {
+  const { existsSync, readdirSync } = await import("node:fs");
+  const at = (f: string) => new URL(`../../${f}`, import.meta.url);
+  assert.ok(!existsSync(at("src/routes/api/calendar")), "no /api/calendar route");
+  for (const m of ["api", "config", "crypto", "oauth", "store", "google-api"]) assert.ok(!existsSync(at(`src/lib/calendar/${m}.server.ts`)), m);
+  assert.doesNotMatch(read("src/routeTree.gen.ts"), /api\/calendar/);
+  assert.deepEqual(readdirSync(at("migrations")).filter((f) => f.endsWith(".sql")), [], "no top-level app migrations");
+  assert.deepEqual(readdirSync(at("docs/archive/google-calendar/migrations")).sort(), ["0002_calendar_connections.sql", "0003_calendar_sessions.sql", "0004_calendar_claim_limit.sql"]);
+  assert.doesNotMatch(read("package.json"), /calendar-server\.test/);
+  const walk = (d: string): string[] => readdirSync(at(d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : /\.(ts|tsx|mjs)$/.test(e.name) && !/\.test\./.test(e.name) ? [`${d}/${e.name}`] : []));
+  for (const f of walk("src")) {
+    const s = read(f);
+    assert.doesNotMatch(s, /GOOGLE_CLIENT_(ID|SECRET)|CALENDAR_TOKEN_ENC_KEY|CALENDAR_PUBLIC_ORIGIN|VITE_CALENDAR_API_ORIGIN|VITE_GOOGLE_CALENDAR|oauth2\.googleapis|accounts\.google/, f);
+  }
+});

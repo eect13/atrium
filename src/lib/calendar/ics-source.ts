@@ -44,7 +44,7 @@ export const LEGACY_ICS = "ics-earlier";
 
 /**
  * Card 168: a saved iCal address can be a Google "secret address" — treat it like a password.
- * Shown as `calendar.google.com/calendar/ical/••••••••/basic.ics`: host and plain words stay,
+ * Shown as `<host>/calendar/ical/••••••••/basic.ics`: host and plain words stay,
  * any id-like or private segment (and the whole query) collapses to one mask.
  */
 export function maskIcsUrl(raw: string) {

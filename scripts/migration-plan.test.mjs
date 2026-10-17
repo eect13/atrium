@@ -58,7 +58,7 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
 
 test("the auth schema ships outside the globbed directory", () => {
   const migrationsDir = join(projectRoot(), "migrations");
-  // App migrations (e.g. 0002_calendar_connections.sql) may sit at the top
+  // App migrations (e.g. 0002_todos.sql) may sit at the top
   // level; what matters is that nothing under auth/ is picked up by the glob.
   const authFiles = readdirSync(join(migrationsDir, "auth"));
   assert.ok(authFiles.includes("0001_auth.sql"));

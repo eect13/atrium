@@ -2,46 +2,28 @@
 
 Names only. Never put values in code, commits, chat or screenshots.
 
-## Calendar: iCal links and ICS files only (Card 242)
+## Calendar: iCal links and ICS files only (Cards 242, 248)
 
-Google Calendar was removed from the shipped app (web, exe and APK). Calendar is Atrium's own events
-plus read-only iCal links (secret addresses) and imported ICS files. The `VITE_GOOGLE_CALENDAR` flag
-(Card 235) is gone and is **no longer read**; setting it does nothing. The client never calls
-`/api/calendar/*`.
+Google Calendar was removed from the shipped app (web, exe and APK) in Card 242 and from the web
+server in Card 248. Calendar is Atrium's own events plus read-only iCal links (secret addresses) and
+imported ICS files. There is no `/api/calendar` route, no Google OAuth, and no calendar env read
+anywhere: `VITE_GOOGLE_CALENDAR`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CALENDAR_TOKEN_ENC_KEY`,
+`CALENDAR_PUBLIC_ORIGIN` and `VITE_CALENDAR_API_ORIGIN` do nothing if set.
 
-The full Google Calendar client is preserved on the `archive/google-calendar` branch at `2320a4e`.
-See [RESTORE-GOOGLE-CALENDAR.md](RESTORE-GOOGLE-CALENDAR.md). The server routes and the sections below
-(server environment, migrations, OAuth client, desktop session) are kept in the repo for that restore
-only; the shipped client does not use them.
+The full Google Calendar client and server are on the `archive/google-calendar` branch at `2320a4e`.
+[RESTORE-GOOGLE-CALENDAR.md](RESTORE-GOOGLE-CALENDAR.md) lists the env names, migrations, OAuth client
+settings and steps.
 
 ## Server environment (Vercel project "atrium", or `.env.local` for `npm run dev`)
 
 | Name | Required | What it is |
 |---|---|---|
-| `GOOGLE_CLIENT_ID` | yes | OAuth client ID (Google Cloud › APIs & Services › Credentials, type "Web application") |
-| `GOOGLE_CLIENT_SECRET` | yes | That client's secret. Server only. |
-| `CALENDAR_TOKEN_ENC_KEY` | yes | 32 random bytes (base64, base64url or hex). Seals Google refresh tokens at rest (AES-256-GCM). |
-| `DATABASE_URL` | yes | Postgres connection string (Neon). |
-| `CALENDAR_PUBLIC_ORIGIN` | yes | The public https origin, no path. Production: `https://atrium-swart-seven.vercel.app`. `http://localhost:8080` only in development. No fallback: when unset or wrong, sign-in is off (fails closed). |
-| `VITE_CALENDAR_API_ORIGIN` | no | Build-time: where the desktop/Android app reaches the calendar API. Defaults to the production origin. Read by both the Vite build and the Rust build. |
+| `DATABASE_URL` | no | Postgres connection string (Neon), used by `src/lib/db.ts` / auth and `npm run db:migrate`. Unset → PGLite fallback. |
 
-`/api/calendar/status` lists any missing names (never values) when the server isn't configured.
-
-## Database migrations (run in order, once per database)
-
-1. `migrations/0002_calendar_connections.sql`
-2. `migrations/0003_calendar_sessions.sql` (sessions + desktop hand-off)
-3. `migrations/0004_calendar_claim_limit.sql` (per-IP limit on wrong hand-off codes; Card 174)
-
-## Google Cloud OAuth client
-
-- Authorised redirect URI: `{CALENDAR_PUBLIC_ORIGIN}/api/calendar/oauth/callback`, for example `https://atrium-swart-seven.vercel.app/api/calendar/oauth/callback`. Add `http://localhost:8080/api/calendar/oauth/callback` for local development.
-- Scopes Atrium asks for: `openid`, `email`, Calendar events (`calendar.events`), calendar list (read-only).
-- OAuth consent screen › Publishing status: set **In production** before people outside the test-user list sign in (Scout 169). Calendar scopes are sensitive, so Google may ask for verification.
-
-## Client IP and rate limits
-
-Rate limits key on `x-vercel-forwarded-for`, then `x-real-ip`. Vercel sets these at its edge and overwrites client `X-Forwarded-For` (https://vercel.com/docs/headers/request-headers). The leftmost `X-Forwarded-For` is used only off Vercel. If a CDN is ever put in front of Vercel, all users will share the CDN's IP. Revisit then.
+`migrations/` has no top-level app migrations now (only the opt-in `migrations/auth/`), so
+`npm run db:migrate` reports "nothing to do". The calendar SQL moved to
+`docs/archive/google-calendar/migrations/` (not applied, not globbed). The calendar tables already in
+the database were **not** dropped.
 
 ## Desktop (Tauri)
 
@@ -51,8 +33,8 @@ Rate limits key on `x-vercel-forwarded-for`, then `x-real-ip`. Vercel sets these
 ## Calendar end-to-end check (Card 177)
 
 `npm run e2e:calendar` exercised the Google client and server together, so it left with the client
-(Card 242). It is on `archive/google-calendar` and comes back with a restore. The Rust session tests
-Rust tests: `cd src-tauri && cargo test --lib`.
+(Card 242). It is on `archive/google-calendar` and comes back with a restore. Rust tests:
+`cd src-tauri && cargo test --lib`.
 
 ## Android builds on Windows (Card 197)
 

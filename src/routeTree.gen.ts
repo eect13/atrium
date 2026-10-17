@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiPseRouteImport } from './routes/api/pse'
-import { Route as ApiCalendarSplatRouteImport } from './routes/api/calendar/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -23,40 +22,31 @@ const ApiPseRoute = ApiPseRouteImport.update({
   path: '/api/pse',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCalendarSplatRoute = ApiCalendarSplatRouteImport.update({
-  id: '/api/calendar/$',
-  path: '/api/calendar/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/pse': typeof ApiPseRoute
-  '/api/calendar/$': typeof ApiCalendarSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/pse': typeof ApiPseRoute
-  '/api/calendar/$': typeof ApiCalendarSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/pse': typeof ApiPseRoute
-  '/api/calendar/$': typeof ApiCalendarSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/pse' | '/api/calendar/$'
+  fullPaths: '/' | '/api/pse'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/pse' | '/api/calendar/$'
-  id: '__root__' | '/' | '/api/pse' | '/api/calendar/$'
+  to: '/' | '/api/pse'
+  id: '__root__' | '/' | '/api/pse'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiPseRoute: typeof ApiPseRoute
-  ApiCalendarSplatRoute: typeof ApiCalendarSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -75,20 +65,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPseRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/calendar/$': {
-      id: '/api/calendar/$'
-      path: '/api/calendar/$'
-      fullPath: '/api/calendar/$'
-      preLoaderRoute: typeof ApiCalendarSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiPseRoute: ApiPseRoute,
-  ApiCalendarSplatRoute: ApiCalendarSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
