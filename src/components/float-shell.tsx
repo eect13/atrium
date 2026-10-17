@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AppWindow, Layers, Lock, Pin, SquareDashed, X } from "lucide-react";
+import { Layers, Lock } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useNoteFloatTools } from "@/components/note-float-tools";
 import { NoteInk } from "@/components/note-ink";
@@ -130,17 +130,12 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
     else updateWindow(id, { onTop: next });
   }
 
-  const row = (Icon: typeof Lock, label: string) => (
-    <span className="flex items-center gap-2">
-      <Icon className="size-4 opacity-70" aria-hidden />
-      {label}
-    </span>
-  );
   // Card 216b: window flags are title-bar actions (inline at ≥420 on hover, else first in ⋯ window group).
   const flagAction = (id: string, Icon: typeof Lock, label: string, on: boolean, onSelect: () => void) => ({
     id,
     group: "flags" as const,
-    row: { label: row(Icon, label), checked: on, onSelect },
+    // Card 230 (Form 229 S2): ⋯ rows are text-only, like every other ⋯ menu and the desktop popup.
+    row: { label, checked: on, onSelect },
     node: (
       <button
         type="button"
@@ -169,9 +164,9 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
           actions={[noteTools.colorAction]}
           menuLabel="Note menu"
           groups={{
-            window: [{ label: row(Pin, "Keep on top"), checked: pinnedTop, onSelect: togglePin }],
-            go: [{ label: row(AppWindow, "Back to board"), onSelect: () => void dismiss(() => unpinNote(note.id)) }, goHome("notes")],
-            close: [{ label: row(X, "Close"), onSelect: () => void dismiss(() => unpinNote(note.id)) }],
+            window: [{ label: "Keep on top", checked: pinnedTop, onSelect: togglePin }],
+            go: [{ label: "Back to board", onSelect: () => void dismiss(() => unpinNote(note.id)) }, goHome("notes")],
+            close: [{ label: "Close", onSelect: () => void dismiss(() => unpinNote(note.id)) }],
             danger: [noteTools.deleteRow],
           }}
         />
@@ -227,11 +222,11 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
           groups={{
             view: viewRows,
             window: [
-              { label: row(SquareDashed, "Frame"), checked: Boolean(win.frame), onSelect: () => flip("frame") },
-              { label: row(Pin, "Keep on top"), checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
+              { label: "Frame", checked: Boolean(win.frame), onSelect: () => flip("frame") },
+              { label: "Keep on top", checked: pinnedTop && !win.behind, onSelect: () => flip("onTop") },
             ],
             go: [goHome(FLOAT_VIEW[win.kind])],
-            close: [{ label: row(X, "Close"), onSelect: () => void dismiss(() => closeWindow(win.id)) }],
+            close: [{ label: "Close", onSelect: () => void dismiss(() => closeWindow(win.id)) }],
           }}
         />
         <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">

@@ -522,8 +522,13 @@ export function WeatherBoard() {
 }
 
 const CREDIT_LINK = "underline underline-offset-2 hover:text-foreground";
-/** Card 228 (Scout 226 1b): CC BY 4.0 credit with link for the forecast; OSM (ODbL) for place names. */
+/** Card 228 (Scout 226 1b) / Card 230 (Form 229 N3): credit only the source that served; OSM (ODbL) for place names. */
 export function WeatherCredits({ source }: { source?: WeatherPayload["source"] }) {
+  const cc = (
+    <a className={CREDIT_LINK} href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+      CC BY 4.0
+    </a>
+  );
   return (
     <p className="mt-4 text-xs text-muted-foreground" data-weather-credits="">
       {source === "met" ? (
@@ -532,29 +537,21 @@ export function WeatherCredits({ source }: { source?: WeatherPayload["source"] }
           <a className={CREDIT_LINK} href="https://api.met.no/" target="_blank" rel="noreferrer">
             MET Norway
           </a>{" "}
-          (
-          <a className={CREDIT_LINK} href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
-            CC BY 4.0
-          </a>
-          ).
+          ({cc})
         </>
       ) : (
         <>
           <a className={CREDIT_LINK} href="https://open-meteo.com/" target="_blank" rel="noreferrer">
             Weather data by Open-Meteo.com
           </a>{" "}
-          (
-          <a className={CREDIT_LINK} href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
-            CC BY 4.0
-          </a>
-          ), fallback MET Norway.
+          ({cc})
         </>
-      )}{" "}
-      US AQI. Places:{" "}
+      )}
+      {" · Places "}
       <a className={CREDIT_LINK} href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
         © OpenStreetMap contributors
-      </a>{" "}
-      (ODbL). Stays on this device.
+      </a>
+      {" (ODbL) · Stays on this device"}
     </p>
   );
 }

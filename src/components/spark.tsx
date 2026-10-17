@@ -73,7 +73,7 @@ export function ChangePill({ value }: { value?: number }) {
     <span
       className={cn(
         "inline-flex h-9 min-w-14 items-center justify-center rounded-md px-1.5 font-mono text-xs tabular-nums sm:min-w-16 sm:px-2",
-        up ? "bg-ok/10 text-ok" : "bg-destructive/20 text-destructive",
+        up ? "bg-ok/10 text-ok" : "bg-destructive/10 text-destructive",
       )}
     >
       {chgPct(value)}

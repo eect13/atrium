@@ -7,6 +7,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MenuPanel } from "@/components/ui/overflow-menu";
+import { cn } from "@/lib/utils";
 import { focusFirstRow, menuKeys } from "@/lib/menu-keys";
 import { MENU_EV, placeMenu, type MenuOpen, type WireRow } from "@/lib/native-menu";
 
@@ -95,7 +96,8 @@ export function MenuWindow() {
         ref={panel}
         label={m.label}
         onKeyDown={(e) => menuKeys(e, panel.current, () => void close(true), () => void close(false))}
-        className={m.menuClassName}
+        // Card 230 (Form 229 S1): the 8px transparent margin would clip --shadow-float; use the 1px ring token.
+        className={cn("shadow-[var(--shadow-border)]", m.menuClassName)}
         items={m.items}
         onPick={(i) => {
           const it = m.items[i];
