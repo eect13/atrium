@@ -87,9 +87,11 @@ Card 248 did not touch the Vercel env or the Neon database; any of these still s
 1. `git checkout -b restore-gcal archive/google-calendar` (or cherry-pick from it onto the current line).
 2. Re-apply later calendar work on top. A restored client should move `calArchive` rows back into
    `events` (source `"google"`) in a new store migration, and re-add `VITE_GOOGLE_CALENDAR`.
-3. Server: restore `src/routes/api/calendar/$.ts` and `src/lib/calendar/*.server.ts` (+ `calendar-server.test.ts`
-   back into `test:src`) from `2320a4e`, e.g. `git checkout 2320a4e -- 'src/routes/api/calendar/$.ts' src/lib/calendar/`
-   then drop any client file the current line no longer wants; the router plugin regenerates `routeTree.gen.ts`.
+3. Server: restore only the archived server files from `2320a4e` (this leaves the newer client
+   calendar files alone):
+   `git checkout 2320a4e -- 'src/routes/api/calendar/$.ts' src/lib/calendar/api.server.ts src/lib/calendar/config.server.ts src/lib/calendar/crypto.server.ts src/lib/calendar/oauth.server.ts src/lib/calendar/store.server.ts src/lib/calendar/google-api.server.ts src/lib/calendar/calendar-server.test.ts`
+   then add `src/lib/calendar/calendar-server.test.ts` back to `test:src`; the router plugin regenerates
+   `routeTree.gen.ts` on the next build.
 4. Migrations: `git mv docs/archive/google-calendar/migrations/*.sql migrations/`.
 5. Rust: restore the `cal_session_*` commands, sealers, the `jni` dep and the windows-sys
    `Win32_Security_Cryptography` feature from `2320a4e` (keep `#[cfg_attr(mobile, tauri::mobile_entry_point)]`).

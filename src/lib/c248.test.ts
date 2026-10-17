@@ -16,9 +16,9 @@ test("C248 A1: #[cfg_attr(mobile, tauri::mobile_entry_point)] sits directly abov
 test("C248 A1: Windows fallback checks JNI exports of every ABI before copying", () => {
   const s = read("scripts/pack-android.mjs");
   assert.match(s, /import \{ jniExports \} from "\.\/so-exports\.mjs";/);
-  assert.match(s, /function copySoToJniLibs\(ndk\) \{\n  assertJniExports\(ANDROID_TARGETS\.map\(soRelease\)/);
+  assert.match(s, /function copySoToJniLibs\(ndk\) \{\n {2}assertJniExports\(ANDROID_TARGETS\.map\(soRelease\)/);
   assert.match(s, /if \(count === 0\) bad\.push\(so\);/);
-  assert.match(s, /if \(bad\.length\) \{\n    fail\(/, "fail() exits 1");
+  assert.match(s, /if \(bad\.length\) \{\n {4}fail\(/, "fail() exits 1");
   assert.match(s, /copySoToJniLibs\(env\.NDK_HOME \|\| env\.ANDROID_NDK_HOME\);/);
   assert.match(s, /process\.argv\.indexOf\("--check-so"\)/);
 });

@@ -71,7 +71,9 @@ const soRelease = (t) => join(cargoTargetDir(), t.triple, "release", LIB_SO);
 const jniDir = (t) => join(GEN, "app", "src", "main", "jniLibs", t.abi);
 const ASSETS = join(GEN, "app", "src", "main", "assets");
 const APK_DIR = join(GEN, "app", "build", "outputs", "apk", "universal", "release");
+// Card 250 (Critic 249 P3): only a signed APK is called "-release.apk".
 const APK_NAME = "atrium-universal-release.apk";
+const APK_NAME_UNSIGNED = "atrium-universal-release-unsigned.apk";
 
 function fail(msg, extra) {
   console.error(`\n✗ ${msg}`);
@@ -870,6 +872,27 @@ function signApkIfNeeded(sdk, env) {
   return signed;
 }
 
+/** v2/v3 APK Signing Block, or a v1 META-INF signature entry. Read from the APK itself. */
+function apkIsSigned(apk) {
+  try {
+    const b = readFileSync(apk);
+    return b.includes("APK Sig Block 42") || /META-INF\/[^/\0]+\.(RSA|DSA|EC)/.test(b.toString("latin1"));
+  } catch {
+    return false;
+  }
+}
+
+/** Does gen's app/build.gradle.kts give the release build type a signingConfig? */
+function gradleReleaseSigning() {
+  try {
+    const g = readFileSync(join(GEN, "app", "build.gradle.kts"), "utf8");
+    const rel = g.match(/getByName\("release"\)\s*\{[\s\S]*?\n {8}\}/);
+    return Boolean(rel && /signingConfig\s*=/.test(rel[0]));
+  } catch {
+    return false;
+  }
+}
+
 function copyApksToDeploy(sdk, env, preferSigned) {
   mkdirSync(OUT, { recursive: true });
   const found = walkApk(join(GEN, "app", "build", "outputs"));
@@ -884,13 +907,17 @@ function copyApksToDeploy(sdk, env, preferSigned) {
   }
 
   // Always refresh friendly name + versioned name from package.json
-  const friendly = join(OUT, APK_NAME);
+  if (preferSigned && existsSync(preferSigned)) primary = preferSigned;
+  const signed = Boolean(primary && apkIsSigned(primary));
+  const via = !signed ? "none" : gradleReleaseSigning() ? "Gradle release signingConfig" : "debug.keystore";
+  console.log(`  Signature: ${signed ? "signed" : "UNSIGNED"} (${via})`);
+  const friendly = join(OUT, signed ? APK_NAME : APK_NAME_UNSIGNED);
   if (primary && existsSync(primary)) {
     copyFileSync(primary, friendly);
     console.log(`  ${friendly}`);
     try {
       const ver = readPackageVersion();
-      const versioned = join(OUT, `atrium-v${ver}-universal-release.apk`);
+      const versioned = join(OUT, `atrium-v${ver}-universal-release${signed ? "" : "-unsigned"}.apk`);
       copyFileSync(primary, versioned);
       console.log(`  ${versioned}`);
     } catch {
@@ -904,11 +931,11 @@ function copyApksToDeploy(sdk, env, preferSigned) {
     console.log(`  ${dest}`);
   }
 
-  // If we signed in fallback, ensure friendly points at signed
-  if (preferSigned && existsSync(preferSigned)) {
-    copyFileSync(preferSigned, friendly);
-  }
-  if (existsSync(friendly)) copyApkToVibeInstallers(friendly);
+  if (!signed) {
+    console.log("  Unsigned APK: not installable as-is and not copied to Vibe Installers.");
+    if (existsSync(join(OUT, APK_NAME))) console.log(`  Note: ${join(OUT, APK_NAME)} is from an EARLIER signed build.`);
+  } else if (existsSync(friendly)) copyApkToVibeInstallers(friendly);
+  return friendly;
 }
 
 
@@ -1161,7 +1188,13 @@ function fallbackAssemble(env, sdk) {
   patchAndroidSystemBars();
   gradleAssembleUniversal(env);
   const signed = signApkIfNeeded(sdk, env);
-  copyApksToDeploy(sdk, env, signed);
+  return copyApksToDeploy(sdk, env, signed);
+}
+
+/** The .so Gradle packs: gen's jniLibs/<abi> (the tauri CLI links it there), else the cargo output. */
+function packagedSo(t) {
+  const p = join(jniDir(t), LIB_SO);
+  return existsSync(p) ? p : soRelease(t);
 }
 
 // Card 248: `--check-so <lib.so…>` runs only the JNI export guard (no build), exit 1 on any 0.
@@ -1261,8 +1294,8 @@ if (preferCargo) {
   } else {
     console.log("\nUsing cargo + copy + Gradle path (release lib with custom-protocol)…");
   }
-  fallbackAssemble(env, sdk);
-  console.log(`\nSideload deploy\\android\\${APK_NAME} (IndexedDB stays on device).`);
+  const out = fallbackAssemble(env, sdk);
+  console.log(`\nSideload ${out} (IndexedDB stays on device).`);
   process.exit(0);
 }
 
@@ -1275,23 +1308,15 @@ console.log("\nBuilding universal release APK (4 ABIs) via tauri android build�
 const targetArgs = ANDROID_TARGETS.flatMap((t) => ["--target", t.tauri]);
 const tauriStatus = run(npx, ["tauri", "android", "build", "--apk", ...targetArgs, "--ci"], env);
 if (tauriStatus === 0) {
-  const apks = walkApk(join(GEN, "app", "build", "outputs"));
-  if (apks.length === 0) fail("Build finished but no .apk was found under gen/android.");
-  mkdirSync(OUT, { recursive: true });
-  const primary =
-    apks.find((p) => /universal.*release\.apk$/i.test(p) && !/unsigned/i.test(p)) || apks[0];
-  copyFileSync(primary, join(OUT, APK_NAME));
-  for (const apk of apks) {
-    const dest = join(OUT, basename(apk));
-    copyFileSync(apk, dest);
-    console.log(`  ${dest}`);
-  }
-  console.log(`  ${join(OUT, APK_NAME)}`);
-  copyApkToVibeInstallers(join(OUT, APK_NAME));
-  console.log("\nSideload that APK. Books stay on the phone (IndexedDB).");
+  // Card 250 (Critic 249 P3): same guard + signing + honest naming as the fallback path.
+  const sos = ANDROID_TARGETS.map(packagedSo);
+  for (const so of sos) if (!existsSync(so)) fail(`Missing ${so}`);
+  assertJniExports(sos, env.NDK_HOME || env.ANDROID_NDK_HOME);
+  const out = copyApksToDeploy(sdk, env, signApkIfNeeded(sdk, env));
+  console.log(`\nSideload ${out}. Books stay on the phone (IndexedDB).`);
   process.exit(0);
 }
 
 console.log("\n⚠  tauri android build failed — trying cargo/copy/Gradle fallback…");
-fallbackAssemble(env, sdk);
-console.log(`\nSideload deploy\\android\\${APK_NAME} (IndexedDB stays on device).`);
+const out = fallbackAssemble(env, sdk);
+console.log(`\nSideload ${out} (IndexedDB stays on device).`);
