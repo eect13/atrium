@@ -31,7 +31,7 @@ export function MenuWindow() {
       const add = (u: () => void) => (dead ? u() : offs.push(u));
       add(await listen<MenuOpen>(MENU_EV.open, (e) => setM(e.payload)));
       add(await listen<{ seq: number; items: WireRow[] }>(MENU_EV.update, (e) => setM((c) => (c && c.seq === e.payload.seq ? { ...c, items: e.payload.items } : c))));
-      add(await listen<{ seq: number }>(MENU_EV.close, (e) => (cur.current?.seq === e.payload.seq ? void close(false) : undefined)));
+      add(await listen<{ seq: number; refocus?: boolean }>(MENU_EV.close, (e) => (cur.current?.seq === e.payload.seq ? void close(e.payload.refocus === true) : undefined)));
       add(await me.onFocusChanged((e) => (!e.payload && cur.current ? void close(false) : undefined)));
     })();
     return () => {
@@ -103,7 +103,8 @@ export function MenuWindow() {
           const it = m.items[i];
           if (!it || it.separator) return;
           void import("@tauri-apps/api/event").then(({ emitTo }) => emitTo(m.owner, MENU_EV.pick, { seq: m.seq, index: i }));
-          if (it.checked === undefined) void close(true);
+          // Card 242 (Critic 238 P2): a row that leaves (Open in Atrium → desk_focus_main) must not refocus the float.
+          if (it.checked === undefined) void close(!it.leaves);
         }}
       />
     </div>

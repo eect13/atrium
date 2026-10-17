@@ -21,7 +21,7 @@ export const MENU_EV = {
 
 /** Physical screen px of the trigger. */
 export type MenuAnchor = { x: number; y: number; w: number; h: number };
-export type WireRow = { separator?: boolean; label?: string; checked?: boolean; destructive?: boolean };
+export type WireRow = { separator?: boolean; label?: string; checked?: boolean; destructive?: boolean; leaves?: boolean };
 export type MenuOpen = { seq: number; owner: string; label: string; menuClassName: string; theme: "dark" | "light"; anchor: MenuAnchor; items: WireRow[] };
 
 /** Plain text of a row label (labels are strings; a few are small elements). */
@@ -34,7 +34,7 @@ export function nodeText(n: ReactNode): string {
 }
 
 export function wireRows(items: MenuItem[]): WireRow[] {
-  return items.map((it) => (it.separator ? { separator: true } : { label: nodeText(it.label), checked: it.checked, destructive: it.destructive }));
+  return items.map((it) => (it.separator ? { separator: true } : { label: nodeText(it.label), checked: it.checked, destructive: it.destructive, leaves: it.leaves }));
 }
 
 /** This page is a native desktop float (note-/widget- window), not main or the web. */
@@ -112,9 +112,10 @@ export async function openNativeMenu(o: {
       await listen<{ seq: number; refocus: boolean }>(MENU_EV.closed, (e) => {
         if (e.payload.seq === seq) finish(e.payload.refocus);
       }),
-      // Owner moved or resized: the anchor is stale, close.
-      await me.onMoved(() => void emitTo(MENU_LABEL, MENU_EV.close, { seq })),
-      await me.onResized(() => void emitTo(MENU_LABEL, MENU_EV.close, { seq })),
+      // Owner moved or resized (e.g. the Frame toggle re-frames it): the anchor is stale, close and
+      // hand focus back to the owner (Card 242 / Critic 238 P3), not to whatever window is next.
+      await me.onMoved(() => void emitTo(MENU_LABEL, MENU_EV.close, { seq, refocus: true })),
+      await me.onResized(() => void emitTo(MENU_LABEL, MENU_EV.close, { seq, refocus: true })),
     );
     const theme = document.documentElement.classList.contains("light") ? "light" : "dark";
     const payload: MenuOpen = { seq, owner: me.label, label: o.label, menuClassName: o.menuClassName, theme, anchor, items: wireRows(o.items()) };

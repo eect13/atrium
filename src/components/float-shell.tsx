@@ -148,7 +148,7 @@ export function FloatShell({ kind, id }: { kind: "note" | "widget"; id: string }
       </button>
     ),
   });
-  const goHome = (v: Parameters<typeof openInAtrium>[0]) => ({ label: "Open in Atrium", onSelect: () => void openInAtrium(v, (x) => useAtrium.getState().setView(x)) });
+  const goHome = (v: Parameters<typeof openInAtrium>[0]) => ({ label: "Open in Atrium", leaves: true, onSelect: () => void openInAtrium(v, (x) => useAtrium.getState().setView(x)) });
 
   if (kind === "note" && note) {
     const ink = inkOnPaper(note.color);

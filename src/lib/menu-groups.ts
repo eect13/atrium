@@ -11,6 +11,8 @@ export type MenuRow = {
   destructive?: boolean;
   /** A toggle row (menuitemcheckbox with a Switch look). The menu stays open. */
   checked?: boolean;
+  /** Card 242 (Critic 238 P2): the pick moves focus to another window (e.g. Open in Atrium); closing must not refocus the owner. */
+  leaves?: boolean;
 };
 export type MenuItem = { separator: true } | MenuRow;
 
