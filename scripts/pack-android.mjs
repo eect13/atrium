@@ -10,7 +10,8 @@
  * script falls back to copying the .so + Vite assets and Gradle assemble
  * with -x rustBuild*.
  *
- * Rust lib is built with `cargo build --release --features custom-protocol`
+ * Card 246: one universal RELEASE APK with all four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64).
+ * Rust lib is built per target with `cargo build --release --features custom-protocol`
  * (NDK clang linker env). Without custom-protocol, Tauri bakes in
  * build.devUrl (127.0.0.1:8080) and the release APK shows a black screen.
  * android-studio-script is only a fallback (it often panics on the
@@ -57,10 +58,19 @@ const WIN = platform() === "win32";
 const GEN = join(ROOT, "src-tauri", "gen", "android");
 const STATIC = join(ROOT, ".vercel", "output", "static");
 const LIB_SO = "libatrium_lib.so";
-const SO_RELEASE = join(ROOT, "src-tauri", "target", "aarch64-linux-android", "release", LIB_SO);
-const JNI_DIR = join(GEN, "app", "src", "main", "jniLibs", "arm64-v8a");
+// Card 246: the four Tauri Android targets → Rust triple, jniLibs ABI, NDK clang (API 24 = minSdk).
+const ANDROID_TARGETS = [
+  { tauri: "aarch64", triple: "aarch64-linux-android", abi: "arm64-v8a", clang: "aarch64-linux-android24-clang" },
+  { tauri: "armv7", triple: "armv7-linux-androideabi", abi: "armeabi-v7a", clang: "armv7a-linux-androideabi24-clang" },
+  { tauri: "i686", triple: "i686-linux-android", abi: "x86", clang: "i686-linux-android24-clang" },
+  { tauri: "x86_64", triple: "x86_64-linux-android", abi: "x86_64", clang: "x86_64-linux-android24-clang" },
+];
+const cargoTargetDir = () => process.env.CARGO_TARGET_DIR || join(ROOT, "src-tauri", "target");
+const soRelease = (t) => join(cargoTargetDir(), t.triple, "release", LIB_SO);
+const jniDir = (t) => join(GEN, "app", "src", "main", "jniLibs", t.abi);
 const ASSETS = join(GEN, "app", "src", "main", "assets");
-const APK_DIR = join(GEN, "app", "build", "outputs", "apk", "arm64", "release");
+const APK_DIR = join(GEN, "app", "build", "outputs", "apk", "universal", "release");
+const APK_NAME = "atrium-universal-release.apk";
 
 function fail(msg, extra) {
   console.error(`\n✗ ${msg}`);
@@ -183,13 +193,14 @@ function ensureAndroidRustTarget() {
   prependCargoBin();
   const rustup = rustupBin();
   const listed = runCapture(rustup, ["target", "list", "--installed"]);
-  if (listed.out.includes("aarch64-linux-android")) {
-    console.log("  Rust target aarch64-linux-android OK");
+  const missing = ANDROID_TARGETS.map((t) => t.triple).filter((tr) => !listed.out.split(/\s+/).includes(tr));
+  if (missing.length === 0) {
+    console.log("  Rust Android targets OK (aarch64, armv7, i686, x86_64)");
     return;
   }
-  console.log("  Adding Rust target aarch64-linux-android (one time)…");
-  if (run(rustup, ["target", "add", "aarch64-linux-android"]) !== 0) {
-    fail("Could not add aarch64-linux-android.", "Run: rustup target add aarch64-linux-android");
+  console.log(`  Adding Rust targets ${missing.join(", ")} (one time)…`);
+  if (run(rustup, ["target", "add", ...missing]) !== 0) {
+    fail(`Could not add ${missing.join(", ")}.`, `Run: rustup target add ${missing.join(" ")}`);
   }
 }
 
@@ -598,7 +609,7 @@ function buildFrontend(env) {
   }
 }
 
-function findAndroidClang(ndk) {
+function findAndroidClang(ndk, prefix) {
   const prebuilt = join(ndk, "toolchains", "llvm", "prebuilt");
   if (!existsSync(prebuilt)) return null;
   const hosts = readdirSync(prebuilt).filter((n) => {
@@ -616,9 +627,7 @@ function findAndroidClang(ndk) {
   if (!host) return null;
   const bin = join(prebuilt, host, "bin");
   // API 24 matches bundle.android.minSdkVersion
-  const candidates = WIN
-    ? ["aarch64-linux-android24-clang.cmd", "aarch64-linux-android24-clang.exe", "clang.exe"]
-    : ["aarch64-linux-android24-clang", "clang"];
+  const candidates = WIN ? [`${prefix}.cmd`, `${prefix}.exe`] : [prefix];
   for (const name of candidates) {
     const p = join(bin, name);
     if (existsSync(p)) return p;
@@ -627,7 +636,6 @@ function findAndroidClang(ndk) {
 }
 
 function cargoEnvForAndroid(env, ndk) {
-  const clang = findAndroidClang(ndk);
   const identifier = androidIdentifier();
   const libName = androidLibName();
   const kotlinOut = androidKotlinOutDir();
@@ -646,96 +654,97 @@ function cargoEnvForAndroid(env, ndk) {
     WRY_ANDROID_KOTLIN_FILES_OUT_DIR: kotlinOut,
     TAURI_ANDROID_PROJECT_PATH: GEN,
   };
-  if (clang) {
-    next.CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = clang;
-    next.CC_aarch64_linux_android = clang;
+  for (const t of ANDROID_TARGETS) {
+    const clang = findAndroidClang(ndk, t.clang);
+    const key = t.triple.replace(/-/g, "_");
+    if (!clang) {
+      console.log(`  NDK clang for ${t.triple} not found — cargo may still work if ~/.cargo/config.toml has a linker.`);
+      continue;
+    }
+    next[`CARGO_TARGET_${key.toUpperCase()}_LINKER`] = clang;
+    next[`CC_${key}`] = clang;
     const binDir = dirname(clang);
     const arNames = WIN ? ["llvm-ar.exe", "llvm-ar.cmd", "llvm-ar"] : ["llvm-ar"];
     for (const name of arNames) {
       const ar = join(binDir, name);
       if (existsSync(ar)) {
-        next.AR_aarch64_linux_android = ar;
+        next[`AR_${key}`] = ar;
         break;
       }
     }
     console.log(`  NDK clang  ${clang}`);
-  } else {
-    console.log("  NDK clang not found — cargo may still work if ~/.cargo/config.toml has a linker.");
   }
   console.log(`  Kotlin out ${kotlinOut}`);
   return next;
 }
 
-function buildRustArm64(env) {
-  console.log("\nCompiling Rust lib for aarch64-linux-android (release, custom-protocol)…");
+function buildRustAndroid(env) {
   const ndk = env.NDK_HOME || env.ANDROID_NDK_HOME;
   const cargoEnv = cargoEnvForAndroid(env, ndk);
-
-  // Prefer direct cargo — android-studio-script often panics on Windows
-  // (missing Temp\\…-server-addr) even after a successful rustc link.
-  const cargoArgs = [
-    "build",
-    "--manifest-path",
-    join(ROOT, "src-tauri", "Cargo.toml"),
-    "--release",
-    "--target",
-    "aarch64-linux-android",
-    "--features",
-    "custom-protocol",
-  ];
-  let status = run("cargo", cargoArgs, cargoEnv);
-  if (existsSync(SO_RELEASE)) {
-    if (status !== 0) {
-      console.log("  Rust .so is present (cargo reported a non-zero status — continuing).");
-    } else {
-      console.log("  Built via cargo --release --features custom-protocol");
-    }
-    ensureTauriKotlinFromTemplates();
-    const tauriAct = join(androidKotlinOutDir(), "TauriActivity.kt");
-    if (!existsSync(tauriAct)) {
-      fail(
-        "Rust .so built but TauriActivity.kt was not generated.",
-        `Expected: ${tauriAct}\nWRY_ANDROID_* env must be set during cargo (packer bug).`,
-      );
-    }
-    console.log(`  Kotlin activity ${basename(tauriAct)}`);
-    return true;
-  }
-
-  console.log("  Direct cargo did not produce the .so — trying tauri android-studio-script…");
   const npx = WIN ? "npx.cmd" : "npx";
-  status = run(
-    npx,
-    ["tauri", "android", "android-studio-script", "--release", "--target", "aarch64"],
-    cargoEnv,
-  );
-  if (existsSync(SO_RELEASE)) {
-    if (status !== 0) {
-      console.log("  Rust .so is present (symlink/script step likely failed — continuing with copy fallback).");
+  for (const t of ANDROID_TARGETS) {
+    console.log(`\nCompiling Rust lib for ${t.triple} (release, custom-protocol)…`);
+    const so = soRelease(t);
+    // Prefer direct cargo — android-studio-script often panics on Windows
+    // (missing Temp\\…-server-addr) even after a successful rustc link.
+    const cargoArgs = [
+      "build",
+      "--manifest-path",
+      join(ROOT, "src-tauri", "Cargo.toml"),
+      "--release",
+      "--target",
+      t.triple,
+      "--features",
+      "custom-protocol",
+    ];
+    let status = run("cargo", cargoArgs, cargoEnv);
+    if (existsSync(so)) {
+      if (status !== 0) console.log("  Rust .so is present (cargo reported a non-zero status — continuing).");
+      else console.log("  Built via cargo --release --features custom-protocol");
+      continue;
     }
-    return true;
+    console.log("  Direct cargo did not produce the .so — trying tauri android-studio-script…");
+    status = run(npx, ["tauri", "android", "android-studio-script", "--release", "--target", t.tauri], cargoEnv);
+    if (existsSync(so)) {
+      if (status !== 0) console.log("  Rust .so is present (symlink/script step likely failed — continuing with copy fallback).");
+      continue;
+    }
+    fail(
+      "Rust Android library was not produced.",
+      `Expected: ${so}\nFix NDK / Rust Android targets, then retry.\ncargo/android-studio-script exit: ${status}`,
+    );
   }
-  fail(
-    "Rust Android library was not produced.",
-    `Expected: ${SO_RELEASE}\nFix NDK / Rust Android targets, then retry.\ncargo/android-studio-script exit: ${status}`,
-  );
+  ensureTauriKotlinFromTemplates();
+  const tauriAct = join(androidKotlinOutDir(), "TauriActivity.kt");
+  if (!existsSync(tauriAct)) {
+    fail(
+      "Rust .so built but TauriActivity.kt was not generated.",
+      `Expected: ${tauriAct}\nWRY_ANDROID_* env must be set during cargo (packer bug).`,
+    );
+  }
+  console.log(`  Kotlin activity ${basename(tauriAct)}`);
+  return true;
 }
 
 function copySoToJniLibs() {
-  if (!existsSync(SO_RELEASE)) fail(`Missing ${SO_RELEASE}`);
-  mkdirSync(JNI_DIR, { recursive: true });
-  const dest = join(JNI_DIR, LIB_SO);
-  try {
-    if (existsSync(dest)) rmSync(dest, { force: true });
-  } catch {
+  for (const t of ANDROID_TARGETS) {
+    const so = soRelease(t);
+    if (!existsSync(so)) fail(`Missing ${so}`);
+    const dir = jniDir(t);
+    mkdirSync(dir, { recursive: true });
+    const dest = join(dir, LIB_SO);
     try {
-      unlinkSync(dest);
+      if (existsSync(dest)) rmSync(dest, { force: true });
     } catch {
-      /* ignore */
+      try {
+        unlinkSync(dest);
+      } catch {
+        /* ignore */
+      }
     }
+    copyFileSync(so, dest);
+    console.log(`  Copied ${LIB_SO} → jniLibs/${t.abi} (file copy, not symlink)`);
   }
-  copyFileSync(SO_RELEASE, dest);
-  console.log(`  Copied ${LIB_SO} → jniLibs/arm64-v8a (file copy, not symlink)`);
 }
 
 function syncAssets() {
@@ -752,30 +761,24 @@ function syncAssets() {
   console.log("  Synced Vite output → app/src/main/assets");
 }
 
-function gradleAssembleArm64(env) {
+function gradleAssembleUniversal(env) {
   const gradlew = join(GEN, WIN ? "gradlew.bat" : "gradlew");
   if (!existsSync(gradlew)) fail(`Missing ${gradlew} — run tauri android init first.`);
-  console.log("\nGradle assembleArm64Release (-x rustBuild*; uses copied .so)…");
-  const args = [
-    "assembleArm64Release",
-    "-x",
-    "rustBuildArm64Release",
-    "-x",
-    "rustBuildUniversalRelease",
-    "--no-daemon",
-  ];
+  console.log("\nGradle assembleUniversalRelease (-x rustBuild*; uses the 4 copied .so)…");
+  const skip = ["Universal", "Arm64", "Arm", "X86", "X86_64"].flatMap((a) => ["-x", `rustBuild${a}Release`]);
+  const args = ["assembleUniversalRelease", ...skip, "--no-daemon"];
   const status = run(gradlew, args, env, { cwd: GEN, shell: WIN });
   if (status !== 0) {
     fail(
-      "Gradle assembleArm64Release failed.",
+      "Gradle assembleUniversalRelease failed.",
       "Confirm JDK 17 is active and NDK is installed. See deploy/android/README.md",
     );
   }
 }
 
 function signApkIfNeeded(sdk, env) {
-  const unsigned = join(APK_DIR, "app-arm64-release-unsigned.apk");
-  const signed = join(APK_DIR, "app-arm64-release.apk");
+  const unsigned = join(APK_DIR, "app-universal-release-unsigned.apk");
+  const signed = join(APK_DIR, "app-universal-release.apk");
   if (existsSync(signed) && !existsSync(unsigned)) return signed;
   if (existsSync(signed)) {
     // Prefer already-signed if newer/equal size path from a prior run
@@ -800,7 +803,7 @@ function signApkIfNeeded(sdk, env) {
 
   const zipalign = join(buildTools, WIN ? "zipalign.exe" : "zipalign");
   const apksigner = join(buildTools, WIN ? "apksigner.bat" : "apksigner");
-  const aligned = join(APK_DIR, "app-arm64-release-aligned.apk");
+  const aligned = join(APK_DIR, "app-universal-release-aligned.apk");
 
   console.log("  Signing with debug.keystore…");
   if (existsSync(zipalign)) {
@@ -848,19 +851,19 @@ function copyApksToDeploy(sdk, env, preferSigned) {
   let primary = preferSigned;
   if (!primary || !existsSync(primary)) {
     primary =
-      found.find((p) => /app-arm64-release\.apk$/i.test(p) && !/unsigned/i.test(p)) ||
-      found.find((p) => /arm64.*release.*\.apk$/i.test(p)) ||
+      found.find((p) => /app-universal-release\.apk$/i.test(p) && !/unsigned/i.test(p)) ||
+      found.find((p) => /universal.*release.*\.apk$/i.test(p)) ||
       found[0];
   }
 
   // Always refresh friendly name + versioned name from package.json
-  const friendly = join(OUT, "atrium-arm64-release.apk");
+  const friendly = join(OUT, APK_NAME);
   if (primary && existsSync(primary)) {
     copyFileSync(primary, friendly);
     console.log(`  ${friendly}`);
     try {
       const ver = readPackageVersion();
-      const versioned = join(OUT, `atrium-v${ver}-arm64-release.apk`);
+      const versioned = join(OUT, `atrium-v${ver}-universal-release.apk`);
       copyFileSync(primary, versioned);
       console.log(`  ${versioned}`);
     } catch {
@@ -1122,14 +1125,14 @@ function fallbackAssemble(env, sdk) {
   console.log("\n── Windows / no-symlink fallback ──");
   console.log("Copy .so into jniLibs, sync assets, Gradle -x rustBuild (no Developer Mode needed).\n");
   buildFrontend(env);
-  buildRustArm64(env);
+  buildRustAndroid(env);
   copySoToJniLibs();
   syncAssets();
   syncAndroidLauncherIcons();
   syncAndroidVersionFromPackage();
   enableAndroidWebViewZoom();
   patchAndroidSystemBars();
-  gradleAssembleArm64(env);
+  gradleAssembleUniversal(env);
   const signed = signApkIfNeeded(sdk, env);
   copyApksToDeploy(sdk, env, signed);
 }
@@ -1221,7 +1224,7 @@ if (preferCargo) {
     console.log("\nUsing cargo + copy + Gradle path (release lib with custom-protocol)…");
   }
   fallbackAssemble(env, sdk);
-  console.log("\nSideload deploy\\android\\atrium-arm64-release.apk (IndexedDB stays on device).");
+  console.log(`\nSideload deploy\\android\\${APK_NAME} (IndexedDB stays on device).`);
   process.exit(0);
 }
 
@@ -1230,26 +1233,27 @@ syncAndroidVersionFromPackage();
 enableAndroidWebViewZoom();
 patchAndroidSystemBars();
 
-console.log("\nBuilding release APK via tauri android build…");
-const tauriStatus = run(npx, ["tauri", "android", "build", "--apk", "--ci"], env);
+console.log("\nBuilding universal release APK (4 ABIs) via tauri android build…");
+const targetArgs = ANDROID_TARGETS.flatMap((t) => ["--target", t.tauri]);
+const tauriStatus = run(npx, ["tauri", "android", "build", "--apk", ...targetArgs, "--ci"], env);
 if (tauriStatus === 0) {
   const apks = walkApk(join(GEN, "app", "build", "outputs"));
   if (apks.length === 0) fail("Build finished but no .apk was found under gen/android.");
   mkdirSync(OUT, { recursive: true });
   const primary =
-    apks.find((p) => /arm64.*release\.apk$/i.test(p) && !/unsigned/i.test(p)) || apks[0];
-  copyFileSync(primary, join(OUT, "atrium-arm64-release.apk"));
+    apks.find((p) => /universal.*release\.apk$/i.test(p) && !/unsigned/i.test(p)) || apks[0];
+  copyFileSync(primary, join(OUT, APK_NAME));
   for (const apk of apks) {
     const dest = join(OUT, basename(apk));
     copyFileSync(apk, dest);
     console.log(`  ${dest}`);
   }
-  console.log(`  ${join(OUT, "atrium-arm64-release.apk")}`);
-  copyApkToVibeInstallers(join(OUT, "atrium-arm64-release.apk"));
+  console.log(`  ${join(OUT, APK_NAME)}`);
+  copyApkToVibeInstallers(join(OUT, APK_NAME));
   console.log("\nSideload that APK. Books stay on the phone (IndexedDB).");
   process.exit(0);
 }
 
 console.log("\n⚠  tauri android build failed — trying cargo/copy/Gradle fallback…");
 fallbackAssemble(env, sdk);
-console.log("\nSideload deploy\\android\\atrium-arm64-release.apk (IndexedDB stays on device).");
+console.log(`\nSideload deploy\\android\\${APK_NAME} (IndexedDB stays on device).`);

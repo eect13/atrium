@@ -77,9 +77,10 @@ test("C197 lows: toast 44px, one announcement, Back closes drawer, tablet hint +
   assert.match(app, /pt-\[max\(env\(safe-area-inset-top\),1\.5rem\)\]/);
   assert.match(app, /pr-\[env\(safe-area-inset-right\)\] pl-\[env\(safe-area-inset-left\)\]/);
   // Card 242: lib/calendar/device-secret.ts (Google session seal warning toast) was removed with the
-  // Google client; the Rust commands stay (archive/google-calendar restores the client).
+  // Google client. Card 246 (Critic 245 B1): cal_session_refresh, which set "sealWarning", left Rust
+  // too (archive/google-calendar restores both); store I/O still runs off the async worker.
   const rs = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8");
   assert.match(rs, /spawn_blocking\(f\)/);
-  assert.match(rs, /"sealWarning"/);
+  assert.doesNotMatch(rs, /"sealWarning"/);
   assert.match(readFileSync(join(root, "docs/SETUP.md"), "utf8"), /Developer Mode/);
 });

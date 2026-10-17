@@ -24,8 +24,10 @@ in Card 242. The last complete version is preserved on GitHub:
 ## What stayed
 
 - Server: `src/routes/api/calendar/$.ts` and `src/lib/calendar/*.server.ts`, `migrations/0002–0004`.
-- Rust: the `cal_session_*` commands (`src-tauri/src/lib.rs`). The client calls `cal_session_clear`
-  once (see below) and nothing else.
+- Rust: only `cal_session_clear` (`src-tauri/src/lib.rs`), which the client calls once (see below).
+  Card 246 removed `cal_session_claim` / `cal_session_refresh` / `cal_session_adopt`, the server
+  client (`cal_post`, `cal_api_base`), the DPAPI / Android Keystore sealers and the `jni` dependency;
+  restore them from `archive/google-calendar` with the client.
 - Server env names in `docs/SETUP.md`.
 
 ## Data on existing devices

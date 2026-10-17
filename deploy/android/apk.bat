@@ -33,7 +33,7 @@ if errorlevel 1 goto :fail
 echo.
 echo === SUCCESS ===
 echo APK folder: %CD%\deploy\android\
-for %%F in ("deploy\android\atrium-v*-arm64-release.apk") do if exist "%%~F" echo   %%~fF
+for %%F in ("deploy\android\atrium-v*-universal-release.apk") do if exist "%%~F" echo   %%~fF
 start "" explorer "%CD%\deploy\android"
 pause
 exit /b 0

@@ -45,14 +45,14 @@ Rate limits key on `x-vercel-forwarded-for`, then `x-real-ip`. Vercel sets these
 
 ## Desktop (Tauri)
 
-- The refresh handle is claimed and rotated in Rust and never given to the WebView. On Windows it is sealed with DPAPI (current user) in the app's local data folder (`calendar-session.bin`).
+- The app makes no calendar server calls (Card 246). Rust keeps only `cal_session_clear`, which deletes the old `calendar-session.bin` / `.secret` from the app's local data folder once.
 - The CSP has no `'unsafe-eval'`.
 
 ## Calendar end-to-end check (Card 177)
 
 `npm run e2e:calendar` exercised the Google client and server together, so it left with the client
 (Card 242). It is on `archive/google-calendar` and comes back with a restore. The Rust session tests
-still run: `cd src-tauri && cargo test --lib`.
+Rust tests: `cd src-tauri && cargo test --lib`.
 
 ## Android builds on Windows (Card 197)
 
