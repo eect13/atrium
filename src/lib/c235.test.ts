@@ -41,7 +41,8 @@ test("C235 move-ups: menu, toolbar, sheet, Options and empty states (Form 234 §
   const tb = read("src/components/calendar/calendar-toolbar.tsx");
   for (const s of ['"Import calendar…"', '"Add by address…"', '"Calendars…"']) assert.ok(tb.includes(s), s);
   const sh = read("src/components/calendar/calendar-accounts-sheet.tsx");
-  assert.match(sh, /\{g \? "Calendar accounts" : "Calendars"\}/);
+  // Card 237 N1: the off title is wrapped in a span (id for the list section's aria-labelledby).
+  assert.match(sh, /\{g \? "Calendar accounts" : <span id=\{titleId\}>Calendars<\/span>\}/);
   assert.match(sh, /title=\{g \? "Other calendars" : "Calendars"\} hint=\{g \? "Read-only\. Edit these where they come from\." : undefined\}/);
   assert.match(sh, /\{g \? "Import ICS" : "Import calendar…"\}/);
   assert.match(sh, /Treat it like a password/, "Card 168 safety copy kept");

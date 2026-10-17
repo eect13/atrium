@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, Eye, EyeOff, Lock, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
@@ -47,10 +47,11 @@ function Spinner({ className }: { className?: string }) {
   return <span aria-hidden className={cn("inline-block size-4 animate-spin rounded-full border-2 border-[var(--color-input)] border-t-foreground", className)} />;
 }
 
-function Section({ title, hint, srTitle, children }: { title: string; hint?: string; srTitle?: boolean; children: ReactNode }) {
+// labelledBy: name the section from an existing visible heading instead of rendering its own h3 (Card 237 N1).
+function Section({ title, hint, labelledBy, children }: { title: string; hint?: string; labelledBy?: string; children: ReactNode }) {
   return (
-    <section className="border-t border-border py-4 first:border-t-0 first:pt-0">
-      <h3 className={srTitle ? "sr-only" : "text-sm font-semibold"}>{title}</h3>
+    <section className="border-t border-border py-4 first:border-t-0 first:pt-0" aria-labelledby={labelledBy}>
+      {labelledBy ? null : <h3 className="text-sm font-semibold">{title}</h3>}
       {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
       <div className="mt-3">{children}</div>
     </section>
@@ -311,6 +312,8 @@ export function CalendarAccountsSheet({ open, onOpenChange, focusAddress = false
   const acc = useCalAccounts();
   // Card 235 (Form 234): Google off → this is the "Calendars" sheet (iCal addresses + ICS files only).
   const g = features.googleCalendar;
+  const titleId = useId();
+  const AddrHeading = g ? "h4" : "h3";
   const address = useRef<HTMLInputElement | null>(null);
   const { gcalCals, gcalOff, events } = useAtrium(useShallow((s) => ({ gcalCals: s.gcalCals, gcalOff: s.gcalOff, events: s.events })));
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -403,7 +406,7 @@ export function CalendarAccountsSheet({ open, onOpenChange, focusAddress = false
         }}
       >
         <div className="flex h-16 items-center border-b border-border px-5 pr-14">
-          <SheetTitle className="text-[18px] font-semibold">{g ? "Calendar accounts" : "Calendars"}</SheetTitle>
+          <SheetTitle className="text-[18px] font-semibold">{g ? "Calendar accounts" : <span id={titleId}>Calendars</span>}</SheetTitle>
         </div>
         <div className="px-5 py-4">
           {g ? (
@@ -502,7 +505,7 @@ export function CalendarAccountsSheet({ open, onOpenChange, focusAddress = false
               </ul>
             </Section>
           ) : null}
-          <Section title={g ? "Other calendars" : "Calendars"} hint={g ? "Read-only. Edit these where they come from." : undefined} srTitle={!g}>
+          <Section title={g ? "Other calendars" : "Calendars"} hint={g ? "Read-only. Edit these where they come from." : undefined} labelledBy={g ? undefined : titleId}>
             {sources.length ? (
               <ul>
                 {sources.map((s) =>
@@ -550,7 +553,8 @@ export function CalendarAccountsSheet({ open, onOpenChange, focusAddress = false
                 )}
               </ul>
             ) : null}
-            <h4 className="mt-3 text-xs font-medium text-muted-foreground">Add a calendar by address</h4>
+            {/* Card 237 N1: off has no list h3, so this sub-heading steps up a level (same look) to keep h2 → h3 order. */}
+            <AddrHeading className="mt-3 text-xs font-medium text-muted-foreground">Add a calendar by address</AddrHeading>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <Input ref={address} className="h-11" type="password" autoComplete="off" spellCheck={false} placeholder="Paste a private secret address (.ics)" aria-label="Private secret address" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void subscribe()} />
               <div className="flex gap-2">

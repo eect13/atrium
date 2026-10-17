@@ -659,6 +659,9 @@ export function CalendarView() {
                 }}
               />
             </div>
+          ) : !features.googleCalendar ? (
+            // Card 237 (Form 236 F1): calendars exist, nothing in range → just "No events".
+            <p className="text-sm text-muted-foreground">No events</p>
           ) : (
             <p className="text-sm text-muted-foreground">
               No events yet. Use the command bar — “Lunch Friday 1pm” — or add one here.
