@@ -35,6 +35,7 @@ import { homedir, platform, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyToVibeInstallers } from "./vibe-installers.mjs";
+import { jniExports } from "./so-exports.mjs";
 
 const ROOT = join(fileURLToPath(new URL("..", import.meta.url)));
 const OUT = join(ROOT, "deploy", "android");
@@ -726,7 +727,33 @@ function buildRustAndroid(env) {
   return true;
 }
 
-function copySoToJniLibs() {
+/** NDK llvm-nm (host prebuilt), or null → so-exports.mjs falls back to its own ELF reader. */
+function findLlvmNm(ndk) {
+  if (!ndk) return null;
+  const clang = findAndroidClang(ndk, "aarch64-linux-android24-clang");
+  const nm = clang && join(dirname(clang), WIN ? "llvm-nm.exe" : "llvm-nm");
+  return nm && existsSync(nm) ? nm : null;
+}
+
+/** Card 248 (Critic 247 A1): never package a lib without the Tauri mobile entry point. */
+function assertJniExports(sos, ndk) {
+  const nm = findLlvmNm(ndk);
+  const bad = [];
+  for (const so of sos) {
+    const { count, sample, via } = jniExports(so, nm);
+    console.log(`  JNI exports ${String(count).padStart(3)} (${via})  ${so}${sample.length ? `  e.g. ${sample[0]}` : ""}`);
+    if (count === 0) bad.push(so);
+  }
+  if (bad.length) {
+    fail(
+      `${bad.length} Android .so file(s) have 0 JNI exports (no Java_* / JNI_OnLoad); the APK would crash at launch.`,
+      `${bad.join("\n")}\nRestore #[cfg_attr(mobile, tauri::mobile_entry_point)] above pub fn run() in src-tauri/src/lib.rs, then rebuild.`,
+    );
+  }
+}
+
+function copySoToJniLibs(ndk) {
+  assertJniExports(ANDROID_TARGETS.map(soRelease).filter((so) => existsSync(so) || fail(`Missing ${so}`)), ndk);
   for (const t of ANDROID_TARGETS) {
     const so = soRelease(t);
     if (!existsSync(so)) fail(`Missing ${so}`);
@@ -1126,7 +1153,7 @@ function fallbackAssemble(env, sdk) {
   console.log("Copy .so into jniLibs, sync assets, Gradle -x rustBuild (no Developer Mode needed).\n");
   buildFrontend(env);
   buildRustAndroid(env);
-  copySoToJniLibs();
+  copySoToJniLibs(env.NDK_HOME || env.ANDROID_NDK_HOME);
   syncAssets();
   syncAndroidLauncherIcons();
   syncAndroidVersionFromPackage();
@@ -1135,6 +1162,17 @@ function fallbackAssemble(env, sdk) {
   gradleAssembleUniversal(env);
   const signed = signApkIfNeeded(sdk, env);
   copyApksToDeploy(sdk, env, signed);
+}
+
+// Card 248: `--check-so <lib.so…>` runs only the JNI export guard (no build), exit 1 on any 0.
+const checkAt = process.argv.indexOf("--check-so");
+if (checkAt !== -1) {
+  const sos = process.argv.slice(checkAt + 1).filter((a) => !a.startsWith("--"));
+  if (sos.length === 0) fail("--check-so needs one or more .so paths.");
+  for (const so of sos) if (!existsSync(so)) fail(`Missing ${so}`);
+  assertJniExports(sos, process.env.NDK_HOME || process.env.ANDROID_NDK_HOME);
+  console.log("JNI export check OK.");
+  process.exit(0);
 }
 
 console.log("Atrium — Android APK (Tauri, not a PWA)\n");
