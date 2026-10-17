@@ -31,12 +31,19 @@ function gTop(gl: string, hl: string) {
 }
 
 /**
- * Card 228 (Scout 226): `blocked` = the publisher refused our server probes (403 with any UA, likely
- * an IP/bot wall). Kept in the catalog and packs so users can still turn it on, but not switched on
- * by default. Re-test from Vercel / a home IP and clear the flag when it answers.
+ * Runtime fetch path (Card 233). Where a feed request actually leaves from:
+ * - **desktop** (Tauri): Rust reqwest on the user's own machine and home IP (`fetch_text`, UA `… reqwest/0.12`).
+ * - **web**: the `fetchFeed` server fn on Vercel, so Vercel's server IPs (UA `… Node.js/22 undici`).
+ * A publisher's bot wall can treat the two differently, so `paths` records what was checked where.
+ *
+ * Card 228 (Scout 226): `blocked` = the publisher refused our probes (403 with any honest UA).
+ * Kept in the catalog and packs but not switched on by default; `npm run health:sources` reports
+ * `unblocked` when one answers again so the flag can be cleared. None is flagged right now.
  */
 export type FeedBlock = { status: number; since: string; note: string };
-export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag; region?: string; blocked?: FeedBlock }[] = [
+/** Which fetch path a source was verified on: "ok" | "refused" | "unverified", plus the date. */
+export type FeedPaths = { desktop: "ok" | "refused" | "unverified"; web: "ok" | "refused" | "unverified"; checked: string; note?: string };
+export const NEWS_CATALOG: { id: string; name: string; url: string; category: NewsTag; region?: string; blocked?: FeedBlock; paths?: FeedPaths }[] = [
   { id: "inquirer", name: "Inquirer", url: "https://www.inquirer.net/fullfeed/", category: "Philippines" },
   { id: "philstar", name: "Philstar", url: "https://www.philstar.com/rss/headlines", category: "Philippines" },
   { id: "rappler", name: "Rappler", url: "https://www.rappler.com/feed/", category: "Philippines" },
@@ -47,7 +54,7 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "insiderph", name: "InsiderPH", url: gFeed("site:insiderph.com when:7d", "PH"), category: "Philippines" },
   { id: "bworld", name: "BusinessWorld", url: "https://www.bworldonline.com/feed/", category: "Business" },
   { id: "manilatimes", name: "Manila Times", url: "https://www.manilatimes.net/news/feed/", category: "Philippines" },
-  { id: "businessmirror", name: "BusinessMirror", url: "https://businessmirror.com.ph/feed/", category: "Business", blocked: { status: 403, since: "2026-10-17", note: "403 from server IPs with any UA (Scout 186/226); re-test from Vercel" } },
+  { id: "malaya-biz", name: "Malaya Business Insight", url: "https://malaya.com.ph/category/business/feed/", category: "Business", paths: { desktop: "ok", web: "unverified", checked: "2026-10-17", note: "200 from a home PC (desktop path) and the build box (server IP); Vercel itself not probed (no deploy)" } },
   { id: "pna", name: "PNA", url: "https://news.google.com/rss/search?q=site:pna.gov.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
   { id: "tribune", name: "Daily Tribune", url: "https://tribune.net.ph/rss.xml", category: "Philippines" },
   { id: "sunstar", name: "SunStar", url: "https://news.google.com/rss/search?q=site:sunstar.com.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
@@ -57,7 +64,7 @@ export const NEWS_CATALOG: { id: string; name: string; url: string; category: Ne
   { id: "inq-sports", name: "Inquirer Sports", url: "https://sports.inquirer.net/feed", category: "Sports" },
   { id: "pia", name: "PIA", url: "https://news.google.com/rss/search?q=site:pia.gov.ph&hl=en-PH&gl=PH&ceid=PH:en", category: "Philippines" },
   { id: "cebudaily", name: "Cebu Daily News", url: "https://cebudailynews.inquirer.net/feed", category: "Philippines" },
-  { id: "mindanews", name: "MindaNews", url: "https://www.mindanews.com/feed/", category: "Philippines", blocked: { status: 403, since: "2026-10-17", note: "403 from server IPs with any UA (Scout 186/226); re-test from Vercel" } },
+  { id: "mindanaotimes", name: "Mindanao Times", url: "https://www.mindanaotimes.com.ph/feed/", category: "Philippines", paths: { desktop: "ok", web: "unverified", checked: "2026-10-17", note: "200 from a home PC (desktop path) and the build box (server IP); Vercel itself not probed (no deploy)" } },
   { id: "gnews", name: "Google World", url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en&gl=GB&ceid=GB:en", category: "World" },
   { id: "bbc", name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", category: "World" },
   { id: "guardian", name: "The Guardian", url: "https://www.theguardian.com/world/rss", category: "World" },
@@ -138,14 +145,14 @@ export const FEED_PACKS: { id: string; label: string; hint: string; ids: readonl
       "bilyonaryo",
       "insiderph",
       "bworld",
-      "businessmirror",
+      "malaya-biz",
       "manilatimes",
       "pna",
       "tribune",
       "sunstar",
       "pia",
       "cebudaily",
-      "mindanews",
+      "mindanaotimes",
       "inq-biz",
       "philstar-biz",
       "philstar-sports",
@@ -271,6 +278,46 @@ export const FEED_PACKS: { id: string; label: string; hint: string; ids: readonl
   },
 ];
 
+/**
+ * Card 233: sources dropped because they refuse automated access on every path we can test
+ * (home PC = desktop path, build box = server path; with honest UA, with/without RSS Accept, all
+ * feed/home variants). Saved rows still on the old catalog URL move to the replacement
+ * (`withDefaultFeeds`); a user's own custom feed with that id but another URL is left alone.
+ */
+export const RETIRED_FEEDS: Record<string, { url: string; replacedBy: string; since: string; reason: string }> = {
+  businessmirror: {
+    url: "https://businessmirror.com.ph/feed/",
+    replacedBy: "malaya-biz",
+    since: "2026-10-17",
+    reason: "Cloudflare 403 on /feed/, /rss, /feed/rss2/, category feeds and the homepage, from both a home PC and server IPs",
+  },
+  mindanews: {
+    url: "https://www.mindanews.com/feed/",
+    replacedBy: "mindanaotimes",
+    since: "2026-10-17",
+    reason: "Cloudflare JS challenge (403 'Just a moment…') on every feed and the homepage, from both a home PC and server IPs",
+  },
+};
+
+/** Card 233: a saved retired catalog row (still on its old URL) becomes its replacement, keeping `enabled`. */
+export function replaceRetiredFeeds<T extends { id: string; url: string; enabled?: boolean }>(feeds: T[]): T[] {
+  const have = new Set(feeds.map((f) => f.id));
+  const out: T[] = [];
+  for (const f of feeds) {
+    const r = RETIRED_FEEDS[f.id];
+    if (!r || f.url !== r.url) {
+      out.push(f);
+      continue;
+    }
+    const to = NEWS_CATALOG.find((d) => d.id === r.replacedBy);
+    if (to && !have.has(to.id)) {
+      out.push({ ...f, ...to, enabled: f.enabled });
+      have.add(to.id);
+    }
+  }
+  return out;
+}
+
 export const FEED_PRESETS = NEWS_CATALOG;
 
 export function packIsOn(feeds: { id: string; enabled: boolean }[], packId: string) {
@@ -354,7 +401,7 @@ const REGION_ORDER = [
 /** Country for catalog rows that predate the region field. */
 const REGION_BY_ID: Record<string, string> = {
   bworld: "Philippines",
-  businessmirror: "Philippines",
+  "malaya-biz": "Philippines",
   "inq-biz": "Philippines",
   "philstar-biz": "Philippines",
   "philstar-sports": "Philippines",

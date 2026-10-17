@@ -1,7 +1,9 @@
 /**
  * Card 228 (Scout 226 §3.7): live source health. One GET per Feed catalog source (sequential,
  * paced), with the same UA the app sends (feedHeaders). Prints a table and writes JSON.
- *   node --experimental-strip-types scripts/source-health.ts [--out file.json] [--only id,id]
+ *   node --experimental-strip-types scripts/source-health.ts [--out file.json] [--only id,id] [--lib reqwest/0.12] [--path pc]
+ * Card 233: `--lib` picks the UA library the app sends on that path (web = "Node.js/22 undici", desktop =
+ * "reqwest/0.12"); `--path` labels where this run left from (box, pc, …) in the JSON summary.
  * Status: ok · flagged (catalog `blocked`, still answering 403) · unblocked (flagged but now OK:
  * clear the flag) · stale (latest item > 30 days) · empty · error. Exit 1 only with --strict when
  * an unflagged source is not ok.
@@ -16,7 +18,8 @@ const arg = (k: string) => {
 const only = arg("--only")?.split(",");
 const out = arg("--out");
 const STALE_DAYS = 30;
-const LIB = "Node.js/22 undici";
+const LIB = arg("--lib") ?? "Node.js/22 undici";
+const PATH_LABEL = arg("--path") ?? "box";
 const rows: { id: string; name: string; url: string; http: number; items: number; latest: string; status: string; flagged: boolean; note: string }[] = [];
 
 for (const f of NEWS_CATALOG) {
@@ -48,7 +51,7 @@ for (const f of NEWS_CATALOG) {
 }
 
 const count = (s: string) => rows.filter((r) => r.status === s).length;
-const summary = { at: new Date().toISOString(), total: rows.length, ok: count("ok"), flagged: count("flagged"), unblocked: count("unblocked"), stale: count("stale"), empty: count("empty"), error: count("error") };
+const summary = { at: new Date().toISOString(), path: PATH_LABEL, lib: LIB, total: rows.length, ok: count("ok"), flagged: count("flagged"), unblocked: count("unblocked"), stale: count("stale"), empty: count("empty"), error: count("error") };
 console.log(JSON.stringify(summary));
 if (out) writeFileSync(out, JSON.stringify({ summary, rows }, null, 2));
 if (process.argv.includes("--strict") && rows.some((r) => !r.flagged && r.status !== "ok")) process.exit(1);

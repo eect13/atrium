@@ -77,8 +77,9 @@ test("C228 feeds: CBC plain UA, Tuoi Tre direct RSS, BusinessMirror + MindaNews 
   assert.doesNotMatch(feedHeaders("https://www.cbc.ca/webfeed/rss/rss-world", "x")["User-Agent"], /\(|github/);
   assert.match(feedHeaders("https://feeds.bbci.co.uk/news/world/rss.xml", "x")["User-Agent"], /\(https:\/\/github\.com\/eect13\/atrium\/issues\)/);
   assert.equal(NEWS_CATALOG.find((f) => f.id === "tuoitre")!.url, "https://tuoitrenews.vn/rss");
-  const flagged = NEWS_CATALOG.filter((f) => f.blocked).map((f) => f.id).sort();
-  assert.deepEqual(flagged, ["businessmirror", "mindanews"]);
+  // Card 233: BusinessMirror + MindaNews refused every path and were retired (replaced), so nothing is flagged now;
+  // the flag mechanism itself still keeps a flagged id out of the starter set (see c233.test.ts).
+  assert.deepEqual(NEWS_CATALOG.filter((f) => f.blocked).map((f) => f.id), []);
   const ph = starterFeedIds("PH");
   assert.ok(!ph.includes("businessmirror") && !ph.includes("mindanews") && ph.includes("inquirer"));
   assert.match(read("package.json"), /"health:sources": "node --experimental-strip-types scripts\/source-health\.ts"/);

@@ -50,7 +50,7 @@ import { DEFAULT_CLOCK_PREFS, normalizeClockPrefs, type ClockPrefs } from "./clo
 import { realmRole, realmStorageWired } from "./realm-wire";
 import { newDeskFlags } from "./desk-flags";
 import { widgetLook, normalizeDashPrefs, type DashPrefs, type WidgetLook, type WidgetOpts } from "./widget-prefs";
-import { FEED_PACKS, NEWS_CATALOG, starterFeedIds } from "./feeds";
+import { FEED_PACKS, NEWS_CATALOG, replaceRetiredFeeds, starterFeedIds } from "./feeds";
 import type { FeedPane } from "./types";
 import { DEFAULT_MARKET_PREFS, DEFAULT_TAGLINE, QUOTE_CCY, WATCH_CATALOG, landingFeedPane, toViewId, withFactoryGlobals, normalizeStockTape } from "./types";
 import { rememberDigest as pushDigest, type DigestDay } from "./digest";
@@ -65,6 +65,7 @@ export const DEFAULT_FEEDS: Feed[] = NEWS_CATALOG.map((f) => ({
 }));
 
 function withDefaultFeeds(feeds: Feed[], gone: string[] = []) {
+  feeds = replaceRetiredFeeds(feeds);
   const skip = new Set(gone);
   const have = new Set(feeds.map((f) => f.id));
   const extra = DEFAULT_FEEDS.filter((f) => !have.has(f.id) && !skip.has(f.id));
